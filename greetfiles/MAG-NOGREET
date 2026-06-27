@@ -8,7 +8,7 @@
 
 (MAG-CODEX
   [LAMBDA NIL
-    (CHAT "SHELL" 'NONE "NO_COLOR=1 TERM=vt100 codex --no-alt-screen
+    (CHAT "SHELL" 'NONE "medley-codex
 " NIL NIL])
 )
 
