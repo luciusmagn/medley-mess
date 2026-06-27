@@ -2,12 +2,56 @@
 
 (DEFINEQ
 
+(MAG-EXEC-REGION
+  [LAMBDA NIL
+    (CREATEREGION 8 96 (IDIFFERENCE SCREENWIDTH 16)
+                  (IDIFFERENCE SCREENHEIGHT 128))])
+
+(MAG-PROMPT-REGION
+  [LAMBDA NIL
+    (CREATEREGION 8 8 (IDIFFERENCE SCREENWIDTH 16) 72)])
+
+(MAG-CHAT-REGION
+  [LAMBDA NIL
+    (CREATEREGION 8 8 (IDIFFERENCE SCREENWIDTH 16)
+                  (IDIFFERENCE SCREENHEIGHT 48))])
+
+(MAG-LAYOUT-WINDOWS
+  [LAMBDA NIL
+    (SETQ CHAT.WINDOW.REGION (MAG-CHAT-REGION))
+    (SETQ CHAT.WINDOW.SIZE NIL)
+    [MAPC (OPENWINDOWS)
+          (FUNCTION
+            (LAMBDA (W)
+              (COND
+                ((STREQUAL (WINDOWPROP W 'TITLE) "Prompt Window")
+                 (PROGN
+                   (SHAPEW W (MAG-PROMPT-REGION))
+                   (CLEARW W)))
+                ((AND (STRINGP (WINDOWPROP W 'TITLE))
+                      (STRPOS "Exec" (WINDOWPROP W 'TITLE)))
+                 (PROGN
+                   (WINDOWPROP W 'TITLE "Exec  (INTERLISP)")
+                   (SHAPEW W (MAG-EXEC-REGION))))
+                ((WINDOWPROP W 'CHATSTATE)
+                 (SHAPEW W (MAG-CHAT-REGION))))))]])
+
+(MAG-ENSURE-VTCHAT
+  [LAMBDA NIL
+    (FILESLOAD UNIXCHAT)
+    [OR (GETD 'VTCHAT.STATE)
+        (LOAD (MEDLEYDIR "library/VTCHAT") T)]
+    (SETQ CHAT.DISPLAYTYPES '(("SHELL" NIL VT100) (NIL NIL VT100)))
+    (MAG-LAYOUT-WINDOWS)])
+
 (MAG-SHELL
   [LAMBDA NIL
+    (MAG-ENSURE-VTCHAT)
     (CHAT "SHELL" 'NONE NIL NIL NIL])
 
 (MAG-CODEX
   [LAMBDA NIL
+    (MAG-ENSURE-VTCHAT)
     (CHAT "SHELL" 'NONE "medley-codex
 " NIL NIL])
 )
@@ -15,10 +59,11 @@
 [COND
    ((STKPOS 'GREET)
     (SETQ USERGREETFILES NIL)
-    (VKBD.LOAD-KEYBOARD-FILE 'MAGCZECH T NIL)
-    (PROCESS.KEYBOARD NIL 'CZECH)
-    (FILESLOAD UNIXCHAT VTCHAT)
-    (SETQ CHAT.DISPLAYTYPES '(("SHELL" NIL VT100) (NIL NIL VT100)))
+    (FILESLOAD VIRTUALKEYBOARDS)
+    (NLSETQ
+      (PROGN
+        (VKBD.LOAD-KEYBOARD-FILE 'MAGCZECH T NIL)
+        (PROCESS.KEYBOARD NIL 'CZECH)))
     [OR (SASSOC "Mag Shell" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Shell" '(MAG-SHELL)
                                                      "Open a local VT100 Unix shell in a CHAT window"))]
@@ -26,6 +71,7 @@
         (NCONC1 BackgroundMenuCommands '("Mag Codex" '(MAG-CODEX)
                                                      "Open Codex in a local VT100 shell without alternate screen"))]
     (SETQ BackgroundMenu NIL)
+    (MAG-LAYOUT-WINDOWS)
     (CLOSEF? (INPUT))
     (RETFROM 'GREET]
 STOP
