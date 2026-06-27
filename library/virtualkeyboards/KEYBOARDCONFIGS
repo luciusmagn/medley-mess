@@ -19,6 +19,7 @@
                (KEYBOARDCONFIGCOERCIONS '((SUN4 X)
                                           (SUN5 FULL-IBMPC)
                                           (SUN3 X)
+                                          (CZ X)
                                           (X DORADO)
                                           (FULL-IBMPC IBMPC]
         (VARS VKBD.COMMONCHARLABELS VKBD.COMMONKEYLABELS VKBD.COMMONDEFAULTASSIGNMENT)
@@ -41,6 +42,7 @@
 (RPAQ? KEYBOARDCONFIGCOERCIONS '((SUN4 X)
                                  (SUN5 FULL-IBMPC)
                                  (SUN3 X)
+                                 (CZ X)
                                  (X DORADO)
                                  (FULL-IBMPC IBMPC)))
 

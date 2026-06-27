@@ -1,0 +1,31 @@
+(DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
+
+(DEFINEQ
+
+(MAG-SHELL
+  [LAMBDA NIL
+    (CHAT "SHELL" 'NONE NIL NIL NIL])
+
+(MAG-CODEX
+  [LAMBDA NIL
+    (CHAT "SHELL" 'NONE "NO_COLOR=1 TERM=vt100 codex --no-alt-screen
+" NIL NIL])
+)
+
+[COND
+   ((STKPOS 'GREET)
+    (SETQ USERGREETFILES NIL)
+    (VKBD.LOAD-KEYBOARD-FILE 'MAGCZECH T NIL)
+    (PROCESS.KEYBOARD NIL 'CZECH)
+    (FILESLOAD UNIXCHAT VTCHAT)
+    (SETQ CHAT.DISPLAYTYPES '(("SHELL" NIL VT100) (NIL NIL VT100)))
+    [OR (SASSOC "Mag Shell" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Shell" '(MAG-SHELL)
+                                                     "Open a local VT100 Unix shell in a CHAT window"))]
+    [OR (SASSOC "Mag Codex" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Codex" '(MAG-CODEX)
+                                                     "Open Codex in a local VT100 shell without alternate screen"))]
+    (SETQ BackgroundMenu NIL)
+    (CLOSEF? (INPUT))
+    (RETFROM 'GREET]
+STOP

@@ -1,0 +1,29 @@
+(DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10 FORMAT UTF-8)
+
+(PRETTYCOMPRINT MAGCZECHKEYBOARDSCOMS)
+
+(RPAQQ MAGCZECHKEYBOARDSCOMS ((ALISTS (VKBD.LOADED-KEYBOARDS MAGCZECH))))
+
+(ADDTOVAR VKBD.LOADED-KEYBOARDS
+          (MAGCZECH (CZECH ((ONE (+ |1| NOLOCKSHIFT))
+                            (TWO (ě |2| NOLOCKSHIFT))
+                            (THREE (š |3| NOLOCKSHIFT))
+                            (FOUR (č |4| NOLOCKSHIFT))
+                            (FIVE (ř |5| NOLOCKSHIFT))
+                            (SIX (ž |6| NOLOCKSHIFT))
+                            (SEVEN (ý |7| NOLOCKSHIFT))
+                            (EIGHT (á |8| NOLOCKSHIFT))
+                            (NINE (í |9| NOLOCKSHIFT))
+                            (ZERO (é |0| NOLOCKSHIFT))
+                            (- (- _ NOLOCKSHIFT))
+                            (+ (= %% NOLOCKSHIFT))
+                            (? (%' ˇ NOLOCKSHIFT))
+                            ({ (ú / NOLOCKSHIFT))
+                            (} (%) %( NOLOCKSHIFT))
+                            (%: (ů %" NOLOCKSHIFT))
+                            (%" (§ ! NOLOCKSHIFT))
+                            (%` (; ° NOLOCKSHIFT))
+                            (\ (¨ %' NOLOCKSHIFT))
+                            (< (%, ? NOLOCKSHIFT))
+                            (> (%. %: NOLOCKSHIFT)))
+                          NIL X NIL)))
