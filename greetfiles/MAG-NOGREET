@@ -59,11 +59,6 @@
 [COND
    ((STKPOS 'GREET)
     (SETQ USERGREETFILES NIL)
-    (FILESLOAD VIRTUALKEYBOARDS)
-    (NLSETQ
-      (PROGN
-        (VKBD.LOAD-KEYBOARD-FILE 'MAGCZECH T NIL)
-        (PROCESS.KEYBOARD NIL 'CZECH)))
     [OR (SASSOC "Mag Shell" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Shell" '(MAG-SHELL)
                                                      "Open a local VT100 Unix shell in a CHAT window"))]
