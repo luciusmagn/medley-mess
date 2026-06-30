@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+log="${MAG_MEDLEY_MCP_WRAPPER_LOG:-/tmp/medley-mag-mcp-wrapper.log}"
+node="${NODE:-/home/mag/.guix-profile/bin/node}"
+server="${MAG_MEDLEY_MCP_SERVER:-/home/mag/src/medley/scripts/mag-medley-mcp.js}"
+
+{
+  printf '%s pid=%s wrapper-start cwd=%s\n' "$(date -Is)" "$$" "$(pwd)"
+  printf '%s HOME=%s USER=%s PATH=%s\n' "$(date -Is)" "${HOME:-}" "${USER:-}" "${PATH:-}"
+  printf '%s exec %s %s\n' "$(date -Is)" "$node" "$server"
+} >>"$log" 2>&1
+
+exec "$node" "$server" 2>>"$log"
