@@ -23,6 +23,8 @@ const ALLOWED_REQUESTS = new Set([
   'open-shell',
   'shell-self-test',
   'shell-state',
+  'shell-render-stats',
+  'shell-reset-render-stats',
   'mag-self-test',
   'open-gopher',
   'keys-test',

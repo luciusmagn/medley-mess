@@ -417,6 +417,16 @@
          ((GETD 'MAG-VTERM-STATE-REPORT)
           (MAG-VTERM-STATE-REPORT))
          (T "MAG-VTERM-STATE-REPORT is not loaded")))
+      ((STREQUAL COMMAND "shell-render-stats")
+       (COND
+         ((GETD 'MAG-VTERM-RENDER-STATS-REPORT)
+          (MAG-VTERM-RENDER-STATS-REPORT))
+         (T "MAG-VTERM-RENDER-STATS-REPORT is not loaded")))
+      ((STREQUAL COMMAND "shell-reset-render-stats")
+       (COND
+         ((GETD 'MAG-VTERM-RPC-RESET-RENDER-STATS)
+          (MAG-VTERM-RPC-RESET-RENDER-STATS))
+         (T "MAG-VTERM-RPC-RESET-RENDER-STATS is not loaded")))
       ((STREQUAL COMMAND "open-gopher")
        (COND
          ((GETD 'MAG-GOPHER)

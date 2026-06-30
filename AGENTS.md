@@ -103,6 +103,11 @@ For live evidence, use the Medley RPC bridge:
   Ghostty path, reads output, scans changed rows, reports command 40, and
   closes the test job. Use it to prove terminal creation and native counters
   without depending on the async window-opening path.
+- `shell-state` reports the active Mag Shell native job status plus Lisp-side
+  render counters.
+- `shell-render-stats` reports only those active Mag Shell render counters.
+- `shell-reset-render-stats` resets those counters before a live performance
+  probe.
 - `mag-self-test` runs the integrated smoke test for Maiko helper status,
   Ghostty/Mag terminal status, the verified arrow decoder table, Gopher
   viewport behavior, and the who-line battery hook.
@@ -198,6 +203,8 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `open-shell`
 - `shell-self-test`
 - `shell-state`
+- `shell-render-stats`
+- `shell-reset-render-stats`
 - `mag-self-test`
 - `open-gopher`
 - `keys-test`

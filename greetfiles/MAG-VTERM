@@ -141,6 +141,62 @@
          (OPENWP MAG-VTERM-LAST-WINDOW)
          MAG-VTERM-LAST-WINDOW)])
 
+(MAG-VTERM-RENDER-STAT
+  [LAMBDA (WINDOW PROP)
+    (AND WINDOW
+         (WINDOWPROP WINDOW PROP
+                     (ADD1 (OR (WINDOWPROP WINDOW PROP) 0))))])
+
+(MAG-VTERM-RENDER-STAT-VALUE
+  [LAMBDA (WINDOW PROP)
+    (OR (AND WINDOW (WINDOWPROP WINDOW PROP)) 0)])
+
+(MAG-VTERM-RESET-RENDER-STATS
+  [LAMBDA (WINDOW)
+    (AND WINDOW
+         (PROGN
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-REFRESH-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHANGED-REFRESH-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-FULL-REFRESH-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-FORCE-REFRESH-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-ROW-DRAW-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-INVERT-COUNT 0)))
+    WINDOW])
+
+(MAG-VTERM-RENDER-STATS-LINE
+  [LAMBDA (WINDOW)
+    (CONCAT "render-refreshes=" (MAG-VTERM-RENDER-STAT-VALUE
+                                  WINDOW 'MAG-GHOSTTY-REFRESH-COUNT)
+            " changed-refreshes=" (MAG-VTERM-RENDER-STAT-VALUE
+                                    WINDOW 'MAG-GHOSTTY-CHANGED-REFRESH-COUNT)
+            " full-refreshes=" (MAG-VTERM-RENDER-STAT-VALUE
+                                 WINDOW 'MAG-GHOSTTY-FULL-REFRESH-COUNT)
+            " force-refreshes=" (MAG-VTERM-RENDER-STAT-VALUE
+                                  WINDOW 'MAG-GHOSTTY-FORCE-REFRESH-COUNT)
+            " row-draws=" (MAG-VTERM-RENDER-STAT-VALUE
+                            WINDOW 'MAG-GHOSTTY-ROW-DRAW-COUNT)
+            " cursor-inverts=" (MAG-VTERM-RENDER-STAT-VALUE
+                                 WINDOW 'MAG-GHOSTTY-CURSOR-INVERT-COUNT))])
+
+(MAG-VTERM-RENDER-STATS-REPORT
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-VTERM-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag terminal window")
+        (T
+         (MAG-VTERM-RENDER-STATS-LINE WINDOW))))])
+
+(MAG-VTERM-RPC-RESET-RENDER-STATS
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-VTERM-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag terminal window")
+        (T
+         (MAG-VTERM-RESET-RENDER-STATS WINDOW)
+         (MAG-VTERM-RENDER-STATS-LINE WINDOW))))])
+
 (MAG-VTERM-STATE-REPORT
   [LAMBDA NIL
     (LET ((WINDOW (MAG-VTERM-ACTIVE-WINDOW)))
@@ -164,7 +220,11 @@
               (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 40 CHAN BUFFER))
               (COND
                 ((AND LEN (IGREATERP LEN 0))
-                 (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+                 (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+                   (MAG-STRING-OUTPUT (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN) OUT)
+                   (MAG-STRING-OUTPUT (MAG-VTERM-RENDER-STATS-LINE WINDOW) OUT)
+                   (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+                   (CL:GET-OUTPUT-STREAM-STRING OUT)))
                 (T "Mag terminal state unavailable"))))))))])
 
 (MAG-VTERM-READ-BUFFER
@@ -785,8 +845,11 @@
                                                    RGB WIDE COLORED STYLED SEGMENTED PLAIN)))
                   (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-X CX)
                   (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-Y CY)
-                  (AND (OR MOVED MAG-GHOSTTY-CURSOR-ROW-REDRAWN)
-                       (MAG-GHOSTTY-INVERT-CURSOR-CELL WINDOW STATE CX CY)))
+                  (COND
+                    ((OR MOVED MAG-GHOSTTY-CURSOR-ROW-REDRAWN)
+                     (MAG-VTERM-RENDER-STAT
+                       WINDOW 'MAG-GHOSTTY-CURSOR-INVERT-COUNT)
+                     (MAG-GHOSTTY-INVERT-CURSOR-CELL WINDOW STATE CX CY))))
                  (T
                   (COND
                     ((AND OLDY
@@ -800,6 +863,7 @@
 (MAG-GHOSTTY-DRAW-REFRESH-ROW
   [LAMBDA (WINDOW STATE CHAN ROW BUFFER COLS RGB WIDE COLORED STYLED SEGMENTED PLAIN)
     (LET (LEN)
+      (MAG-VTERM-RENDER-STAT WINDOW 'MAG-GHOSTTY-ROW-DRAW-COUNT)
       (AND (EQ ROW (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-Y))
            (SETQ MAG-GHOSTTY-CURSOR-ROW-REDRAWN T))
       (COND
@@ -846,10 +910,14 @@
                       (SETQ COLORED (AND (NULL WIDE) (IGEQ MAXCOMMAND 26)))
                       (SETQ STYLED (AND (NULL WIDE) (NULL COLORED) (IGEQ MAXCOMMAND 22)))
                       (SETQ SEGMENTED NIL)
-                                  (SETQ FORCE (WINDOWPROP WINDOW 'MAG-GHOSTTY-FORCE-REFRESH))
-                                  (SETQ USECHANGED (AND (NULL FORCE) (IGEQ MAXCOMMAND 37)))
-                                  (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS NIL)
-                                  (WINDOWPROP WINDOW 'MAG-GHOSTTY-FORCE-REFRESH NIL)
+                      (SETQ FORCE (WINDOWPROP WINDOW 'MAG-GHOSTTY-FORCE-REFRESH))
+                      (SETQ USECHANGED (AND (NULL FORCE) (IGEQ MAXCOMMAND 37)))
+                      (MAG-VTERM-RENDER-STAT WINDOW 'MAG-GHOSTTY-REFRESH-COUNT)
+                      (AND FORCE
+                           (MAG-VTERM-RENDER-STAT
+                             WINDOW 'MAG-GHOSTTY-FORCE-REFRESH-COUNT))
+                      (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS NIL)
+                      (WINDOWPROP WINDOW 'MAG-GHOSTTY-FORCE-REFRESH NIL)
                                   (SETQ MAG-GHOSTTY-CURSOR-ROW-REDRAWN NIL)
                       (freplace (CHAT.STATE WRAPMODE) of STATE with NIL)
                          (COND
@@ -857,6 +925,8 @@
                                           (NEQ (SETQ DIRTYCOUNT
                                                      (SUBRCALL UNIX-HANDLECOMM 37 CHAN ROWBUFFER))
                                                NIL))
+                                     (MAG-VTERM-RENDER-STAT
+                                       WINDOW 'MAG-GHOSTTY-CHANGED-REFRESH-COUNT)
                                      (AND (IGREATERP DIRTYCOUNT 0)
                                           (for I from 0 to (SUB1 DIRTYCOUNT) do
                                             (SETQ ROW (\GETBASEBYTE ROWBUFFER I))
@@ -865,6 +935,8 @@
                                                    WINDOW STATE CHAN ROW BUFFER COLS
                                                    RGB WIDE COLORED STYLED SEGMENTED PLAIN)))))
                            (T
+                         (MAG-VTERM-RENDER-STAT
+                           WINDOW 'MAG-GHOSTTY-FULL-REFRESH-COUNT)
                          (for ROW from 0 to (SUB1 ROWS) do
                            (MAG-GHOSTTY-DRAW-REFRESH-ROW
                              WINDOW STATE CHAN ROW BUFFER COLS
@@ -1966,6 +2038,7 @@
          (WINDOWPROP WINDOW 'MAG-GHOSTTY-MAXCOMMAND
                      (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
          (WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY (MAG-GHOSTTY-AVAILABLEP))
+         (MAG-VTERM-RESET-RENDER-STATS WINDOW)
          (WINDOWPROP WINDOW 'CURSORMOVEDFN NIL)
          (WINDOWPROP WINDOW 'RESHAPEFN (FUNCTION MAG-VTERM-RESHAPEFN))
          (WINDOWPROP WINDOW 'BUTTONEVENTFN (FUNCTION MAG-VTERM-BUTTONFN))
