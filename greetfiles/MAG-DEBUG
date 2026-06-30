@@ -208,6 +208,66 @@
       (MAG-DEBUG-RPC-WRITE-LINE OUT "status=ok")
       (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
 
+(MAG-DEBUG-RPC-SHELL-KEY-PROBE
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (BUFFER (NCREATE 'VMEMPAGEP))
+           (MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
+           (COMMAND "sh -c 'stty raw -echo; dd bs=1 count=12 2>/dev/null | od -An -tx1 -v'")
+           (EXPECTED "1b 5b 41 1b 5b 42 1b 5b 43 1b 5b 44")
+           (ALL "")
+           CHAN LEN TEXT READS WROTE FAIL)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag shell key probe")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "unix-handlecomm-max=" MAXCOMMAND))
+      (COND
+        ((ILESSP MAXCOMMAND 25)
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "status=FAIL command25 unavailable")
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (MAG-VTERM-ENSURE)
+      (SETQ CHAN (FORK-SHELL "xterm-256color" COMMAND))
+      (COND
+        ((NULL CHAN)
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "status=FAIL fork-shell returned NIL")
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "slot=" CHAN))
+      (BLOCK 300)
+      (for KEYID in '(1 2 3 4) do
+        (SETQ WROTE (SUBRCALL UNIX-HANDLECOMM 25 CHAN KEYID 0 0))
+        (MAG-DEBUG-RPC-WRITE-LINE
+          OUT
+          (CONCAT "sent key-id=" KEYID " wrote=" (OR WROTE "nil"))))
+      (SETQ READS 0)
+    READLP
+      (COND
+        ((IGEQ READS 60)
+         (GO DONE)))
+      (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+      (COND
+        ((AND LEN (SMALLP LEN) (IGREATERP LEN 0))
+         (SETQ TEXT (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+         (SETQ ALL (CONCAT ALL TEXT))
+         (COND
+           ((MAG-DEBUG-RPC-CONTAINS-P ALL EXPECTED)
+            (GO DONE)))))
+      (SETQ READS (ADD1 READS))
+      (BLOCK)
+      (GO READLP)
+    DONE
+      (SUBRCALL UNIX-HANDLECOMM 3 CHAN 0)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "raw-output=" ALL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "PTY receives up/down/right/left as CSI A/B/C/D"
+              (MAG-DEBUG-RPC-CONTAINS-P ALL EXPECTED)
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (COND
+          (FAIL "status=FAIL")
+          (T "status=ok")))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
 (MAG-DEBUG-RPC-RELOAD-MAG-WORKER
   [LAMBDA NIL
     (LET ((PATH (CONCAT (OR (UNIX-GETENV "MEDLEYDIR")
@@ -421,8 +481,8 @@
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
-           DEBUGREPORT CONFIGREPORT SHELLREPORT GOPHERREPORT KEYREPORT
-           KEYENCODEREPORT BATTERYREPORT)
+           DEBUGREPORT CONFIGREPORT SHELLREPORT SHELLKEYREPORT GOPHERREPORT
+           KEYREPORT KEYENCODEREPORT BATTERYREPORT)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag integration self-test")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ FAIL
@@ -507,6 +567,13 @@
               "Mag Shell self-test"
               (MAG-DEBUG-RPC-CONTAINS-P SHELLREPORT "status=ok")
               FAIL))
+      (SETQ SHELLKEYREPORT (MAG-DEBUG-RPC-SHELL-KEY-PROBE))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Mag Shell key probe"
+              (MAG-DEBUG-RPC-CONTAINS-P SHELLKEYREPORT "status=ok")
+              FAIL))
       (COND
         ((GETD 'MAG-GOPHER-RPC-SELF-TEST)
          (SETQ GOPHERREPORT (MAG-GOPHER-RPC-SELF-TEST)))
@@ -561,6 +628,8 @@
        (MAG-DEBUG-RPC-OPEN-SHELL))
       ((STREQUAL COMMAND "shell-self-test")
        (MAG-DEBUG-RPC-SHELL-SELF-TEST))
+      ((STREQUAL COMMAND "shell-key-probe")
+       (MAG-DEBUG-RPC-SHELL-KEY-PROBE))
       ((STREQUAL COMMAND "shell-state")
        (COND
          ((GETD 'MAG-VTERM-STATE-REPORT)

@@ -53,6 +53,9 @@ glyph descenders by about a pixel; text should use the padded baseline.
   bytes: up `ESC [ A`, down `ESC [ B`, right `ESC [ C`, left `ESC [ D`.
   Do not rotate Lisp's raw-key decoder to compensate for libghostty encoder
   behavior.
+- Keep `MAG-VTERM-SEND-KEY` on the same `MAG-VTERM-SPECIAL-KEYID` path used
+  by the table tests. It should not carry a duplicate raw `57344`-style arrow
+  mapping.
 - Lisp should orchestrate windows, menus, process lifecycle, and high-level UI state.
 - Use `UNIX-HANDLECOMM` as the integration boundary for C-backed operations until a better debug/control protocol exists.
 - `MAG-GHOSTTY-REFRESH` now uses `UNIX-HANDLECOMM 37` to get a C-computed list of rendered rows whose hashes changed, except for forced refreshes, which still repaint every row.
@@ -123,6 +126,7 @@ Current safe request commands:
 - `restart-rpc`
 - `open-gopher`
 - `shell-self-test`
+- `shell-key-probe`
 - `shell-render-stats`
 - `shell-reset-render-stats`
 - `shell-box-test`
@@ -156,6 +160,10 @@ arbitrary evaluation.
 helper, the performance-oriented runtime config, the Ghostty-backed Mag
 terminal path, the verified arrow decoder table, Gopher's self-test, and the
 who-line battery hook.
+
+`shell-key-probe` is the stronger terminal-arrow check: it opens a temporary
+raw PTY reader, sends key ids 1-4 through command 25, and verifies the shell
+receives `ESC [ A/B/C/D`.
 
 `reload-mag` must stay asynchronous. It should spawn the reload worker and
 return immediately; doing `LOAD MAG-EXTRAS` in the RPC poller process can block

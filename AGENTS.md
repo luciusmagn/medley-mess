@@ -87,6 +87,11 @@ CSI bytes instead of routing them through libghostty's key encoder. If Mag
 Shell arrows are swapped while `keys-test` is correct, inspect that direct CSI
 fast path before changing any Lisp decoder table.
 
+`MAG-VTERM-SEND-KEY` must not contain a second raw arrow table. It should map
+raw Medley key codes through `MAG-VTERM-SPECIAL-KEYID` and then write through
+command 25 or `MAG-VTERM-WRITE-KEYID-FALLBACK`. Reintroducing inline
+`57344`/`57345`/`57346`/`57347` CSI writes makes future rotations easy.
+
 When debugging, test Mag Shell first with Fish autosuggestions and Codex
 selection UIs. Right arrow should accept a Fish autosuggestion; left arrow
 should move backward. Up/down must move Codex selections without producing
@@ -99,6 +104,9 @@ For live evidence, use the Medley RPC bridge:
   high-byte fallback arrow codes.
 - `key-encode-test` reports the native Maiko bytes for terminal key ids 1-4
   and verifies they are CSI `A/B/C/D` for up/down/right/left.
+- `shell-key-probe` starts a short-lived raw PTY reader, sends Mag terminal
+  key ids 1-4 through command 25, and verifies the actual shell receives
+  `ESC [ A`, `ESC [ B`, `ESC [ C`, `ESC [ D`.
 - `config-report` reports Maiko runtime configuration such as VM size, timer
   interval, no-scroll state, and window/screen dimensions.
 - `performance-report` verifies the local performance-oriented launch config:
@@ -236,6 +244,7 @@ CSI `A/B/C/D` before changing terminal arrow handling.
 - `restart-rpc`
 - `open-shell`
 - `shell-self-test`
+- `shell-key-probe`
 - `shell-state`
 - `shell-render-stats`
 - `shell-reset-render-stats`
