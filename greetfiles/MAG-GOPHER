@@ -157,6 +157,16 @@
          (MAG-GOPHER-RESET-DRAW-STATS WINDOW)
          (MAG-GOPHER-DRAW-STATS-LINE WINDOW))))])
 
+(MAG-GOPHER-RPC-CLOSE-ACTIVE
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag Gopher window")
+        (T
+         (CLOSEW WINDOW)
+         "closed active Mag Gopher window")))])
+
 (MAG-GOPHER-RPC-KEY
   [LAMBDA (CH)
     (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))

@@ -127,6 +127,9 @@ For live evidence, use the Medley RPC bridge:
   see whether Gopher is receiving a different translated stream than Mag Shell.
 - `open-gopher` opens a normal Mag Gopher window through the same async path as
   the UI button.
+- `close-gopher` closes the remembered active Mag Gopher window. Use it to
+  clean up windows opened by `open-gopher`, `gopher-test-page`, or
+  `gopher-self-test` during diagnostics.
 - `close-shell` closes the remembered active Mag Shell window. Use it to clean
   up windows opened by `open-shell` during diagnostics.
 - `shell-self-test` creates a short-lived PTY shell, initializes the native
@@ -283,6 +286,7 @@ type tag for a Gopher type byte. `gopher-type-status` must show `status=ok`.
 - `shell-reset-all-native-stats`
 - `mag-self-test`
 - `open-gopher`
+- `close-gopher`
 - `keys-test`
 - `key-encode-test`
 - `gopher-keys`

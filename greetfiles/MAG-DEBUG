@@ -943,6 +943,11 @@
           (ADD.PROCESS (LIST (FUNCTION MAG-GOPHER)) 'NAME 'MAG-RPC-GOPHER)
           "opening Mag Gopher")
          (T "MAG-GOPHER is not loaded")))
+      ((STREQUAL COMMAND "close-gopher")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-CLOSE-ACTIVE)
+          (MAG-GOPHER-RPC-CLOSE-ACTIVE))
+         (T "MAG-GOPHER-RPC-CLOSE-ACTIVE is not loaded")))
       ((STREQUAL COMMAND "gopher-state")
        (COND
          ((GETD 'MAG-GOPHER-STATE-REPORT)

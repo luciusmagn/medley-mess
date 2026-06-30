@@ -141,6 +141,7 @@ Current safe request commands:
 - `close-shell`
 - `restart-rpc`
 - `open-gopher`
+- `close-gopher`
 - `shell-self-test`
 - `shell-key-probe`
 - `shell-render-stats`
@@ -187,6 +188,10 @@ reports the current RPC process, the process named `MAG-DEBUG-RPC`, active Mag
 Shell input/typeout processes, active Gopher input/load processes, and selected
 known Mag worker names. It intentionally does not expose arbitrary eval or an
 unbounded all-process dump.
+
+`close-gopher` closes the remembered active Mag Gopher window and lets the
+normal Gopher close hook dispose of channels and processes. Use it after
+`gopher-test-page` or `gopher-self-test` leaves a diagnostic window open.
 
 `native-jobs` reports Maiko's bounded native job list from `UNIX-HANDLECOMM
 46`: aggregate live job counts and compact per-job lines. The C side truncates

@@ -37,6 +37,7 @@ const ALLOWED_REQUESTS = new Set([
   'shell-reset-all-native-stats',
   'mag-self-test',
   'open-gopher',
+  'close-gopher',
   'keys-test',
   'key-encode-test',
   'gopher-keys',
