@@ -92,6 +92,8 @@ For live evidence, use the Medley RPC bridge:
 
 - `keys-test` reports the currently loaded decoder table for direct and
   high-byte fallback arrow codes.
+- `config-report` reports Maiko runtime configuration such as VM size, timer
+  interval, no-scroll state, and window/screen dimensions.
 - `gopher-keys` reports recent raw keys actually received by
   `MAG-GOPHER-HANDLE-KEY`; use this after pressing arrows inside Mag Gopher to
   see whether Gopher is receiving a different translated stream than Mag Shell.
@@ -178,10 +180,11 @@ after restarting into the rebuilt Maiko binary:
 - `gt-last-changed`
 - `gt-hash-rows`
 
-Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state into a caller-provided buffer. `MAG-DEBUG-RPC-START` runs a safe Medley-side poller that dispatches only these commands:
+Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 41` reports runtime configuration such as VM size, timer interval, and screen/window dimensions. `MAG-DEBUG-RPC-START` runs a safe Medley-side poller that dispatches only these commands:
 
 - `ping`
 - `debug-report`
+- `config-report`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -221,3 +224,9 @@ printf '%s\n' \
 ```
 
 Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet -` and sets `MAIKO_STARTUP_TYPEAHEAD_FILE` to a tiny file containing `(IL:LOAD ".../MAG-NOGREET" T)`. Maiko's local X11 startup typeahead hook injects that form after `MAIKO_STARTUP_TYPEAHEAD_DELAY` seconds. This replaced the old EXWM/emacsclient synthetic loader, which was fragile because EXWM does not always expose a live Medley buffer during startup. Do not pass `--nofork`/`-NF` here: Maiko uses that flag to skip `fork_Unix`, and Mag Shell/`FORK-SHELL` need the Unix communication helper.
+
+The Mag launcher defaults `MAG_MEDLEY_MEMORY_MB` to 256, matching this Maiko
+build's 256 MB VM support and avoiding the stock 64 MB apps.sysout ceiling.
+Override `MAG_MEDLEY_GEOMETRY`, `MAG_MEDLEY_SCREENSIZE`,
+`MAG_MEDLEY_MEMORY_MB`, or `MAG_MEDLEY_TITLE` in the environment when testing
+different display or VM settings.

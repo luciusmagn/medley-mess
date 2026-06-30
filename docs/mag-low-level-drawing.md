@@ -46,6 +46,8 @@ This distinction matters. Passing the row bottom directly to `MOVETO` clips glyp
 - Command 38 includes compact terminal/helper counters after restart: `unix-helper`, `unix-pipes`, `gt-write-calls`, `gt-write-bytes`, `gt-render-updates`, `gt-change-scans`, `gt-changed-rows`, `gt-write-us`, `gt-update-us`, `gt-scan-us`, `gt-last-update-us`, `gt-last-scan-us`, `gt-last-changed`, and `gt-hash-rows`.
 - `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` for the safe Medley-side RPC poller.
 - `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state.
+- `UNIX-HANDLECOMM 41` reports runtime configuration: VM size, timer interval,
+  no-scroll state, window dimensions, and screen dimensions.
 
 ## Good C/Maiko Candidates
 
@@ -64,6 +66,7 @@ Current native commands:
 - `38`: copy a compact debug report into a VM page buffer.
 - `39`: read and consume `/tmp/medley-mag-request` into a VM page buffer.
 - `40`: copy a compact per-job Mag terminal state report into a VM page buffer.
+- `41`: copy a compact runtime configuration report into a VM page buffer.
 
 Current Lisp wrappers:
 
@@ -76,6 +79,7 @@ Current safe request commands:
 
 - `ping`
 - `debug-report`
+- `config-report`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -118,3 +122,8 @@ Current tools:
 - `medley_request`: send a safe request to the running Medley RPC poller and return `/tmp/medley-mag-response`.
 
 `/home/mag/.local/bin/medley-interlisp` is mirrored as `scripts/mag-medley-interlisp`. It starts `apps.sysout` with `--greet -` and uses Maiko's `MAIKO_STARTUP_TYPEAHEAD_FILE` hook to type `(IL:LOAD ".../MAG-NOGREET" T)` into the initial exec after a short delay. This avoids depending on EXWM/emacsclient to synthesize the startup load. The launcher must not pass `--nofork`/`-NF`, because that disables Maiko's Unix helper and makes `FORK-SHELL`/Mag Shell fail before a PTY job is created.
+
+The launcher explicitly passes `--mem "$MAG_MEDLEY_MEMORY_MB"`, defaulting to
+256 MB. The stock loadup sysouts are 64 MB but expandable; this Maiko build
+reports 256 MB VM support. Use `debug-report` after restart to verify
+`vmem-process-mb`, `timer-interval-us`, `window`, `screen`, and `noscroll`.

@@ -26,6 +26,26 @@
            (T "mag-debug unavailable"))))
       (T "mag-debug unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 38"))])
 
+(MAG-DEBUG-CONFIG-AVAILABLEP
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
+      (AND MAXCOMMAND (IGEQ MAXCOMMAND 41)))])
+
+(MAG-DEBUG-CONFIG-REPORT
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (COND
+      ((MAG-DEBUG-CONFIG-AVAILABLEP)
+       (LET ((BUFFER (NCREATE 'VMEMPAGEP))
+             LEN)
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 41 BUFFER))
+         (COND
+           ((AND LEN (IGREATERP LEN 0))
+            (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+           (T "mag-config unavailable"))))
+      (T "mag-config unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 41"))])
+
 (MAG-DEBUG-SPLIT-LINES
   [LAMBDA (TEXT)
     (PROG ((I 1)
@@ -281,7 +301,8 @@
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
-           DEBUGREPORT SHELLREPORT GOPHERREPORT KEYREPORT BATTERYREPORT)
+           DEBUGREPORT CONFIGREPORT SHELLREPORT GOPHERREPORT KEYREPORT
+           BATTERYREPORT)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag integration self-test")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ FAIL
@@ -301,6 +322,13 @@
               OUT
               "Ghostty native path enabled"
               (MAG-DEBUG-RPC-CONTAINS-P DEBUGREPORT "ghostty-vt=enabled")
+              FAIL))
+      (SETQ CONFIGREPORT (MAG-DEBUG-CONFIG-REPORT))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "runtime config report"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "mag-config")
               FAIL))
       (SETQ KEYREPORT (MAG-DEBUG-RPC-KEYS-TEST))
       (SETQ FAIL
@@ -367,6 +395,8 @@
        "pong")
       ((STREQUAL COMMAND "debug-report")
        (MAG-DEBUG-REPORT))
+      ((STREQUAL COMMAND "config-report")
+       (MAG-DEBUG-CONFIG-REPORT))
       ((STREQUAL COMMAND "write-debug-report")
        (MAG-DEBUG-WRITE-REPORT NIL)
        "wrote /tmp/medley-mag-debug.txt")

@@ -21,6 +21,18 @@ mkdir -p "$LOGINDIR"
 unset TERMINFO
 export TERMINFO_DIRS="/run/current-system/profile/share/terminfo:$HOME/.guix-profile/share/terminfo:${TERMINFO_DIRS:-}"
 
+MAG_MEDLEY_GEOMETRY="${MAG_MEDLEY_GEOMETRY:-1920x1080}"
+MAG_MEDLEY_SCREENSIZE="${MAG_MEDLEY_SCREENSIZE:-$MAG_MEDLEY_GEOMETRY}"
+MAG_MEDLEY_MEMORY_MB="${MAG_MEDLEY_MEMORY_MB:-256}"
+MAG_MEDLEY_TITLE="${MAG_MEDLEY_TITLE:-Medley Interlisp}"
+
+case "$MAG_MEDLEY_MEMORY_MB" in
+    ''|*[!0-9]*)
+        echo "MAG_MEDLEY_MEMORY_MB must be a positive integer, got: $MAG_MEDLEY_MEMORY_MB" >&2
+        exit 2
+        ;;
+esac
+
 startup_typeahead="${TMPDIR:-/tmp}/medley-mag-startup-typeahead"
 cat >"$startup_typeahead" <<EOF
 (IL:LOAD "$MEDLEYDIR/greetfiles/MAG-NOGREET" T)
@@ -34,9 +46,10 @@ exec "$MEDLEYDIR/medley" \
     --apps \
     --interlisp \
     --noscroll \
-    --geometry 1920x1080 \
-    --screensize 1920x1080 \
-    --title "Medley Interlisp" \
+    --geometry "$MAG_MEDLEY_GEOMETRY" \
+    --screensize "$MAG_MEDLEY_SCREENSIZE" \
+    --mem "$MAG_MEDLEY_MEMORY_MB" \
+    --title "$MAG_MEDLEY_TITLE" \
     --logindir "$LOGINDIR" \
     --maikodir "$MAIKODIR" \
     --greet - \

@@ -14,6 +14,7 @@ const RESPONSE_PATH = process.env.MAG_MEDLEY_RESPONSE || '/tmp/medley-mag-respon
 const ALLOWED_REQUESTS = new Set([
   'ping',
   'debug-report',
+  'config-report',
   'write-debug-report',
   'battery',
   'who-line-battery',
