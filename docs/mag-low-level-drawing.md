@@ -84,6 +84,7 @@ Current safe request commands:
 - `restart-rpc`
 - `open-gopher`
 - `shell-self-test`
+- `mag-self-test`
 - `keys-test`
 - `gopher-keys`
 - `gopher-state`
@@ -95,6 +96,10 @@ Current safe request commands:
 - `gopher-key-right`
 - `shell-state`
 - `keys-help`
+
+`mag-self-test` is the preferred post-reload smoke test. It checks Maiko's Unix
+helper, the Ghostty-backed Mag terminal path, the verified arrow decoder table,
+Gopher's self-test, and the who-line battery hook.
 
 `reload-mag` must stay asynchronous. It should spawn the reload worker and
 return immediately; doing `LOAD MAG-EXTRAS` in the RPC poller process can block

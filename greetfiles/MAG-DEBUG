@@ -257,6 +257,108 @@
       (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-right-132" 388)
       (CL:GET-OUTPUT-STREAM-STRING OUT))])
 
+(MAG-DEBUG-RPC-CONTAINS-P
+  [LAMBDA (TEXT NEEDLE)
+    (AND TEXT NEEDLE (STRPOS NEEDLE TEXT))])
+
+(MAG-DEBUG-RPC-CHECK-LINE
+  [LAMBDA (OUT LABEL OK)
+    (MAG-DEBUG-RPC-WRITE-LINE OUT
+      (CONCAT (COND
+                (OK "ok ")
+                (T "FAIL "))
+              LABEL))
+    OK])
+
+(MAG-DEBUG-RPC-CHECK
+  [LAMBDA (OUT LABEL OK FAIL)
+    (COND
+      ((NOT (MAG-DEBUG-RPC-CHECK-LINE OUT LABEL OK))
+       T)
+      (T FAIL))])
+
+(MAG-DEBUG-RPC-MAG-SELF-TEST
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (FAIL NIL)
+           DEBUGREPORT SHELLREPORT GOPHERREPORT KEYREPORT BATTERYREPORT)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag integration self-test")
+      (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Maiko debug report available"
+              (MAG-DEBUG-RPC-CONTAINS-P DEBUGREPORT "mag-debug")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Unix helper alive"
+              (MAG-DEBUG-RPC-CONTAINS-P DEBUGREPORT "alive=1")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Ghostty native path enabled"
+              (MAG-DEBUG-RPC-CONTAINS-P DEBUGREPORT "ghostty-vt=enabled")
+              FAIL))
+      (SETQ KEYREPORT (MAG-DEBUG-RPC-KEYS-TEST))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "decoder left=4"
+              (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-left raw=57344 high=224 low=0 key-id=4")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "decoder right=3"
+              (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-right raw=57345 high=224 low=1 key-id=3")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "decoder up=1"
+              (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-up raw=57346 high=224 low=2 key-id=1")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "decoder down=2"
+              (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-down raw=57347 high=224 low=3 key-id=2")
+              FAIL))
+      (SETQ SHELLREPORT (MAG-DEBUG-RPC-SHELL-SELF-TEST))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Mag Shell self-test"
+              (MAG-DEBUG-RPC-CONTAINS-P SHELLREPORT "status=ok")
+              FAIL))
+      (COND
+        ((GETD 'MAG-GOPHER-RPC-SELF-TEST)
+         (SETQ GOPHERREPORT (MAG-GOPHER-RPC-SELF-TEST)))
+        (T
+         (SETQ GOPHERREPORT "MAG-GOPHER-RPC-SELF-TEST is not loaded")))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Mag Gopher self-test"
+              (MAG-DEBUG-RPC-CONTAINS-P GOPHERREPORT "status=ok")
+              FAIL))
+      (SETQ BATTERYREPORT (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "who-line battery installed"
+              (MAG-DEBUG-RPC-CONTAINS-P BATTERYREPORT "installed=yes")
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (COND
+          (FAIL "status=FAIL")
+          (T "status=ok")))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
 (MAG-DEBUG-RPC-DISPATCH
   [LAMBDA (COMMAND)
     (SETQ COMMAND (MAG-DEBUG-RPC-TRIM-RIGHT COMMAND))
@@ -330,6 +432,8 @@
          (T "MAG-GOPHER-RPC-KEY is not loaded")))
       ((STREQUAL COMMAND "keys-test")
        (MAG-DEBUG-RPC-KEYS-TEST))
+      ((STREQUAL COMMAND "mag-self-test")
+       (MAG-DEBUG-RPC-MAG-SELF-TEST))
       ((STREQUAL COMMAND "gopher-keys")
        (COND
          ((GETD 'MAG-GOPHER-KEY-LOG-REPORT)

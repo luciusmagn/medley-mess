@@ -22,6 +22,7 @@ const ALLOWED_REQUESTS = new Set([
   'open-shell',
   'shell-self-test',
   'shell-state',
+  'mag-self-test',
   'open-gopher',
   'keys-test',
   'gopher-keys',

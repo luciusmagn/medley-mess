@@ -101,6 +101,9 @@ For live evidence, use the Medley RPC bridge:
   Ghostty path, reads output, scans changed rows, reports command 40, and
   closes the test job. Use it to prove terminal creation and native counters
   without depending on the async window-opening path.
+- `mag-self-test` runs the integrated smoke test for Maiko helper status,
+  Ghostty/Mag terminal status, the verified arrow decoder table, Gopher
+  viewport behavior, and the who-line battery hook.
 - `gopher-state` reports the remembered live Gopher window's host, top,
   selected row, visible row count, entry count, and status.
 - `gopher-key-up`, `gopher-key-down`, `gopher-key-left`, and
@@ -187,6 +190,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `open-shell`
 - `shell-self-test`
 - `shell-state`
+- `mag-self-test`
 - `open-gopher`
 - `keys-test`
 - `gopher-keys`
