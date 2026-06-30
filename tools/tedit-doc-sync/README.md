@@ -13,6 +13,7 @@ Current parser behavior:
 - extracts the readable TEdit text payload before the binary/trailer section
 - detects Mag style metadata such as `MAG-TEDIT HEADING1` in the TEdit trailer
 - emits Markdown with conversion metadata under `/home/mag/docs/md`
+- keeps generated files deterministic by recording source mtimes, not render time
 
 The next parser step is full TEdit piece-range decoding, so headings/bold/italic
 can be reconstructed by range rather than noted as detected metadata.

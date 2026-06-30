@@ -173,7 +173,11 @@ fn render_source(root: &Path, source: &Path) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let markdown = render_markdown(rel, &doc);
+    let source_mtime = fs::metadata(source)
+        .and_then(|metadata| metadata.modified())
+        .map(unix_seconds_from)
+        .unwrap_or_else(|_| unix_seconds());
+    let markdown = render_markdown(rel, &doc, source_mtime);
     write_if_changed(&out_path, markdown.as_bytes())
 }
 
@@ -255,7 +259,7 @@ fn detect_styles(trailer: &str) -> Vec<String> {
     styles.into_iter().collect()
 }
 
-fn render_markdown(rel: &Path, doc: &TeditDoc) -> String {
+fn render_markdown(rel: &Path, doc: &TeditDoc, source_mtime: u64) -> String {
     let source = rel.to_string_lossy();
     let styles = if doc.styles.is_empty() {
         "[]".to_string()
@@ -267,7 +271,7 @@ fn render_markdown(rel: &Path, doc: &TeditDoc) -> String {
     out.push_str("---\n");
     out.push_str(&format!("source: {:?}\n", source));
     out.push_str("format: tedit\n");
-    out.push_str(&format!("converted_unix_seconds: {}\n", unix_seconds()));
+    out.push_str(&format!("source_modified_unix_seconds: {}\n", source_mtime));
     out.push_str(&format!("has_tedit_trailer: {}\n", doc.has_trailer));
     out.push_str(&format!("tedit_trailer_chars: {}\n", doc.trailer.chars().count()));
     out.push_str(&format!("nul_bytes: {}\n", doc.nul_count));
@@ -409,7 +413,11 @@ fn git_output(root: &Path, args: &[&str]) -> io::Result<String> {
 }
 
 fn unix_seconds() -> u64 {
-    SystemTime::now()
+    unix_seconds_from(SystemTime::now())
+}
+
+fn unix_seconds_from(time: SystemTime) -> u64 {
+    time
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
