@@ -218,7 +218,7 @@
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            WINDOW VISIBLE JUMP N FAIL EXPECTEDSELECTED EXPECTEDTOP
-           SELECTED TOP REPAINTS ENTRYDRAWS DRAWINDEX)
+           SELECTED TOP REPAINTS ENTRYDRAWS DRAWINDEX STATUS)
       (MAG-GOPHER-RPC-TEST-PAGE)
       (SETQ WINDOW (MAG-GOPHER-ACTIVE-WINDOW))
       (COND
@@ -312,6 +312,36 @@
          (MAG-GOPHER-RPC-WRITE-LINE OUT
            (CONCAT "FAIL up selected=" SELECTED " top=" TOP
                    " expected-selected=1 expected-top=0"))))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES
+                  (LIST (LIST 'ITEM "Unsupported local test item"
+                              57 "/test/bin" "test.local" 70 "zz")))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 1)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS "before-right")
+      (MAG-GOPHER-HANDLE-KEY WINDOW 57345)
+      (SETQ STATUS (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS))
+      (COND
+        ((AND STATUS (STRPOS "Unsupported gopher item type" STATUS))
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "ok right-open status=" STATUS)))
+        (T
+         (SETQ FAIL T)
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "FAIL right-open status=" (OR STATUS "")))))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS "before-left")
+      (MAG-GOPHER-HANDLE-KEY WINDOW 57344)
+      (SETQ STATUS (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS))
+      (COND
+        ((STREQUAL STATUS "No back history")
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           "ok left-back empty-history"))
+        (T
+         (SETQ FAIL T)
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "FAIL left-back status=" (OR STATUS "")))))
+      (MAG-GOPHER-RPC-TEST-PAGE)
       (MAG-GOPHER-RPC-WRITE-LINE OUT
         "action-map left=back right=open up=previous down=next")
       (MAG-GOPHER-RPC-WRITE-LINE OUT
@@ -1507,7 +1537,10 @@
                           (CONS CURRENT
                                 (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD))))
          (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY (CDR HISTORY))
-         (MAG-GOPHER-LOAD-STATE WINDOW (CAR HISTORY)))))])
+         (MAG-GOPHER-LOAD-STATE WINDOW (CAR HISTORY)))
+        (T
+         (MAG-GOPHER-SET-STATUS WINDOW "No back history")
+         NIL)))])
 
 (MAG-GOPHER-FORWARD
   [LAMBDA (WINDOW)
