@@ -619,7 +619,7 @@
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
            DEBUGREPORT CONFIGREPORT KEYREPORT KEYENCODEREPORT BATTERYREPORT
-           BASELINEPAD GOPHERVIEWPORTREPORT GOPHERLABELREPORT)
+           BASELINEPAD GOPHERVIEWPORTREPORT GOPHERLABELREPORT GOPHERTYPEREPORT)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag goal status")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ CONFIGREPORT (MAG-DEBUG-CONFIG-REPORT))
@@ -636,6 +636,11 @@
               ((GETD 'MAG-GOPHER-NATIVE-LABEL-REPORT)
                (MAG-GOPHER-NATIVE-LABEL-REPORT))
               (T "MAG-GOPHER-NATIVE-LABEL-REPORT is not loaded")))
+      (SETQ GOPHERTYPEREPORT
+            (COND
+              ((GETD 'MAG-GOPHER-NATIVE-TYPE-REPORT)
+               (MAG-GOPHER-NATIVE-TYPE-REPORT))
+              (T "MAG-GOPHER-NATIVE-TYPE-REPORT is not loaded")))
       (SETQ BASELINEPAD
             (AND (GETD 'MAG-WINDOW-BASELINE-PAD-VALUE)
                  (MAG-WINDOW-BASELINE-PAD-VALUE)))
@@ -688,6 +693,12 @@
               OUT
               "native Gopher label status"
               (MAG-DEBUG-RPC-CONTAINS-P GOPHERLABELREPORT "status=ok")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "native Gopher type status"
+              (MAG-DEBUG-RPC-CONTAINS-P GOPHERTYPEREPORT "status=ok")
               FAIL))
       (SETQ FAIL
             (MAG-DEBUG-RPC-CHECK
@@ -969,6 +980,11 @@
          ((GETD 'MAG-GOPHER-NATIVE-LABEL-REPORT)
           (MAG-GOPHER-NATIVE-LABEL-REPORT))
          (T "MAG-GOPHER-NATIVE-LABEL-REPORT is not loaded")))
+      ((STREQUAL COMMAND "gopher-type-status")
+       (COND
+         ((GETD 'MAG-GOPHER-NATIVE-TYPE-REPORT)
+          (MAG-GOPHER-NATIVE-TYPE-REPORT))
+         (T "MAG-GOPHER-NATIVE-TYPE-REPORT is not loaded")))
       ((STREQUAL COMMAND "gopher-key-up")
        (COND
          ((GETD 'MAG-GOPHER-RPC-KEY)

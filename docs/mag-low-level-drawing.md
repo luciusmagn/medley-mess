@@ -51,6 +51,9 @@ glyph descenders by about a pixel; text should use the padded baseline.
 - `MAG-GOPHER-LABEL-FOR-N` delegates quick-label generation to Maiko command
   47 when available and falls back to the Lisp implementation on older Maiko
   binaries.
+- `MAG-GOPHER-TYPE-TAG` delegates fixed-width type-tag generation to Maiko
+  command 48 when available and falls back to the Lisp implementation on older
+  Maiko binaries.
 - Keep slow Lisp loops out of hot terminal paths. Prefer Maiko/C for terminal parse/render state, dirty row tracking, row copyout, cursor drawing, and key encoding.
 - Maiko command 25 sends unmodified terminal arrow key ids 1-4 as direct CSI
   bytes: up `ESC [ A`, down `ESC [ B`, right `ESC [ C`, left `ESC [ D`.
@@ -111,6 +114,7 @@ Current native commands:
 - `45`: report native Mag Gopher viewport self-test results.
 - `46`: report a bounded native job list for Maiko shell/process/socket slots.
 - `47`: compute a Mag Gopher quick-label for a zero-based item index.
+- `48`: compute a fixed-width Mag Gopher type tag for a Gopher type byte.
 
 Current Lisp wrappers:
 
@@ -155,6 +159,7 @@ Current safe request commands:
 - `gopher-self-test`
 - `gopher-viewport-status`
 - `gopher-label-status`
+- `gopher-type-status`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`
@@ -204,6 +209,10 @@ It should report `ok jump-down top=10 selected=30 repaint=1` and `status=ok`.
 `gopher-label-status` is the non-mutating C-side Gopher quick-label diagnostic.
 It verifies labels such as `aa`, `az`, `zz`, and `aaa` through
 `UNIX-HANDLECOMM 47`.
+
+`gopher-type-status` is the non-mutating C-side Gopher type-tag diagnostic. It
+verifies fixed-width tags such as `TEXT`, `DIR `, `HTML`, and `????` through
+`UNIX-HANDLECOMM 48`.
 
 `shell-key-probe` is the stronger terminal-arrow check: it opens a temporary
 raw PTY reader, sends key ids 1-4 through command 25, and verifies the shell

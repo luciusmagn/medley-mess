@@ -166,10 +166,12 @@ For live evidence, use the Medley RPC bridge:
   without opening or changing a Gopher window. It should show `status=ok`.
 - `gopher-label-status` reports the native C-side Gopher quick-label self-test
   for labels such as `aa`, `zz`, and `aaa`. It should show `status=ok`.
+- `gopher-type-status` reports the native C-side Gopher type-tag self-test for
+  tags such as `TEXT`, `DIR `, `HTML`, and `????`. It should show `status=ok`.
 - `gopher-self-test` creates the local 60-entry test page, checks the shared
   arrow decoder table, drives raw down/up keys through `MAG-GOPHER-HANDLE-KEY`,
-  and reports whether the viewport jump, native labels, and basic movement
-  semantics pass.
+  and reports whether the viewport jump, native labels, native type tags, and
+  basic movement semantics pass.
 - `restart-rpc` restarts the Medley-side poller after the current response is
   written. Use it after changing the poll loop itself; ordinary `reload-mag`
   updates dispatch handlers but may not replace an already-running loop frame.
@@ -254,6 +256,8 @@ Maiko shell/process/socket slots. `native-jobs` must fit in one VM page and
 report omitted jobs instead of overflowing.
 Local Maiko command `UNIX-HANDLECOMM 47` computes a Mag Gopher quick-label for
 a zero-based item index. `gopher-label-status` must show `status=ok`.
+Local Maiko command `UNIX-HANDLECOMM 48` computes a fixed-width Mag Gopher
+type tag for a Gopher type byte. `gopher-type-status` must show `status=ok`.
 
 - `ping`
 - `debug-report`
@@ -289,6 +293,7 @@ a zero-based item index. `gopher-label-status` must show `status=ok`.
 - `gopher-self-test`
 - `gopher-viewport-status`
 - `gopher-label-status`
+- `gopher-type-status`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`

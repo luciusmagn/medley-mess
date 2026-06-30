@@ -47,6 +47,7 @@ const ALLOWED_REQUESTS = new Set([
   'gopher-self-test',
   'gopher-viewport-status',
   'gopher-label-status',
+  'gopher-type-status',
   'gopher-key-up',
   'gopher-key-down',
   'gopher-key-left',
