@@ -127,6 +127,8 @@
                OUT (CONCAT "top=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0)
                            " selected=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED) 0)
                            " visible=" (MAG-GOPHER-VISIBLE-COUNT WINDOW)
+                           " line-height=" (MAG-GOPHER-LINEHEIGHT WINDOW)
+                           " baseline-pad=" (MAG-WINDOW-BASELINE-PAD-VALUE)
                            " count=" (LENGTH ENTRIES)))
              (MAG-GOPHER-RPC-WRITE-LINE
                OUT (MAG-GOPHER-DRAW-STATS-LINE WINDOW))

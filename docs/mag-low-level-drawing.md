@@ -18,8 +18,12 @@ The Mag row helpers draw from the bottom of a Medley window upward.
 - `MAG-WINDOW-ROW-BOTTOM` computes the bottom pixel of a logical row.
 - `MAG-WINDOW-ROW-Y` returns the text baseline by adding font descent to the row bottom.
 - `MAG-WINDOW-CLEAR-LINE` clears using the row bottom, not the baseline.
+- `MAG-WINDOW-BASELINE-PAD`, currently `1`, adds one pixel of leading and
+  moves baselines up by one pixel. This avoids descender clipping with fonts
+  whose actual raster descent is slightly larger than the reported descent.
 
-This distinction matters. Passing the row bottom directly to `MOVETO` clips glyph descenders by about a pixel; text should use the baseline.
+This distinction matters. Passing the row bottom directly to `MOVETO` clips
+glyph descenders by about a pixel; text should use the padded baseline.
 
 ## Primitives
 

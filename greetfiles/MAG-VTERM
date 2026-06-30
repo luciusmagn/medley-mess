@@ -35,6 +35,42 @@
               with '(8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 136 144 152 160 168 176 184 192
  200 208 216 224 232 240))])
 
+(MAG-VTERM-BASELINE-PAD
+  [LAMBDA NIL
+    (COND
+      ((GETD 'MAG-WINDOW-BASELINE-PAD-VALUE)
+       (MAG-WINDOW-BASELINE-PAD-VALUE))
+      (T 1))])
+
+(MAG-VTERM-APPLY-ROW-GEOMETRY
+  [LAMBDA (STATE)
+    (LET* ((WINDOW (ffetch (CHAT.STATE WINDOW) of STATE))
+           (PAD (MAG-VTERM-BASELINE-PAD))
+           (BASEHEIGHT (ffetch (CHAT.STATE FONTHEIGHT) of STATE))
+           (FONTDESCENT (ffetch (CHAT.STATE FONTDESCENT) of STATE))
+           (FONTWIDTH (ffetch (CHAT.STATE FONTWIDTH) of STATE))
+           LINEHEIGHT TTYHEIGHT)
+      (COND
+        ((AND (SMALLP PAD) (IGREATERP PAD 0))
+         (SETQ LINEHEIGHT (IPLUS BASEHEIGHT PAD))
+         (SETQ TTYHEIGHT
+               (IPLUS (ITIMES (IQUOTIENT (WINDOWPROP WINDOW 'HEIGHT)
+                                          LINEHEIGHT)
+                               LINEHEIGHT)
+                      (IPLUS FONTDESCENT PAD)))
+         (freplace (CHAT.STATE FONTHEIGHT) of STATE with LINEHEIGHT)
+         (freplace (CHAT.STATE TTYHEIGHT) of STATE
+                   with (freplace (CHAT.STATE TOPMARGIN) of STATE
+                                  with TTYHEIGHT))
+         (freplace (CHAT.STATE BOTTOMMARGIN) of STATE with 0)
+         (freplace (CHAT.STATE HOMEPOS) of STATE
+                   with (IDIFFERENCE TTYHEIGHT LINEHEIGHT))
+         (freplace (CHAT.STATE TTYWIDTH) of STATE
+                   with (ITIMES (IQUOTIENT (WINDOWPROP WINDOW 'WIDTH)
+                                           FONTWIDTH)
+                                FONTWIDTH))))
+      STATE)])
+
 (MAG-VTERM-SCREENPARAMS
   [LAMBDA (STATE)
     (LET ((CHAN (MAG-GHOSTTY-CHANNEL STATE))
@@ -273,6 +309,20 @@
                 ((AND LEN (IGREATERP LEN 0))
                  (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
                    (MAG-STRING-OUTPUT (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN) OUT)
+                   (MAG-STRING-OUTPUT (CONCAT "baseline-pad=" (MAG-VTERM-BASELINE-PAD)) OUT)
+                   (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+                   (MAG-STRING-OUTPUT
+                     (CONCAT "font-height=" (ffetch (CHAT.STATE FONTHEIGHT) of STATE)) OUT)
+                   (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+                   (MAG-STRING-OUTPUT
+                     (CONCAT "font-descent=" (ffetch (CHAT.STATE FONTDESCENT) of STATE)) OUT)
+                   (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+                   (MAG-STRING-OUTPUT
+                     (CONCAT "tty-height=" (ffetch (CHAT.STATE TTYHEIGHT) of STATE)) OUT)
+                   (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+                   (MAG-STRING-OUTPUT
+                     (CONCAT "home-pos=" (ffetch (CHAT.STATE HOMEPOS) of STATE)) OUT)
+                   (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
                    (MAG-STRING-OUTPUT (MAG-VTERM-RENDER-STATS-LINE WINDOW) OUT)
                    (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
                    (CL:GET-OUTPUT-STREAM-STRING OUT)))
@@ -493,7 +543,8 @@
            (FONTWIDTH (ffetch (CHAT.STATE FONTWIDTH) of STATE))
            (FONTHEIGHT (ffetch (CHAT.STATE FONTHEIGHT) of STATE))
            (FONTDESCENT (ffetch (CHAT.STATE FONTDESCENT) of STATE))
-           (BOTTOM (IDIFFERENCE Y FONTDESCENT))
+           (BOTTOM (IDIFFERENCE Y (IPLUS FONTDESCENT
+                                          (MAG-VTERM-BASELINE-PAD))))
            (TOP (IPLUS BOTTOM (SUB1 FONTHEIGHT)))
            (LEFT X)
            (RIGHT (IPLUS X (SUB1 FONTWIDTH)))
@@ -539,7 +590,8 @@
 (MAG-GHOSTTY-CURSOR-BOTTOM
   [LAMBDA (STATE ROW)
     (IDIFFERENCE (MAG-GHOSTTY-ROW-YPOS STATE ROW)
-                          (ffetch (CHAT.STATE FONTDESCENT) of STATE))])
+                 (IPLUS (ffetch (CHAT.STATE FONTDESCENT) of STATE)
+                        (MAG-VTERM-BASELINE-PAD)))])
 
 (MAG-GHOSTTY-SET-CELL-POS
   [LAMBDA (STATE COL ROW)
@@ -1113,6 +1165,7 @@
            (99
             (CLEARW WINDOW)
             (TERM.RESET.DISPLAY.PARMS STATE)
+            (MAG-VTERM-APPLY-ROW-GEOMETRY STATE)
             (MAG-VTERM-TABS STATE)
             (AND (NOT (WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)) (TERM.HOME STATE))
             (WINDOWPROP WINDOW 'MAG-VTERM-MODE NIL))
@@ -1945,7 +1998,8 @@
          (STATE
           (CLEARW WINDOW)
           (TERM.RESET.DISPLAY.PARMS STATE)
-         (MAG-GHOSTTY-SAVE-DEFAULT-COLORS WINDOW STATE)
+          (MAG-VTERM-APPLY-ROW-GEOMETRY STATE)
+          (MAG-GHOSTTY-SAVE-DEFAULT-COLORS WINDOW STATE)
           (MAG-VTERM-TABS STATE)
           (AND (NOT (WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)) (TERM.HOME STATE))
           (MAG-VTERM-SCREENPARAMS STATE)
@@ -2125,6 +2179,7 @@
          (WINDOWADDPROP WINDOW 'CLOSEFN (FUNCTION MAG-VTERM-CLOSEFN))
          (MODERNWINDOW WINDOW)
          (TERM.RESET.DISPLAY.PARMS STATE)
+         (MAG-VTERM-APPLY-ROW-GEOMETRY STATE)
          (MAG-GHOSTTY-SAVE-DEFAULT-COLORS WINDOW STATE)
          (MAG-VTERM-TABS STATE)
          (AND (NOT (WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)) (TERM.HOME STATE))
