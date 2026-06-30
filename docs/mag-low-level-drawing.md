@@ -45,6 +45,10 @@ This distinction matters. Passing the row bottom directly to `MOVETO` clips glyp
 - Lisp should orchestrate windows, menus, process lifecycle, and high-level UI state.
 - Use `UNIX-HANDLECOMM` as the integration boundary for C-backed operations until a better debug/control protocol exists.
 - `MAG-GHOSTTY-REFRESH` now uses `UNIX-HANDLECOMM 37` to get a C-computed list of rendered rows whose hashes changed, except for forced refreshes, which still repaint every row.
+- Maiko tags Unicode box-drawing cells in the upper nibble of the per-cell
+  flags byte during row copyout: left `0x10`, right `0x20`, up `0x40`, down
+  `0x80`. Lisp uses those flags for low-level `DRAWLINE` rendering; do not
+  put per-cell box range classification back into the hot Lisp draw loop.
 - `UNIX-HANDLECOMM 38` is the native Mag debug report command.
 - Command 38 includes compact terminal/helper counters after restart: `unix-helper`, `unix-pipes`, `gt-write-calls`, `gt-write-bytes`, `gt-render-updates`, `gt-change-scans`, `gt-changed-rows`, `gt-write-us`, `gt-update-us`, `gt-scan-us`, `gt-last-update-us`, `gt-last-scan-us`, `gt-last-changed`, and `gt-hash-rows`.
 - `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` for the safe Medley-side RPC poller.
@@ -55,7 +59,9 @@ This distinction matters. Passing the row bottom directly to `MOVETO` clips glyp
   job, or all Ghostty-backed shell jobs when called with `-1`.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
-  fallbacks, forced refreshes, row draws, and cursor inversions.
+  fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
+  `DRAWLINE` rendering. Use `shell-box-test` after a render-stat reset to
+  prove the active Mag Shell is taking the native box flag path.
 
 ## Good C/Maiko Candidates
 
@@ -75,6 +81,7 @@ Current native commands:
 - `39`: read and consume `/tmp/medley-mag-request` into a VM page buffer.
 - `40`: copy a compact per-job Mag terminal state report into a VM page buffer.
 - `41`: copy a compact runtime configuration report into a VM page buffer.
+- `42`: reset Ghostty timing/copyout counters for one shell job or all jobs.
 
 Current Lisp wrappers:
 
@@ -98,6 +105,7 @@ Current safe request commands:
 - `shell-self-test`
 - `shell-render-stats`
 - `shell-reset-render-stats`
+- `shell-box-test`
 - `shell-reset-native-stats`
 - `shell-reset-all-native-stats`
 - `mag-self-test`

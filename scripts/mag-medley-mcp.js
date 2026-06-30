@@ -25,6 +25,7 @@ const ALLOWED_REQUESTS = new Set([
   'shell-state',
   'shell-render-stats',
   'shell-reset-render-stats',
+  'shell-box-test',
   'shell-reset-native-stats',
   'shell-reset-all-native-stats',
   'mag-self-test',

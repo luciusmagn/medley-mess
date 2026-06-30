@@ -108,6 +108,9 @@ For live evidence, use the Medley RPC bridge:
 - `shell-render-stats` reports only those active Mag Shell render counters.
 - `shell-reset-render-stats` resets those counters before a live performance
   probe.
+- `shell-box-test` sends a fixed UTF-8 box-drawing probe to the active Mag
+  Shell. Use it after `shell-reset-render-stats`; `shell-render-stats` should
+  then report a nonzero `box-cells` count.
 - `shell-reset-native-stats` resets Maiko/Ghostty counters for the active Mag
   Shell. `shell-reset-all-native-stats` resets them for all live Ghostty-backed
   shell jobs. These require `UNIX-HANDLECOMM 42`, so restart into the rebuilt
@@ -162,6 +165,12 @@ Keep Mag Shell (`MAG-VTERM-*`) fast enough to run Codex, but avoid moving termin
 - cursor painting
 - key encoding to the PTY
 - future debug/inspection commands callable through `UNIX-HANDLECOMM`
+
+Maiko tags terminal box-drawing cells in the upper nibble of the per-cell
+flags byte during row copyout: left `0x10`, right `0x20`, up `0x40`, down
+`0x80`. The lower nibble remains terminal style state. Lisp must use those
+flags for hot-path `DRAWLINE` rendering and should not redo Unicode box range
+classification per cell.
 
 The current Lisp side should mostly orchestrate windows, menus, and redraw scheduling.
 

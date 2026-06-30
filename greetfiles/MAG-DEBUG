@@ -427,6 +427,11 @@
          ((GETD 'MAG-VTERM-RPC-RESET-RENDER-STATS)
           (MAG-VTERM-RPC-RESET-RENDER-STATS))
          (T "MAG-VTERM-RPC-RESET-RENDER-STATS is not loaded")))
+      ((STREQUAL COMMAND "shell-box-test")
+       (COND
+         ((GETD 'MAG-VTERM-RPC-BOX-TEST)
+          (MAG-VTERM-RPC-BOX-TEST))
+         (T "MAG-VTERM-RPC-BOX-TEST is not loaded")))
       ((STREQUAL COMMAND "shell-reset-native-stats")
        (COND
          ((GETD 'MAG-VTERM-RPC-RESET-NATIVE-STATS)
