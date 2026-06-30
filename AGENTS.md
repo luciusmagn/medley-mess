@@ -164,9 +164,12 @@ For live evidence, use the Medley RPC bridge:
   viewport jumps by `MAG-GOPHER-VIEW-JUMP` instead of crawling by one line.
 - `gopher-viewport-status` reports the native C-side Gopher viewport self-test
   without opening or changing a Gopher window. It should show `status=ok`.
+- `gopher-label-status` reports the native C-side Gopher quick-label self-test
+  for labels such as `aa`, `zz`, and `aaa`. It should show `status=ok`.
 - `gopher-self-test` creates the local 60-entry test page, checks the shared
   arrow decoder table, drives raw down/up keys through `MAG-GOPHER-HANDLE-KEY`,
-  and reports whether the viewport jump and basic movement semantics pass.
+  and reports whether the viewport jump, native labels, and basic movement
+  semantics pass.
 - `restart-rpc` restarts the Medley-side poller after the current response is
   written. Use it after changing the poll loop itself; ordinary `reload-mag`
   updates dispatch handlers but may not replace an already-running loop frame.
@@ -246,6 +249,11 @@ encoding bytes used by command 25. `key-encode-test` must show key ids 1-4 as
 CSI `A/B/C/D` before changing terminal arrow handling.
 Local Maiko command `UNIX-HANDLECOMM 45` reports a native C-side Mag Gopher
 viewport self-test. `gopher-viewport-status` must show `status=ok`.
+Local Maiko command `UNIX-HANDLECOMM 46` reports a bounded native job list for
+Maiko shell/process/socket slots. `native-jobs` must fit in one VM page and
+report omitted jobs instead of overflowing.
+Local Maiko command `UNIX-HANDLECOMM 47` computes a Mag Gopher quick-label for
+a zero-based item index. `gopher-label-status` must show `status=ok`.
 
 - `ping`
 - `debug-report`
@@ -280,6 +288,7 @@ viewport self-test. `gopher-viewport-status` must show `status=ok`.
 - `gopher-test-page`
 - `gopher-self-test`
 - `gopher-viewport-status`
+- `gopher-label-status`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`
