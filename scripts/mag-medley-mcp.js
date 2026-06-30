@@ -18,6 +18,7 @@ const ALLOWED_REQUESTS = new Set([
   'performance-report',
   'status-report',
   'process-status',
+  'native-jobs',
   'goal-status',
   'write-debug-report',
   'battery',

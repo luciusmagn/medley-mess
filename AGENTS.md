@@ -116,6 +116,9 @@ For live evidence, use the Medley RPC bridge:
 - `process-status` returns a bounded process snapshot for the RPC poller,
   active Mag Shell window, active Mag Gopher window, and known Mag worker
   names. It does not run arbitrary eval or list every process.
+- `native-jobs` returns Maiko's bounded native job list from
+  `UNIX-HANDLECOMM 46`: aggregate job counts plus compact live job lines that
+  fit in one VM page.
 - `goal-status` returns a non-mutating summary of the original Mag integration
   goal evidence: split modules loaded, baseline pad, performance config,
   battery who-line, native terminal path, and key decoder/encoder stability.
@@ -248,6 +251,7 @@ viewport self-test. `gopher-viewport-status` must show `status=ok`.
 - `performance-report`
 - `status-report`
 - `process-status`
+- `native-jobs`
 - `goal-status`
 - `write-debug-report`
 - `battery`

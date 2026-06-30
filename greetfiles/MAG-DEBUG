@@ -46,6 +46,26 @@
            (T "mag-config unavailable"))))
       (T "mag-config unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 41"))])
 
+(MAG-DEBUG-JOBS-AVAILABLEP
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
+      (AND MAXCOMMAND (IGEQ MAXCOMMAND 46)))])
+
+(MAG-DEBUG-JOBS-REPORT
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (COND
+      ((MAG-DEBUG-JOBS-AVAILABLEP)
+       (LET ((BUFFER (NCREATE 'VMEMPAGEP))
+             LEN)
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 46 BUFFER))
+         (COND
+           ((AND LEN (IGREATERP LEN 0))
+            (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+           (T "mag-jobs unavailable"))))
+      (T "mag-jobs unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 46"))])
+
 (MAG-DEBUG-SPLIT-LINES
   [LAMBDA (TEXT)
     (PROG ((I 1)
@@ -573,6 +593,7 @@
       (MAG-DEBUG-RPC-WRITE-LINE OUT "")
       (MAG-DEBUG-RPC-SECTION OUT "debug" (MAG-DEBUG-REPORT))
       (MAG-DEBUG-RPC-SECTION OUT "process" (MAG-DEBUG-RPC-PROCESS-STATUS))
+      (MAG-DEBUG-RPC-SECTION OUT "native-jobs" (MAG-DEBUG-JOBS-REPORT))
       (MAG-DEBUG-RPC-SECTION OUT "performance" (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
       (MAG-DEBUG-RPC-SECTION OUT "battery" (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
       (MAG-DEBUG-RPC-SECTION OUT "keys" (MAG-DEBUG-RPC-KEYS-TEST))
@@ -838,6 +859,8 @@
        (MAG-DEBUG-RPC-STATUS-REPORT))
       ((STREQUAL COMMAND "process-status")
        (MAG-DEBUG-RPC-PROCESS-STATUS))
+      ((STREQUAL COMMAND "native-jobs")
+       (MAG-DEBUG-JOBS-REPORT))
       ((STREQUAL COMMAND "goal-status")
        (MAG-DEBUG-RPC-GOAL-STATUS))
       ((STREQUAL COMMAND "write-debug-report")

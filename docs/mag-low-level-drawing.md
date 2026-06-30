@@ -106,6 +106,7 @@ Current native commands:
 - `43`: compute Mag Gopher viewport transitions for selection movement.
 - `44`: report native terminal arrow key encoding bytes.
 - `45`: report native Mag Gopher viewport self-test results.
+- `46`: report a bounded native job list for Maiko shell/process/socket slots.
 
 Current Lisp wrappers:
 
@@ -122,6 +123,7 @@ Current safe request commands:
 - `performance-report`
 - `status-report`
 - `process-status`
+- `native-jobs`
 - `goal-status`
 - `write-debug-report`
 - `battery`
@@ -174,6 +176,10 @@ reports the current RPC process, the process named `MAG-DEBUG-RPC`, active Mag
 Shell input/typeout processes, active Gopher input/load processes, and selected
 known Mag worker names. It intentionally does not expose arbitrary eval or an
 unbounded all-process dump.
+
+`native-jobs` reports Maiko's bounded native job list from `UNIX-HANDLECOMM
+46`: aggregate live job counts and compact per-job lines. The C side truncates
+by counting omitted jobs rather than overflowing the 512-byte VM page.
 
 `goal-status` is a lighter, non-mutating progress report for the Mag
 integration objective. It verifies split module loading, baseline padding,
