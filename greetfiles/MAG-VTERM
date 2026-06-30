@@ -8,6 +8,7 @@
 (RPAQQ MAG-GHOSTTY-CURSOR-ROW-REDRAWN NIL)
 (RPAQQ MAG-VTERM-OUT-BUFFER NIL)
 (RPAQ? MAG-VTERM-LAST-WINDOW NIL)
+(RPAQQ MAG-VTERM-RENDER-STAT-LIMIT 999999)
 
 (DEFINEQ
 
@@ -185,8 +186,11 @@
 (MAG-VTERM-RENDER-STAT
   [LAMBDA (WINDOW PROP)
     (AND WINDOW
-         (WINDOWPROP WINDOW PROP
-                     (ADD1 (OR (WINDOWPROP WINDOW PROP) 0))))])
+         (LET ((VALUE (OR (WINDOWPROP WINDOW PROP) 0)))
+           (WINDOWPROP WINDOW PROP
+                       (COND
+                         ((IGEQ VALUE MAG-VTERM-RENDER-STAT-LIMIT) 0)
+                         (T (ADD1 VALUE))))))])
 
 (MAG-VTERM-RENDER-STAT-VALUE
   [LAMBDA (WINDOW PROP)
@@ -2116,7 +2120,27 @@
             (DEL.PROCESS PROC))))))
       (COND
         ((SETQ PROC (WINDOWPROP WINDOW 'PROCESS NIL))
-         (DEL.PROCESS PROC)))])
+         (DEL.PROCESS PROC)))
+      (for PROP in '(MAG-VTERM-STATE
+                     MAG-VTERM-BUFFER
+                     MAG-VTERM-READ-BUFFER
+                     MAG-GHOSTTY-ROWLIST-BUFFER
+                     MAG-VTERM-GHOSTTY
+                     MAG-GHOSTTY-MAXCOMMAND
+                     MAG-GHOSTTY-CHECK-ROWS
+                     MAG-GHOSTTY-FORCE-REFRESH
+                     MAG-GHOSTTY-CURSOR-X
+                     MAG-GHOSTTY-CURSOR-Y
+                     MAG-GHOSTTY-DEFAULT-FG
+                     MAG-GHOSTTY-DEFAULT-BG
+                     MAG-GHOSTTY-REFRESH-COUNT
+                     MAG-GHOSTTY-CHANGED-REFRESH-COUNT
+                     MAG-GHOSTTY-FULL-REFRESH-COUNT
+                     MAG-GHOSTTY-FORCE-REFRESH-COUNT
+                     MAG-GHOSTTY-ROW-DRAW-COUNT
+                     MAG-GHOSTTY-CURSOR-INVERT-COUNT
+                     MAG-GHOSTTY-BOX-DRAW-COUNT)
+           do (WINDOWPROP WINDOW PROP NIL))])
 
 (MAG-VTERM
   [LAMBDA (TITLE COMMAND)
