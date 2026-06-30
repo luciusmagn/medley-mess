@@ -8,6 +8,45 @@
 
 (DEFINEQ
 
+(MAG-TEDIT-CLEAR-PANE
+  [LAMBDA (PANE PBOTTOM)
+    (CL:UNLESS PBOTTOM
+      (SETQ PBOTTOM (PANEBOTTOM PANE)))
+    (MAG-WINDOW-SET-BACKGROUND PANE)
+    (MAG-WINDOW-FILL-REGION
+      PANE
+      (CREATEREGION
+        0
+        PBOTTOM
+        (PANEWIDTH PANE)
+        (IDIFFERENCE (fetch (REGION PTOP) of (PANEREGION PANE))
+                     PBOTTOM)))])
+
+(MAG-TEDIT-INSTALL-BACKGROUND
+  [LAMBDA NIL
+    (AND (GETD '\TEDIT.CLEARPANE)
+         (NOT (GETD 'MAG-TEDIT-ORIGINAL-CLEAR-PANE))
+         (PUTD 'MAG-TEDIT-ORIGINAL-CLEAR-PANE
+               (GETD '\TEDIT.CLEARPANE)
+               T))
+    (AND (GETD 'MAG-TEDIT-CLEAR-PANE)
+         (PUTD '\TEDIT.CLEARPANE
+               (GETD 'MAG-TEDIT-CLEAR-PANE)
+               T))
+    T])
+
+(MAG-TEDIT-APPLY-BACKGROUND-OPEN-WINDOWS
+  [LAMBDA NIL
+    (for W in (OPENWINDOWS) do
+      (AND (WINDOWPROP W 'TEXTSTREAM)
+           (CAR
+             (NLSETQ
+               (PROGN
+                 (MAG-WINDOW-SET-BACKGROUND W)
+                 (AND (GETD '\TEDIT.REPAINTFN)
+                      (\TEDIT.REPAINTFN W NIL)))))))
+    T])
+
 (MAG-TEDIT-CHAR-LOOKS
   [LAMBDA (STYLE)
     (SELECTQ STYLE
@@ -151,6 +190,8 @@
              "Quick styles and autosave helpers"
              (SUBITEMS (Mag% Looks 'MAG-TEDIT-MENU
                                    "Open Mag heading/body/code menu")))))
+    (MAG-TEDIT-INSTALL-BACKGROUND)
+    (MAG-TEDIT-APPLY-BACKGROUND-OPEN-WINDOWS)
     (MAG-TEDIT-AUTOSAVE-START)
     T])
 )
