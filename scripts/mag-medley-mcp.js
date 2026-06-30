@@ -20,6 +20,7 @@ const ALLOWED_REQUESTS = new Set([
   'reload-mag',
   'restart-rpc',
   'open-shell',
+  'shell-self-test',
   'shell-state',
   'open-gopher',
   'keys-test',

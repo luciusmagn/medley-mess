@@ -97,6 +97,10 @@ For live evidence, use the Medley RPC bridge:
   see whether Gopher is receiving a different translated stream than Mag Shell.
 - `open-gopher` opens a normal Mag Gopher window through the same async path as
   the UI button.
+- `shell-self-test` creates a short-lived PTY shell, initializes the native
+  Ghostty path, reads output, scans changed rows, reports command 40, and
+  closes the test job. Use it to prove terminal creation and native counters
+  without depending on the async window-opening path.
 - `gopher-state` reports the remembered live Gopher window's host, top,
   selected row, visible row count, entry count, and status.
 - `gopher-key-up`, `gopher-key-down`, `gopher-key-left`, and
@@ -161,6 +165,11 @@ after restarting into the rebuilt Maiko binary:
 - `gt-render-updates`
 - `gt-change-scans`
 - `gt-changed-rows`
+- `gt-write-us`
+- `gt-update-us`
+- `gt-scan-us`
+- `gt-last-update-us`
+- `gt-last-scan-us`
 - `gt-last-changed`
 - `gt-hash-rows`
 
@@ -174,6 +183,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `reload-mag`
 - `restart-rpc`
 - `open-shell`
+- `shell-self-test`
 - `shell-state`
 - `open-gopher`
 - `keys-test`
@@ -204,4 +214,4 @@ printf '%s\n' \
   | /home/mag/src/medley/scripts/mag-medley-mcp.js
 ```
 
-Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet -` and sets `MAIKO_STARTUP_TYPEAHEAD_FILE` to a tiny file containing `(IL:LOAD ".../MAG-NOGREET" T)`. Maiko's local X11 startup typeahead hook injects that form after `MAIKO_STARTUP_TYPEAHEAD_DELAY` seconds. This replaced the old EXWM/emacsclient synthetic loader, which was fragile because EXWM does not always expose a live Medley buffer during startup.
+Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet -` and sets `MAIKO_STARTUP_TYPEAHEAD_FILE` to a tiny file containing `(IL:LOAD ".../MAG-NOGREET" T)`. Maiko's local X11 startup typeahead hook injects that form after `MAIKO_STARTUP_TYPEAHEAD_DELAY` seconds. This replaced the old EXWM/emacsclient synthetic loader, which was fragile because EXWM does not always expose a live Medley buffer during startup. Do not pass `--nofork`/`-NF` here: Maiko uses that flag to skip `fork_Unix`, and Mag Shell/`FORK-SHELL` need the Unix communication helper.

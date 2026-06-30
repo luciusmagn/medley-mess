@@ -40,5 +40,4 @@ exec "$MEDLEYDIR/medley" \
     --logindir "$LOGINDIR" \
     --maikodir "$MAIKODIR" \
     --greet - \
-    --nofork \
     "$@"

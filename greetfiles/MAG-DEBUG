@@ -115,12 +115,78 @@
        (MAG-WHO-LINE-BATTERY))
       (T "battery unavailable"))])
 
+(MAG-DEBUG-RPC-WRITE-LINE
+  [LAMBDA (OUT TEXT)
+    (MAG-STRING-OUTPUT (OR TEXT "") OUT)
+    (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)])
+
 (MAG-DEBUG-RPC-WHO-LINE-BATTERY
   [LAMBDA NIL
     (COND
       ((GETD 'MAG-WHO-LINE-BATTERY-STATUS)
        (MAG-WHO-LINE-BATTERY-STATUS))
       (T "who-line battery status unavailable"))])
+
+(MAG-DEBUG-RPC-SHELL-SELF-TEST
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (BUFFER (NCREATE 'VMEMPAGEP))
+           (MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
+           CHAN LEN READS CHANGED JOBLEN)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag shell self-test")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "unix-handlecomm-max=" MAXCOMMAND))
+      (COND
+        ((ILESSP MAXCOMMAND 40)
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "status=FAIL command40 unavailable")
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (MAG-VTERM-ENSURE)
+      (SETQ CHAN (FORK-SHELL "xterm-256color" NIL))
+      (COND
+        ((NULL CHAN)
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "status=FAIL fork-shell returned NIL")
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "slot=" CHAN))
+      (COND
+        ((SUBRCALL UNIX-HANDLECOMM 17 CHAN 24 80)
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "ok resize=24x80"))
+        (T
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "FAIL resize=24x80")))
+      (SETQ READS 0)
+    READLP
+      (COND
+        ((IGEQ READS 40)
+         (GO AFTERREAD)))
+      (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+      (COND
+        ((AND LEN (SMALLP LEN) (IGREATERP LEN 0))
+         (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "read-bytes=" LEN))
+         (GO AFTERREAD)))
+      (SETQ READS (ADD1 READS))
+      (BLOCK)
+      (GO READLP)
+    AFTERREAD
+      (COND
+        ((OR (NULL LEN) (NOT (SMALLP LEN)) (ILEQ LEN 0))
+         (MAG-DEBUG-RPC-WRITE-LINE OUT
+           (CONCAT "read-bytes=0 attempts=" READS))))
+      (SETQ CHANGED (SUBRCALL UNIX-HANDLECOMM 37 CHAN BUFFER))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (CONCAT "changed-rows="
+                (COND
+                  ((AND CHANGED (SMALLP CHANGED)) CHANGED)
+                  (CHANGED "non-small")
+                  (T "none"))))
+      (SETQ JOBLEN (SUBRCALL UNIX-HANDLECOMM 40 CHAN BUFFER))
+      (COND
+        ((AND JOBLEN (SMALLP JOBLEN) (IGREATERP JOBLEN 0))
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "job-report:")
+         (MAG-STRING-OUTPUT (MAG-GHOSTTY-BUFFER-STRING BUFFER JOBLEN) OUT))
+        (T
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "job-report unavailable")))
+      (SUBRCALL UNIX-HANDLECOMM 3 CHAN 0)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "status=ok")
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
 
 (MAG-DEBUG-RPC-RELOAD-MAG-WORKER
   [LAMBDA NIL
@@ -212,6 +278,8 @@
        (MAG-DEBUG-RPC-RESTART))
       ((STREQUAL COMMAND "open-shell")
        (MAG-DEBUG-RPC-OPEN-SHELL))
+      ((STREQUAL COMMAND "shell-self-test")
+       (MAG-DEBUG-RPC-SHELL-SELF-TEST))
       ((STREQUAL COMMAND "shell-state")
        (COND
          ((GETD 'MAG-VTERM-STATE-REPORT)
