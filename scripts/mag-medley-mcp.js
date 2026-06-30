@@ -15,6 +15,7 @@ const ALLOWED_REQUESTS = new Set([
   'ping',
   'debug-report',
   'config-report',
+  'performance-report',
   'write-debug-report',
   'battery',
   'who-line-battery',

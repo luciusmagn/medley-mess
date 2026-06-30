@@ -297,6 +297,39 @@
        T)
       (T FAIL))])
 
+(MAG-DEBUG-RPC-PERFORMANCE-REPORT
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (FAIL NIL)
+           CONFIGREPORT)
+      (SETQ CONFIGREPORT (MAG-DEBUG-CONFIG-REPORT))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag performance config")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT CONFIGREPORT)
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "256 MB VM"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "vmem-process-mb=256")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "10ms timer"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "timer-interval-us=10000")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "noscroll enabled"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "noscroll=1")
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (COND
+          (FAIL "status=FAIL")
+          (T "status=ok")))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
 (MAG-DEBUG-RPC-MAG-SELF-TEST
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
@@ -329,6 +362,24 @@
               OUT
               "runtime config report"
               (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "mag-config")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "performance config vmem=256"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "vmem-process-mb=256")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "performance config timer=10000"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "timer-interval-us=10000")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "performance config noscroll=1"
+              (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "noscroll=1")
               FAIL))
       (SETQ KEYREPORT (MAG-DEBUG-RPC-KEYS-TEST))
       (SETQ FAIL
@@ -397,6 +448,8 @@
        (MAG-DEBUG-REPORT))
       ((STREQUAL COMMAND "config-report")
        (MAG-DEBUG-CONFIG-REPORT))
+      ((STREQUAL COMMAND "performance-report")
+       (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
       ((STREQUAL COMMAND "write-debug-report")
        (MAG-DEBUG-WRITE-REPORT NIL)
        "wrote /tmp/medley-mag-debug.txt")

@@ -99,6 +99,7 @@ Current safe request commands:
 - `ping`
 - `debug-report`
 - `config-report`
+- `performance-report`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -127,9 +128,13 @@ Current safe request commands:
 - `shell-state`
 - `keys-help`
 
+`performance-report` verifies that the local faster launch configuration is
+active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
+
 `mag-self-test` is the preferred post-reload smoke test. It checks Maiko's Unix
-helper, the Ghostty-backed Mag terminal path, the verified arrow decoder table,
-Gopher's self-test, and the who-line battery hook.
+helper, the performance-oriented runtime config, the Ghostty-backed Mag
+terminal path, the verified arrow decoder table, Gopher's self-test, and the
+who-line battery hook.
 
 `reload-mag` must stay asynchronous. It should spawn the reload worker and
 return immediately; doing `LOAD MAG-EXTRAS` in the RPC poller process can block

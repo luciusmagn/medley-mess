@@ -94,6 +94,8 @@ For live evidence, use the Medley RPC bridge:
   high-byte fallback arrow codes.
 - `config-report` reports Maiko runtime configuration such as VM size, timer
   interval, no-scroll state, and window/screen dimensions.
+- `performance-report` verifies the local performance-oriented launch config:
+  256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 - `gopher-keys` reports recent raw keys actually received by
   `MAG-GOPHER-HANDLE-KEY`; use this after pressing arrows inside Mag Gopher to
   see whether Gopher is receiving a different translated stream than Mag Shell.
@@ -208,6 +210,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `ping`
 - `debug-report`
 - `config-report`
+- `performance-report`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
