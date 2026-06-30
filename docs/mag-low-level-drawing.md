@@ -148,6 +148,10 @@ Current safe request commands:
 - `shell-state`
 - `keys-help`
 
+Arbitrary `eval FORM` is intentionally not part of this poller. Direct eval
+attempts have wedged the RPC loop even on `eval 42`; use a separate
+non-blocking design if a remote REPL is added later.
+
 `performance-report` verifies that the local faster launch configuration is
 active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 

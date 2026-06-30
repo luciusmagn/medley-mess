@@ -266,6 +266,9 @@ CSI `A/B/C/D` before changing terminal arrow handling.
 - `gopher-key-right`
 - `keys-help`
 
+Do not add arbitrary `eval FORM` to this poller without isolating it from the
+RPC loop. Direct eval attempts have wedged the poller even on `eval 42`.
+
 Keep `reload-mag` asynchronous. Loading `MAG-EXTRAS` inside the RPC poller
 itself can redefine/reset the code that is currently handling the request and
 has blocked the bridge. The poller should spawn `MAG-RPC-RELOAD` and return.
