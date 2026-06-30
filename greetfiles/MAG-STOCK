@@ -27,7 +27,7 @@
 (MAG-WHO-LINE-BATTERY-ENTRY
   [LAMBDA NIL
     '("Bat" (MAG-WHO-LINE-BATTERY)
-      8 NIL NIL "Battery percentage and charging state")])
+      12 NIL NIL "Battery percentage and charging state")])
 
 (MAG-WHO-LINE-DROP-BATTERY
   [LAMBDA (ENTRIES)
