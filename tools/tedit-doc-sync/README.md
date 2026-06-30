@@ -41,24 +41,25 @@ paragraph.
 
 The default loop interval is one hour. Use `--interval-seconds N` for testing.
 
-## User Shepherd
+## System Shepherd
 
-`install.sh` only installs the binary wrapper. The matching Shepherd service is
-`tedit-doc-sync.scm`; on this machine it is installed as:
-
-```sh
-~/.config/shepherd/init.d/tedit-doc-sync.scm
-```
-
-Start it with:
+`install.sh` only installs the binary wrapper. On this machine the daemon is
+managed by root Shepherd from `/etc/config.scm` as a system service:
 
 ```sh
-herd start tedit-doc-sync
+sudo herd status tedit-doc-sync
 ```
 
-The EXWM `.xsession` starts the user Shepherd if needed and asks it to start
-`tedit-doc-sync`, so the sync daemon should be active after normal graphical
-login.
+The service runs `/home/mag/.local/bin/tedit-doc-sync` as `mag:users`, requires
+`user-processes` and `NetworkManager`, respawns on failure, and logs to:
+
+```sh
+/var/log/tedit-doc-sync.log
+```
+
+The old user Shepherd service file is disabled as
+`~/.config/shepherd/init.d/tedit-doc-sync.scm.disabled` to avoid duplicate sync
+daemons after graphical login.
 
 The wrapper pins the glibc runtime used by the local Rust compiler and removes
 that override again for spawned `git` commands.
