@@ -10,13 +10,16 @@ program that builds with `rustc` and does not need Cargo.
 Current parser behavior:
 
 - keeps the original TEdit files as the source of truth
-- extracts the readable TEdit text payload before the binary/trailer section
-- detects Mag style metadata such as `MAG-TEDIT HEADING1` in the TEdit trailer
+- extracts the readable TEdit text payload before the binary piece section
+- decodes TEdit's piece table into byte ranges with character/paragraph looks
+- renders inline bold, italic, underline, strike, code, and heading styles to Markdown where those looks are present
 - emits Markdown with conversion metadata under `/home/mag/docs/md`
 - keeps generated files deterministic by recording source mtimes, not render time
 
-The next parser step is full TEdit piece-range decoding, so headings/bold/italic
-can be reconstructed by range rather than noted as detected metadata.
+A TEdit piece range is a byte range in the plaintext payload plus references to
+the character look and paragraph look that apply to that range. That is what
+lets the converter preserve a single bold word inside an otherwise normal
+paragraph.
 
 ## Build
 
@@ -52,6 +55,10 @@ Start it with:
 ```sh
 herd start tedit-doc-sync
 ```
+
+The EXWM `.xsession` starts the user Shepherd if needed and asks it to start
+`tedit-doc-sync`, so the sync daemon should be active after normal graphical
+login.
 
 The wrapper pins the glibc runtime used by the local Rust compiler and removes
 that override again for spawned `git` commands.
