@@ -160,6 +160,8 @@ If `MAG-DEBUG-REPORT` says command 38 is unavailable, rebuild/restart Maiko; the
 The local command 38 report also includes compact Ghostty/Mag terminal metrics
 after restarting into the rebuilt Maiko binary:
 
+- `unix-helper`
+- `unix-pipes`
 - `gt-write-calls`
 - `gt-write-bytes`
 - `gt-render-updates`
