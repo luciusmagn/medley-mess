@@ -121,6 +121,7 @@ Current safe request commands:
 - `config-report`
 - `performance-report`
 - `status-report`
+- `process-status`
 - `goal-status`
 - `write-debug-report`
 - `battery`
@@ -167,6 +168,12 @@ active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 instance. It combines debug counters, performance config, battery/who-line
 state, key decoding, active shell state, and active Gopher state without
 arbitrary evaluation.
+
+`process-status` is a bounded fixed diagnostic for process/RPC liveness. It
+reports the current RPC process, the process named `MAG-DEBUG-RPC`, active Mag
+Shell input/typeout processes, active Gopher input/load processes, and selected
+known Mag worker names. It intentionally does not expose arbitrary eval or an
+unbounded all-process dump.
 
 `goal-status` is a lighter, non-mutating progress report for the Mag
 integration objective. It verifies split module loading, baseline padding,

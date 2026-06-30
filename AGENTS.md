@@ -113,6 +113,9 @@ For live evidence, use the Medley RPC bridge:
   256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 - `status-report` returns a single combined snapshot with debug, performance,
   battery, key decoder, active shell, and active Gopher state.
+- `process-status` returns a bounded process snapshot for the RPC poller,
+  active Mag Shell window, active Mag Gopher window, and known Mag worker
+  names. It does not run arbitrary eval or list every process.
 - `goal-status` returns a non-mutating summary of the original Mag integration
   goal evidence: split modules loaded, baseline pad, performance config,
   battery who-line, native terminal path, and key decoder/encoder stability.
@@ -244,6 +247,7 @@ viewport self-test. `gopher-viewport-status` must show `status=ok`.
 - `config-report`
 - `performance-report`
 - `status-report`
+- `process-status`
 - `goal-status`
 - `write-debug-report`
 - `battery`

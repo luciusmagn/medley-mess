@@ -281,6 +281,18 @@
                  'NAME 'MAG-RPC-RELOAD)
     "reloading MAG-EXTRAS"])
 
+(MAG-DEBUG-RPC-CURRENT-PROCESS
+  [LAMBDA NIL
+    (COND
+      ((AND MAG-DEBUG-RPC-PROCESS
+            (PROCESSP MAG-DEBUG-RPC-PROCESS))
+       MAG-DEBUG-RPC-PROCESS)
+      ((LET ((PROC (FIND.PROCESS 'MAG-DEBUG-RPC)))
+         (AND PROC
+              (PROCESSP PROC)
+              (SETQ MAG-DEBUG-RPC-PROCESS PROC))))
+      (T NIL))])
+
 (MAG-DEBUG-RPC-RESTART-WORKER
   [LAMBDA (OLD)
     (BLOCK 1000)
@@ -293,7 +305,7 @@
 (MAG-DEBUG-RPC-RESTART
   [LAMBDA NIL
     (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-RESTART-WORKER)
-                       MAG-DEBUG-RPC-PROCESS)
+                       (MAG-DEBUG-RPC-CURRENT-PROCESS))
                  'NAME 'MAG-RPC-RESTART)
     "restarting Mag RPC"])
 
@@ -412,6 +424,109 @@
           (T "status=ok")))
       (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
 
+(MAG-DEBUG-RPC-YESNO
+  [LAMBDA (VALUE)
+    (COND
+      (VALUE "yes")
+      (T "no"))])
+
+(MAG-DEBUG-RPC-PROCESS-LINE
+  [LAMBDA (OUT LABEL PROC)
+    (COND
+      ((NULL PROC)
+       (MAG-DEBUG-RPC-WRITE-LINE
+         OUT
+         (CONCAT LABEL " present=no alive=no")))
+      ((PROCESSP PROC)
+       (MAG-DEBUG-RPC-WRITE-LINE
+         OUT
+         (CONCAT LABEL
+                 " present=yes alive=yes name=" (OR (PROCESS.NAME PROC) "nil")
+                 " tty=" (MAG-DEBUG-RPC-YESNO (TTY.PROCESSP PROC))
+                 " window=" (MAG-DEBUG-RPC-YESNO (PROCESSPROP PROC 'WINDOW)))))
+      (T
+       (MAG-DEBUG-RPC-WRITE-LINE
+         OUT
+         (CONCAT LABEL " present=yes alive=no"))))])
+
+(MAG-DEBUG-RPC-NAMED-PROCESS-LINE
+  [LAMBDA (OUT NAME)
+    (MAG-DEBUG-RPC-PROCESS-LINE OUT
+                                (CONCAT "named." NAME)
+                                (FIND.PROCESS NAME))])
+
+(MAG-DEBUG-RPC-SHELL-PROCESS-STATUS
+  [LAMBDA (OUT)
+    (COND
+      ((GETD 'MAG-VTERM-ACTIVE-WINDOW)
+       (LET* ((WINDOW (MAG-VTERM-ACTIVE-WINDOW))
+              (STATE (AND WINDOW (WINDOWPROP WINDOW 'MAG-VTERM-STATE))))
+         (MAG-DEBUG-RPC-WRITE-LINE
+           OUT
+           (CONCAT "shell.window=" (MAG-DEBUG-RPC-YESNO WINDOW)
+                   " open=" (MAG-DEBUG-RPC-YESNO (AND WINDOW (OPENWP WINDOW)))
+                   " channel=" (OR (AND WINDOW
+                                        (WINDOWPROP WINDOW 'MAG-VTERM-CHANNEL))
+                                   "nil")))
+         (MAG-DEBUG-RPC-PROCESS-LINE
+           OUT
+           "shell.input-process"
+           (AND WINDOW (WINDOWPROP WINDOW 'PROCESS)))
+         (MAG-DEBUG-RPC-PROCESS-LINE
+           OUT
+           "shell.typeout-process"
+           (AND STATE (ffetch (CHAT.STATE TYPEOUTPROC) of STATE)))))
+      (T
+       (MAG-DEBUG-RPC-WRITE-LINE OUT "shell.window=unavailable")))])
+
+(MAG-DEBUG-RPC-GOPHER-PROCESS-STATUS
+  [LAMBDA (OUT)
+    (COND
+      ((GETD 'MAG-GOPHER-ACTIVE-WINDOW)
+       (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))
+         (MAG-DEBUG-RPC-WRITE-LINE
+           OUT
+           (CONCAT "gopher.window=" (MAG-DEBUG-RPC-YESNO WINDOW)
+                   " open=" (MAG-DEBUG-RPC-YESNO (AND WINDOW (OPENWP WINDOW)))))
+         (MAG-DEBUG-RPC-PROCESS-LINE
+           OUT
+           "gopher.input-process"
+           (AND WINDOW (WINDOWPROP WINDOW 'PROCESS)))
+         (MAG-DEBUG-RPC-PROCESS-LINE
+           OUT
+           "gopher.load-process"
+           (AND WINDOW (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS)))))
+      (T
+       (MAG-DEBUG-RPC-WRITE-LINE OUT "gopher.window=unavailable")))])
+
+(MAG-DEBUG-RPC-PROCESS-STATUS
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           RPCBYNAME)
+      (MAG-DEBUG-RPC-CURRENT-PROCESS)
+      (SETQ RPCBYNAME (FIND.PROCESS 'MAG-DEBUG-RPC))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag process status")
+      (MAG-DEBUG-RPC-PROCESS-LINE OUT "this-process" (THIS.PROCESS))
+      (MAG-DEBUG-RPC-PROCESS-LINE OUT "rpc-var" MAG-DEBUG-RPC-PROCESS)
+      (MAG-DEBUG-RPC-PROCESS-LINE OUT "rpc-name" RPCBYNAME)
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (CONCAT "rpc-var-is-name="
+                (MAG-DEBUG-RPC-YESNO
+                  (AND MAG-DEBUG-RPC-PROCESS
+                       RPCBYNAME
+                       (EQ MAG-DEBUG-RPC-PROCESS RPCBYNAME)))))
+      (MAG-DEBUG-RPC-SHELL-PROCESS-STATUS OUT)
+      (MAG-DEBUG-RPC-GOPHER-PROCESS-STATUS OUT)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "known-named-processes:")
+      (for NAME in '(MAG-RPC-RELOAD MAG-RPC-RESTART MAG-RPC-SHELL
+                    MAG-RPC-GOPHER MAG-RPC-GOPHER-TEST
+                    MAG-VTERM-TYPEIN MAG-VTERM-TYPEOUT
+                    MAG-GOPHER-TYPEIN MAG-GOPHER-LOAD
+                    MAG-DEBUG-KEY-PROBE)
+           do (MAG-DEBUG-RPC-NAMED-PROCESS-LINE OUT NAME))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
 (MAG-DEBUG-RPC-PERFORMANCE-REPORT
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
@@ -457,6 +572,7 @@
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag status report")
       (MAG-DEBUG-RPC-WRITE-LINE OUT "")
       (MAG-DEBUG-RPC-SECTION OUT "debug" (MAG-DEBUG-REPORT))
+      (MAG-DEBUG-RPC-SECTION OUT "process" (MAG-DEBUG-RPC-PROCESS-STATUS))
       (MAG-DEBUG-RPC-SECTION OUT "performance" (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
       (MAG-DEBUG-RPC-SECTION OUT "battery" (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
       (MAG-DEBUG-RPC-SECTION OUT "keys" (MAG-DEBUG-RPC-KEYS-TEST))
@@ -720,6 +836,8 @@
        (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
       ((STREQUAL COMMAND "status-report")
        (MAG-DEBUG-RPC-STATUS-REPORT))
+      ((STREQUAL COMMAND "process-status")
+       (MAG-DEBUG-RPC-PROCESS-STATUS))
       ((STREQUAL COMMAND "goal-status")
        (MAG-DEBUG-RPC-GOAL-STATUS))
       ((STREQUAL COMMAND "write-debug-report")
@@ -865,8 +983,7 @@
 (MAG-DEBUG-RPC-START
   [LAMBDA NIL
     (COND
-      ((AND MAG-DEBUG-RPC-PROCESS
-            (PROCESSP MAG-DEBUG-RPC-PROCESS))
+      ((MAG-DEBUG-RPC-CURRENT-PROCESS)
        MAG-DEBUG-RPC-PROCESS)
       ((MAG-DEBUG-RPC-AVAILABLEP)
        (SETQ MAG-DEBUG-RPC-PROCESS
