@@ -482,13 +482,18 @@
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
            DEBUGREPORT CONFIGREPORT KEYREPORT KEYENCODEREPORT BATTERYREPORT
-           BASELINEPAD)
+           BASELINEPAD GOPHERVIEWPORTREPORT)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag goal status")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ CONFIGREPORT (MAG-DEBUG-CONFIG-REPORT))
       (SETQ KEYREPORT (MAG-DEBUG-RPC-KEYS-TEST))
       (SETQ KEYENCODEREPORT (MAG-DEBUG-KEY-ENCODE-REPORT))
       (SETQ BATTERYREPORT (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
+      (SETQ GOPHERVIEWPORTREPORT
+            (COND
+              ((GETD 'MAG-GOPHER-NATIVE-VIEWPORT-REPORT)
+               (MAG-GOPHER-NATIVE-VIEWPORT-REPORT))
+              (T "MAG-GOPHER-NATIVE-VIEWPORT-REPORT is not loaded")))
       (SETQ BASELINEPAD
             (AND (GETD 'MAG-WINDOW-BASELINE-PAD-VALUE)
                  (MAG-WINDOW-BASELINE-PAD-VALUE)))
@@ -529,6 +534,12 @@
               OUT
               "native terminal path enabled"
               (MAG-DEBUG-RPC-CONTAINS-P DEBUGREPORT "ghostty-vt=enabled")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "native Gopher viewport status"
+              (MAG-DEBUG-RPC-CONTAINS-P GOPHERVIEWPORTREPORT "status=ok")
               FAIL))
       (SETQ FAIL
             (MAG-DEBUG-RPC-CHECK
@@ -791,6 +802,11 @@
          ((GETD 'MAG-GOPHER-RPC-SELF-TEST)
           (MAG-GOPHER-RPC-SELF-TEST))
          (T "MAG-GOPHER-RPC-SELF-TEST is not loaded")))
+      ((STREQUAL COMMAND "gopher-viewport-status")
+       (COND
+         ((GETD 'MAG-GOPHER-NATIVE-VIEWPORT-REPORT)
+          (MAG-GOPHER-NATIVE-VIEWPORT-REPORT))
+         (T "MAG-GOPHER-NATIVE-VIEWPORT-REPORT is not loaded")))
       ((STREQUAL COMMAND "gopher-key-up")
        (COND
          ((GETD 'MAG-GOPHER-RPC-KEY)

@@ -76,6 +76,8 @@ glyph descenders by about a pixel; text should use the padded baseline.
   repaint-needed` in a compact buffer.
 - `UNIX-HANDLECOMM 44` reports the native terminal arrow key encoding bytes
   used by command 25.
+- `UNIX-HANDLECOMM 45` reports a native Mag Gopher viewport self-test, proving
+  the C-side jump/clamp behavior without driving the UI.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -103,6 +105,7 @@ Current native commands:
 - `42`: reset Ghostty timing/copyout counters for one shell job or all jobs.
 - `43`: compute Mag Gopher viewport transitions for selection movement.
 - `44`: report native terminal arrow key encoding bytes.
+- `45`: report native Mag Gopher viewport self-test results.
 
 Current Lisp wrappers:
 
@@ -142,6 +145,7 @@ Current safe request commands:
 - `gopher-reset-draw-stats`
 - `gopher-test-page`
 - `gopher-self-test`
+- `gopher-viewport-status`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`
@@ -171,6 +175,9 @@ spawning test shells.
 helper, the performance-oriented runtime config, the Ghostty-backed Mag
 terminal path, the verified arrow decoder table, Gopher's self-test, and the
 who-line battery hook.
+
+`gopher-viewport-status` is the non-mutating C-side Gopher viewport diagnostic.
+It should report `ok jump-down top=10 selected=30 repaint=1` and `status=ok`.
 
 `shell-key-probe` is the stronger terminal-arrow check: it opens a temporary
 raw PTY reader, sends key ids 1-4 through command 25, and verifies the shell

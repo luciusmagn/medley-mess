@@ -154,6 +154,8 @@ For live evidence, use the Medley RPC bridge:
   60-entry test page. On a 31-row viewport, repeated `gopher-key-down` should
   show `top=0 selected=31` followed by `top=10 selected=32`; this verifies the
   viewport jumps by `MAG-GOPHER-VIEW-JUMP` instead of crawling by one line.
+- `gopher-viewport-status` reports the native C-side Gopher viewport self-test
+  without opening or changing a Gopher window. It should show `status=ok`.
 - `gopher-self-test` creates the local 60-entry test page, checks the shared
   arrow decoder table, drives raw down/up keys through `MAG-GOPHER-HANDLE-KEY`,
   and reports whether the viewport jump and basic movement semantics pass.
@@ -234,6 +236,8 @@ math in draw/input hot paths.
 Local Maiko command `UNIX-HANDLECOMM 44` reports the native terminal arrow
 encoding bytes used by command 25. `key-encode-test` must show key ids 1-4 as
 CSI `A/B/C/D` before changing terminal arrow handling.
+Local Maiko command `UNIX-HANDLECOMM 45` reports a native C-side Mag Gopher
+viewport self-test. `gopher-viewport-status` must show `status=ok`.
 
 - `ping`
 - `debug-report`
@@ -264,6 +268,7 @@ CSI `A/B/C/D` before changing terminal arrow handling.
 - `gopher-reset-draw-stats`
 - `gopher-test-page`
 - `gopher-self-test`
+- `gopher-viewport-status`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`

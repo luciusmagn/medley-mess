@@ -42,6 +42,7 @@ const ALLOWED_REQUESTS = new Set([
   'gopher-reset-draw-stats',
   'gopher-test-page',
   'gopher-self-test',
+  'gopher-viewport-status',
   'gopher-key-up',
   'gopher-key-down',
   'gopher-key-left',
