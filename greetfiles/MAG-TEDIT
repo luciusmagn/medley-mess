@@ -59,22 +59,22 @@
   [LAMBDA NIL
     (OR MAG-TEDIT-STYLE-MENU
         (SETQ MAG-TEDIT-STYLE-MENU
-              (create MENU
-                      TITLE _ "Mag TEdit"
-                      ITEMS _ '(("Heading 1" HEADING1 "Apply heading level 1")
-                                ("Heading 2" HEADING2 "Apply heading level 2")
-                                ("Heading 3" HEADING3 "Apply heading level 3")
-                                ("Normal text" NORMAL "Apply normal body text")
-                                (Code CODE "Apply monospace code style")
-                                (Bold BOLD "Make selection bold")
-                                (Italic ITALIC "Make selection italic")
-                                (Plain PLAIN "Clear Mag style and bold/italic")
-                                ("Save now" SAVE "Save this document"))
-                      CENTERFLG _ T)))])
+	              (create MENU
+	                      TITLE _ "Mag TEdit"
+	                      ITEMS _ '(("Heading 1" 'HEADING1 "Apply heading level 1")
+	                                ("Heading 2" 'HEADING2 "Apply heading level 2")
+	                                ("Heading 3" 'HEADING3 "Apply heading level 3")
+	                                ("Normal text" 'NORMAL "Apply normal body text")
+	                                (Code 'CODE "Apply monospace code style")
+	                                (Bold 'BOLD "Make selection bold")
+	                                (Italic 'ITALIC "Make selection italic")
+	                                (Plain 'PLAIN "Clear Mag style and bold/italic")
+	                                ("Save now" 'SAVE "Save this document"))
+	                      CENTERFLG _ T)))])
 
 (MAG-TEDIT-MENU
   [LAMBDA (TSTREAM)
-    (LET ((ITEM (CAR (MENU (MAG-TEDIT-STYLE-MENU)))))
+    (LET ((ITEM (MENU (MAG-TEDIT-STYLE-MENU))))
       (SELECTQ ITEM
         (SAVE (MAG-TEDIT-SAVE-STREAM TSTREAM))
         ((HEADING1 HEADING2 HEADING3 NORMAL CODE BOLD ITALIC PLAIN)
@@ -139,6 +139,7 @@
   [LAMBDA NIL
     (OR (GETD 'TEDIT)
         (FILESLOAD TEDIT))
+    (SETQ MAG-TEDIT-STYLE-MENU NIL)
     (AND (GETD 'TEDIT.REMOVE.MENUITEM)
          (TEDIT.REMOVE.MENUITEM TEDIT.DEFAULT.MENU 'Mag% Looks))
     (AND (GETD 'TEDIT.ADD.MENUITEM)
