@@ -277,6 +277,11 @@ viewport self-test. `gopher-viewport-status` must show `status=ok`.
 
 Do not add arbitrary `eval FORM` to this poller without isolating it from the
 RPC loop. Direct eval attempts have wedged the poller even on `eval 42`.
+A later file-backed Lisp worker attempt also made the fixed RPC stop answering
+on `(IPLUS 2 3)`. The failed patch is saved as
+`/tmp/mag-eval-worker-failed-20260630.patch` on this machine for reference.
+Future remote eval should be implemented below the cooperative Lisp process
+layer, or with a proven abortable worker, before it is exposed through MCP.
 
 Keep `reload-mag` asynchronous. Loading `MAG-EXTRAS` inside the RPC poller
 itself can redefine/reset the code that is currently handling the request and

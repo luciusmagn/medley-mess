@@ -154,8 +154,11 @@ Current safe request commands:
 - `keys-help`
 
 Arbitrary `eval FORM` is intentionally not part of this poller. Direct eval
-attempts have wedged the RPC loop even on `eval 42`; use a separate
-non-blocking design if a remote REPL is added later.
+attempts have wedged the RPC loop even on `eval 42`. A file-backed Lisp worker
+prototype also made the fixed RPC stop answering on `(IPLUS 2 3)`; the failed
+patch was saved as `/tmp/mag-eval-worker-failed-20260630.patch`. A future
+remote REPL should be implemented below the cooperative Lisp process layer, or
+with a proven abortable worker, before being exposed through MCP.
 
 `performance-report` verifies that the local faster launch configuration is
 active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
