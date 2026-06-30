@@ -160,6 +160,77 @@
       (MAG-GOPHER-REPAINT WINDOW)
       (RETURN (MAG-GOPHER-STATE-REPORT)))])
 
+(MAG-GOPHER-RPC-SELF-TEST
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           WINDOW VISIBLE JUMP N FAIL EXPECTEDSELECTED EXPECTEDTOP
+           SELECTED TOP)
+      (MAG-GOPHER-RPC-TEST-PAGE)
+      (SETQ WINDOW (MAG-GOPHER-ACTIVE-WINDOW))
+      (COND
+        ((NULL WINDOW)
+         (RETURN "FAIL no active Mag Gopher window")))
+      (SETQ VISIBLE (MAG-GOPHER-VISIBLE-COUNT WINDOW))
+      (SETQ JUMP (MAG-GOPHER-VIEW-JUMP WINDOW))
+      (MAG-GOPHER-RPC-WRITE-LINE OUT "Mag Gopher self-test")
+      (MAG-GOPHER-RPC-WRITE-LINE OUT (CONCAT "visible=" VISIBLE " jump=" JUMP))
+      (COND
+        ((AND (EQ (MAG-GOPHER-SPECIAL-KEYID 57344) 4)
+              (EQ (MAG-GOPHER-SPECIAL-KEYID 57345) 3)
+              (EQ (MAG-GOPHER-SPECIAL-KEYID 57346) 1)
+              (EQ (MAG-GOPHER-SPECIAL-KEYID 57347) 2))
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           "ok decoder left=4 right=3 up=1 down=2"))
+        (T
+         (SETQ FAIL T)
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "FAIL decoder left=" (MAG-GOPHER-SPECIAL-KEYID 57344)
+                   " right=" (MAG-GOPHER-SPECIAL-KEYID 57345)
+                   " up=" (MAG-GOPHER-SPECIAL-KEYID 57346)
+                   " down=" (MAG-GOPHER-SPECIAL-KEYID 57347)))))
+      (SETQ N 0)
+    DOWNLOOP
+      (COND
+        ((ILESSP N VISIBLE)
+         (MAG-GOPHER-HANDLE-KEY WINDOW 57347)
+         (SETQ N (ADD1 N))
+         (GO DOWNLOOP)))
+      (SETQ EXPECTEDSELECTED (ADD1 VISIBLE))
+      (SETQ EXPECTEDTOP JUMP)
+      (SETQ SELECTED (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED))
+      (SETQ TOP (WINDOWPROP WINDOW 'MAG-GOPHER-TOP))
+      (COND
+        ((AND (EQ SELECTED EXPECTEDSELECTED)
+              (EQ TOP EXPECTEDTOP))
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "ok down selected=" SELECTED " top=" TOP)))
+        (T
+         (SETQ FAIL T)
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "FAIL down selected=" SELECTED " top=" TOP
+                   " expected-selected=" EXPECTEDSELECTED
+                   " expected-top=" EXPECTEDTOP))))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 2)
+      (MAG-GOPHER-HANDLE-KEY WINDOW 57346)
+      (SETQ SELECTED (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED))
+      (SETQ TOP (WINDOWPROP WINDOW 'MAG-GOPHER-TOP))
+      (COND
+        ((AND (EQ SELECTED 1)
+              (EQ TOP 0))
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "ok up selected=" SELECTED " top=" TOP)))
+        (T
+         (SETQ FAIL T)
+         (MAG-GOPHER-RPC-WRITE-LINE OUT
+           (CONCAT "FAIL up selected=" SELECTED " top=" TOP
+                   " expected-selected=1 expected-top=0"))))
+      (MAG-GOPHER-RPC-WRITE-LINE OUT
+        "action-map left=back right=open up=previous down=next")
+      (MAG-GOPHER-RPC-WRITE-LINE OUT
+        (COND (FAIL "status=FAIL") (T "status=ok")))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
 (MAG-GOPHER-PARSE-INT
   [LAMBDA (STR DEFAULT)
     (PROG ((I 1)

@@ -235,6 +235,11 @@
                        'NAME 'MAG-RPC-GOPHER-TEST)
           "opening Mag Gopher test page")
          (T "MAG-GOPHER-RPC-TEST-PAGE is not loaded")))
+      ((STREQUAL COMMAND "gopher-self-test")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-SELF-TEST)
+          (MAG-GOPHER-RPC-SELF-TEST))
+         (T "MAG-GOPHER-RPC-SELF-TEST is not loaded")))
       ((STREQUAL COMMAND "gopher-key-up")
        (COND
          ((GETD 'MAG-GOPHER-RPC-KEY)

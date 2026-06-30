@@ -106,6 +106,9 @@ For live evidence, use the Medley RPC bridge:
   60-entry test page. On a 31-row viewport, repeated `gopher-key-down` should
   show `top=0 selected=31` followed by `top=10 selected=32`; this verifies the
   viewport jumps by `MAG-GOPHER-VIEW-JUMP` instead of crawling by one line.
+- `gopher-self-test` creates the local 60-entry test page, checks the shared
+  arrow decoder table, drives raw down/up keys through `MAG-GOPHER-HANDLE-KEY`,
+  and reports whether the viewport jump and basic movement semantics pass.
 - `restart-rpc` restarts the Medley-side poller after the current response is
   written. Use it after changing the poll loop itself; ordinary `reload-mag`
   updates dispatch handlers but may not replace an already-running loop frame.
@@ -177,6 +180,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `gopher-keys`
 - `gopher-state`
 - `gopher-test-page`
+- `gopher-self-test`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`

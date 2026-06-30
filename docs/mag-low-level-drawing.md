@@ -87,6 +87,7 @@ Current safe request commands:
 - `gopher-keys`
 - `gopher-state`
 - `gopher-test-page`
+- `gopher-self-test`
 - `gopher-key-up`
 - `gopher-key-down`
 - `gopher-key-left`
