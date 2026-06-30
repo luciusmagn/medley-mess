@@ -78,6 +78,7 @@ Current safe request commands:
 - `debug-report`
 - `write-debug-report`
 - `battery`
+- `who-line-battery`
 - `reload-mag`
 - `open-shell`
 - `restart-rpc`

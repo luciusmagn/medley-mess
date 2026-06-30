@@ -16,6 +16,7 @@ const ALLOWED_REQUESTS = new Set([
   'debug-report',
   'write-debug-report',
   'battery',
+  'who-line-battery',
   'reload-mag',
   'restart-rpc',
   'open-shell',
@@ -80,6 +81,31 @@ function writeAtomic(path, content) {
   fs.renameSync(tmp, path);
 }
 
+function readStableResponse(path, deadline) {
+  let first;
+  let second;
+
+  try {
+    first = fs.statSync(path);
+  } catch {
+    return null;
+  }
+
+  if (first.size === 0) return null;
+  if (Date.now() + 25 >= deadline) return safeRead(path, '');
+
+  sleepMs(25);
+
+  try {
+    second = fs.statSync(path);
+  } catch {
+    return null;
+  }
+
+  if (first.size !== second.size || first.mtimeMs !== second.mtimeMs) return null;
+  return safeRead(path, '');
+}
+
 function requestMedley(command, timeoutMs) {
   if (!ALLOWED_REQUESTS.has(command)) {
     throw new Error(`unsupported request: ${command}`);
@@ -91,8 +117,8 @@ function requestMedley(command, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(RESPONSE_PATH)) {
-      const response = safeRead(RESPONSE_PATH, '');
-      if (response.length === 0 && Date.now() < deadline) {
+      const response = readStableResponse(RESPONSE_PATH, deadline);
+      if (response === null) {
         sleepMs(50);
         continue;
       }

@@ -24,23 +24,54 @@
            (T ""))))
       (T ""))])
 
+(MAG-WHO-LINE-BATTERY-ENTRY
+  [LAMBDA NIL
+    '("Bat" (MAG-WHO-LINE-BATTERY)
+      8 NIL NIL "Battery percentage and charging state")])
+
+(MAG-WHO-LINE-DROP-BATTERY
+  [LAMBDA (ENTRIES)
+    (COND
+      ((NULL ENTRIES)
+       NIL)
+      ((AND (LISTP (CAR ENTRIES))
+            (EQUAL (CAAR ENTRIES) "Bat"))
+       (MAG-WHO-LINE-DROP-BATTERY (CDR ENTRIES)))
+      (T
+       (CONS (CAR ENTRIES)
+             (MAG-WHO-LINE-DROP-BATTERY (CDR ENTRIES)))))])
+
+(MAG-WHO-LINE-BATTERY-INSTALLED-P
+  [LAMBDA NIL
+    (AND (BOUNDP '*WHO-LINE-ENTRIES*)
+         (SASSOC "Bat" *WHO-LINE-ENTRIES*))])
+
+(MAG-WHO-LINE-BATTERY-STATUS
+  [LAMBDA NIL
+    (CONCAT "who-line-battery installed="
+            (COND ((MAG-WHO-LINE-BATTERY-INSTALLED-P) "yes")
+                  (T "no"))
+            " value="
+            (MAG-WHO-LINE-BATTERY))])
+
 (MAG-INSTALL-WHO-LINE-BATTERY
   [LAMBDA NIL
     (NLSETQ (FILESLOAD WHO-LINE))
     (AND (BOUNDP '*WHO-LINE-ENTRIES*)
-         (NOT (SASSOC "Bat" *WHO-LINE-ENTRIES*))
-         (LET ((ENTRY '("Bat" (MAG-WHO-LINE-BATTERY)
-                        8 NIL NIL "Battery percentage and charging state"))
+         (LET ((ENTRY (MAG-WHO-LINE-BATTERY-ENTRY))
+               ENTRIES
                TAIL)
+           (SETQ ENTRIES (MAG-WHO-LINE-DROP-BATTERY *WHO-LINE-ENTRIES*))
            (SETQ TAIL (AND (BOUNDP '*WHO-LINE-TIME-ENTRY*)
-                           (MEMB *WHO-LINE-TIME-ENTRY* *WHO-LINE-ENTRIES*)))
+                           (MEMB *WHO-LINE-TIME-ENTRY* ENTRIES)))
            (SETQ *WHO-LINE-ENTRIES*
                  (COND
-                   (TAIL (APPEND (LDIFF *WHO-LINE-ENTRIES* TAIL)
+                   (TAIL (APPEND (LDIFF ENTRIES TAIL)
                                  (CONS ENTRY TAIL)))
-                   (T (APPEND *WHO-LINE-ENTRIES* (LIST ENTRY)))))
+                   (T (APPEND ENTRIES (LIST ENTRY)))))
            (AND (GETD 'INSTALL-WHO-LINE-OPTIONS)
-                (INSTALL-WHO-LINE-OPTIONS))))])
+                (INSTALL-WHO-LINE-OPTIONS))))
+    (MAG-WHO-LINE-BATTERY-STATUS)])
 
 (MAG-ACTIVATE-ROOMS
   [LAMBDA NIL

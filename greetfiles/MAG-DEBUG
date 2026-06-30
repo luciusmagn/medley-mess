@@ -115,6 +115,13 @@
        (MAG-WHO-LINE-BATTERY))
       (T "battery unavailable"))])
 
+(MAG-DEBUG-RPC-WHO-LINE-BATTERY
+  [LAMBDA NIL
+    (COND
+      ((GETD 'MAG-WHO-LINE-BATTERY-STATUS)
+       (MAG-WHO-LINE-BATTERY-STATUS))
+      (T "who-line battery status unavailable"))])
+
 (MAG-DEBUG-RPC-RELOAD-MAG-WORKER
   [LAMBDA NIL
     (LET ((PATH (CONCAT (OR (UNIX-GETENV "MEDLEYDIR")
@@ -197,6 +204,8 @@
        "wrote /tmp/medley-mag-debug.txt")
       ((STREQUAL COMMAND "battery")
        (MAG-DEBUG-RPC-BATTERY))
+      ((STREQUAL COMMAND "who-line-battery")
+       (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
       ((STREQUAL COMMAND "reload-mag")
        (MAG-DEBUG-RPC-RELOAD-MAG))
       ((STREQUAL COMMAND "restart-rpc")

@@ -167,6 +167,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `debug-report`
 - `write-debug-report`
 - `battery`
+- `who-line-battery`
 - `reload-mag`
 - `restart-rpc`
 - `open-shell`
