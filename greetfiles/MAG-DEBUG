@@ -1,0 +1,388 @@
+(DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
+
+(FILESLOAD RECORD)
+(FILESLOAD CHATDECLS)
+(RPAQQ MAG-DEBUG-RPC-PROCESS NIL)
+
+(DEFINEQ
+
+(MAG-DEBUG-AVAILABLEP
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
+      (AND MAXCOMMAND (IGEQ MAXCOMMAND 38)))])
+
+(MAG-DEBUG-REPORT
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (COND
+      ((MAG-DEBUG-AVAILABLEP)
+       (LET ((BUFFER (NCREATE 'VMEMPAGEP))
+             LEN)
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 38 BUFFER))
+         (COND
+           ((AND LEN (IGREATERP LEN 0))
+            (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+           (T "mag-debug unavailable"))))
+      (T "mag-debug unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 38"))])
+
+(MAG-DEBUG-SPLIT-LINES
+  [LAMBDA (TEXT)
+    (PROG ((I 1)
+           (START 1)
+           (LEN (AND TEXT (NCHARS TEXT)))
+           (LINES NIL)
+           CH)
+      (COND
+        ((NULL TEXT)
+         (RETURN '(""))))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN (DREVERSE (CONS (COND
+                                    ((ILEQ START LEN)
+                                     (SUBSTRING TEXT START LEN))
+                                    (T ""))
+                                  LINES)))))
+      (SETQ CH (NTHCHARCODE TEXT I))
+      (COND
+        ((EQ CH 10)
+         (SETQ LINES (CONS (COND
+                              ((ILESSP START I)
+                               (SUBSTRING TEXT START (SUB1 I)))
+                              (T ""))
+                            LINES))
+         (SETQ START (ADD1 I))))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-DEBUG-SHOW
+  [LAMBDA NIL
+    (LET ((WINDOW (CREATEW (MAG-CHAT-REGION) "Mag Debug"))
+          (REPORT (MAG-DEBUG-REPORT)))
+      (MODERNWINDOW WINDOW)
+      (MAG-WRITE-UTF8-TEXT-FILE "/tmp/medley-mag-debug.txt" REPORT)
+      (MAG-WINDOW-DRAW-LINES WINDOW (MAG-DEBUG-SPLIT-LINES REPORT))
+      WINDOW)])
+
+(MAG-DEBUG-WRITE-REPORT
+  [LAMBDA (PATH)
+    (MAG-WRITE-UTF8-TEXT-FILE (OR PATH "/tmp/medley-mag-debug.txt")
+                              (MAG-DEBUG-REPORT))])
+
+(MAG-DEBUG-RPC-AVAILABLEP
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
+      (AND MAXCOMMAND (IGEQ MAXCOMMAND 39)))])
+
+(MAG-DEBUG-RPC-TRIM-RIGHT
+  [LAMBDA (TEXT)
+    (PROG ((END (AND TEXT (NCHARS TEXT)))
+           CH)
+      (COND
+        ((NULL TEXT)
+         (RETURN "")))
+    LP
+      (COND
+        ((ILEQ END 0)
+         (RETURN "")))
+      (SETQ CH (NTHCHARCODE TEXT END))
+      (COND
+        ((OR (EQ CH 0) (EQ CH 9) (EQ CH 10) (EQ CH 13) (EQ CH 32))
+         (SETQ END (SUB1 END))
+         (GO LP)))
+      (RETURN (SUBSTRING TEXT 1 END)))])
+
+(MAG-DEBUG-RPC-READ
+  [LAMBDA NIL
+    (COND
+      ((MAG-DEBUG-RPC-AVAILABLEP)
+       (LET ((BUFFER (NCREATE 'VMEMPAGEP))
+             LEN)
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 39 BUFFER))
+         (AND LEN
+              (IGREATERP LEN 0)
+              (MAG-DEBUG-RPC-TRIM-RIGHT
+                (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN)))))
+      (T NIL))])
+
+(MAG-DEBUG-RPC-BATTERY
+  [LAMBDA NIL
+    (COND
+      ((AND (GETD 'MAG-WHO-LINE-BATTERY)
+            (MAG-WHO-LINE-BATTERY))
+       (MAG-WHO-LINE-BATTERY))
+      (T "battery unavailable"))])
+
+(MAG-DEBUG-RPC-RELOAD-MAG-WORKER
+  [LAMBDA NIL
+    (LET ((PATH (CONCAT (OR (UNIX-GETENV "MEDLEYDIR")
+                            "/home/mag/src/medley")
+                        "/greetfiles/MAG-EXTRAS")))
+      (NLSETQ (LOAD PATH T)))])
+
+(MAG-DEBUG-RPC-RELOAD-MAG
+  [LAMBDA NIL
+    (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-RELOAD-MAG-WORKER))
+                 'NAME 'MAG-RPC-RELOAD)
+    "reloading MAG-EXTRAS"])
+
+(MAG-DEBUG-RPC-RESTART-WORKER
+  [LAMBDA (OLD)
+    (BLOCK 1000)
+    (COND
+      ((AND OLD (PROCESSP OLD))
+       (DEL.PROCESS OLD)))
+    (SETQ MAG-DEBUG-RPC-PROCESS NIL)
+    (MAG-DEBUG-RPC-START)])
+
+(MAG-DEBUG-RPC-RESTART
+  [LAMBDA NIL
+    (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-RESTART-WORKER)
+                       MAG-DEBUG-RPC-PROCESS)
+                 'NAME 'MAG-RPC-RESTART)
+    "restarting Mag RPC"])
+
+(MAG-DEBUG-RPC-OPEN-SHELL
+  [LAMBDA NIL
+    (COND
+      ((GETD 'MAG-SHELL)
+       (ADD.PROCESS (LIST (FUNCTION MAG-SHELL)) 'NAME 'MAG-RPC-SHELL)
+       "opening Mag Shell")
+      (T "MAG-SHELL is not loaded"))])
+
+(MAG-DEBUG-RPC-KEYS-TEST-LINE
+  [LAMBDA (OUT LABEL CH)
+    (LET ((KEYID (MAG-VTERM-SPECIAL-KEYID CH)))
+      (MAG-STRING-OUTPUT
+        (CONCAT LABEL
+                " raw=" CH
+                " high=" (LRSH CH 8)
+                " low=" (LOGAND CH 255)
+                " key-id=" (OR KEYID "none")
+                " name=" (MAG-DEBUG-KEYID-NAME KEYID))
+        OUT)
+      (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT))])
+
+(MAG-DEBUG-RPC-KEYS-TEST
+  [LAMBDA NIL
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+      (MAG-STRING-OUTPUT "Mag key decoder test" OUT)
+      (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "direct-left" 57344)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "direct-right" 57345)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "direct-up" 57346)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "direct-down" 57347)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-up-82" 338)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-down-69" 325)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-right-87" 343)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-left-84" 340)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-left-129" 385)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-up-130" 386)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-down-131" 387)
+      (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-right-132" 388)
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
+
+(MAG-DEBUG-RPC-DISPATCH
+  [LAMBDA (COMMAND)
+    (SETQ COMMAND (MAG-DEBUG-RPC-TRIM-RIGHT COMMAND))
+    (COND
+      ((STREQUAL COMMAND "ping")
+       "pong")
+      ((STREQUAL COMMAND "debug-report")
+       (MAG-DEBUG-REPORT))
+      ((STREQUAL COMMAND "write-debug-report")
+       (MAG-DEBUG-WRITE-REPORT NIL)
+       "wrote /tmp/medley-mag-debug.txt")
+      ((STREQUAL COMMAND "battery")
+       (MAG-DEBUG-RPC-BATTERY))
+      ((STREQUAL COMMAND "reload-mag")
+       (MAG-DEBUG-RPC-RELOAD-MAG))
+      ((STREQUAL COMMAND "restart-rpc")
+       (MAG-DEBUG-RPC-RESTART))
+      ((STREQUAL COMMAND "open-shell")
+       (MAG-DEBUG-RPC-OPEN-SHELL))
+      ((STREQUAL COMMAND "shell-state")
+       (COND
+         ((GETD 'MAG-VTERM-STATE-REPORT)
+          (MAG-VTERM-STATE-REPORT))
+         (T "MAG-VTERM-STATE-REPORT is not loaded")))
+      ((STREQUAL COMMAND "open-gopher")
+       (COND
+         ((GETD 'MAG-GOPHER)
+          (ADD.PROCESS (LIST (FUNCTION MAG-GOPHER)) 'NAME 'MAG-RPC-GOPHER)
+          "opening Mag Gopher")
+         (T "MAG-GOPHER is not loaded")))
+      ((STREQUAL COMMAND "gopher-state")
+       (COND
+         ((GETD 'MAG-GOPHER-STATE-REPORT)
+          (MAG-GOPHER-STATE-REPORT))
+         (T "MAG-GOPHER-STATE-REPORT is not loaded")))
+      ((STREQUAL COMMAND "gopher-test-page")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-TEST-PAGE)
+          (ADD.PROCESS (LIST (FUNCTION MAG-GOPHER-RPC-TEST-PAGE))
+                       'NAME 'MAG-RPC-GOPHER-TEST)
+          "opening Mag Gopher test page")
+         (T "MAG-GOPHER-RPC-TEST-PAGE is not loaded")))
+      ((STREQUAL COMMAND "gopher-key-up")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-KEY)
+          (MAG-GOPHER-RPC-KEY 57346))
+         (T "MAG-GOPHER-RPC-KEY is not loaded")))
+      ((STREQUAL COMMAND "gopher-key-down")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-KEY)
+          (MAG-GOPHER-RPC-KEY 57347))
+         (T "MAG-GOPHER-RPC-KEY is not loaded")))
+      ((STREQUAL COMMAND "gopher-key-left")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-KEY)
+          (MAG-GOPHER-RPC-KEY 57344))
+         (T "MAG-GOPHER-RPC-KEY is not loaded")))
+      ((STREQUAL COMMAND "gopher-key-right")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-KEY)
+          (MAG-GOPHER-RPC-KEY 57345))
+         (T "MAG-GOPHER-RPC-KEY is not loaded")))
+      ((STREQUAL COMMAND "keys-test")
+       (MAG-DEBUG-RPC-KEYS-TEST))
+      ((STREQUAL COMMAND "gopher-keys")
+       (COND
+         ((GETD 'MAG-GOPHER-KEY-LOG-REPORT)
+          (MAG-GOPHER-KEY-LOG-REPORT))
+         (T "MAG-GOPHER-KEY-LOG-REPORT is not loaded")))
+      ((STREQUAL COMMAND "keys-help")
+       "Use the Mag Keys background menu entry to inspect raw Medley key codes.")
+      (T
+       (CONCAT "unknown request: " COMMAND)))])
+
+(MAG-DEBUG-RPC-WRITE-RESPONSE
+  [LAMBDA (TEXT)
+    (MAG-WRITE-UTF8-TEXT-FILE "/tmp/medley-mag-response"
+                              (OR TEXT ""))])
+
+(MAG-DEBUG-RPC-LOOP
+  [LAMBDA NIL
+    (PROG (COMMAND RESPONSE)
+    LP
+      (SETQ COMMAND (MAG-DEBUG-RPC-READ))
+      (COND
+        (COMMAND
+         (SETQ RESPONSE
+               (CAR (NLSETQ (MAG-DEBUG-RPC-DISPATCH COMMAND))))
+         (MAG-DEBUG-RPC-WRITE-RESPONSE
+           (OR RESPONSE (CONCAT "request failed: " COMMAND)))))
+      (BLOCK 100)
+      (GO LP))])
+
+(MAG-DEBUG-RPC-START
+  [LAMBDA NIL
+    (COND
+      ((AND MAG-DEBUG-RPC-PROCESS
+            (PROCESSP MAG-DEBUG-RPC-PROCESS))
+       MAG-DEBUG-RPC-PROCESS)
+      ((MAG-DEBUG-RPC-AVAILABLEP)
+       (SETQ MAG-DEBUG-RPC-PROCESS
+             (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-LOOP))
+                          'NAME 'MAG-DEBUG-RPC))
+       MAG-DEBUG-RPC-PROCESS)
+      (T NIL))])
+
+(MAG-DEBUG-KEYID-NAME
+  [LAMBDA (KEYID)
+    (SELECTQ KEYID
+      (1 "up")
+      (2 "down")
+      (3 "right")
+      (4 "left")
+      (5 "home")
+      (6 "end")
+      (7 "page-up")
+      (8 "page-down")
+      (9 "delete")
+      (10 "insert")
+      (11 "backspace")
+      (12 "return")
+      (13 "escape")
+      (14 "tab")
+      (NIL "none")
+      "other")])
+
+(MAG-DEBUG-KEY-PROBE-LINES
+  [LAMBDA (CH)
+    (LET ((KEYID (AND CH (MAG-VTERM-SPECIAL-KEYID CH))))
+      (LIST "Mag Key Probe"
+            "Press keys to inspect raw Medley key codes.  Press q to close."
+            ""
+            (COND
+              (CH (CONCAT "raw=" CH
+                          "  high=" (LRSH CH 8)
+                          "  low=" (LOGAND CH 255)))
+              (T "raw=<none>"))
+            (CONCAT "terminal-key-id=" (OR KEYID "none")
+                    "  name=" (MAG-DEBUG-KEYID-NAME KEYID))
+            ""
+            "Verified arrow key-id convention:"
+            "up=1  down=2  right=3  left=4"))])
+
+(MAG-DEBUG-KEY-PROBE-DRAW
+  [LAMBDA (WINDOW CH)
+    (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-LAST CH)
+    (MAG-WINDOW-DRAW-LINES WINDOW (MAG-DEBUG-KEY-PROBE-LINES CH))])
+
+(MAG-DEBUG-KEY-PROBE-TYPEIN
+  [LAMBDA (WINDOW)
+    (PROG (CH)
+      (while (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-RUNNING)
+        do (OR (TTY.PROCESSP)
+               (\WAIT.FOR.TTY))
+           (COND
+             ((\SYSBUFP)
+              (do (SETQ CH (MTOUCODE (\GETKEY)))
+                  (COND
+                    ((EQ CH 113)
+                     (CLOSEW WINDOW))
+                    (T (MAG-DEBUG-KEY-PROBE-DRAW WINDOW CH)))
+                repeatwhile (AND (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-RUNNING)
+                                 (\SYSBUFP)))))
+           (BLOCK))
+      (BLOCK))])
+
+(MAG-DEBUG-KEY-PROBE-BUTTONFN
+  [LAMBDA (WINDOW)
+    (TOTOPW WINDOW)
+    (COND
+      ((PROCESSP (WINDOWPROP WINDOW 'PROCESS))
+       (TTY.PROCESS (WINDOWPROP WINDOW 'PROCESS))))])
+
+(MAG-DEBUG-KEY-PROBE-CLOSEFN
+  [LAMBDA (WINDOW)
+    (PROG ((PROC (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-PROCESS NIL)))
+      (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-RUNNING NIL)
+      (COND
+        (PROC (DEL.PROCESS PROC)))
+      (COND
+        ((SETQ PROC (WINDOWPROP WINDOW 'PROCESS NIL))
+         (DEL.PROCESS PROC))))])
+
+(MAG-DEBUG-KEY-PROBE
+  [LAMBDA NIL
+    (PROG ((WINDOW (CREATEW (MAG-CHAT-REGION) "Mag Keys"))
+           PROC)
+      (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-RUNNING T)
+      (WINDOWPROP WINDOW 'BUTTONEVENTFN (FUNCTION MAG-DEBUG-KEY-PROBE-BUTTONFN))
+      (WINDOWPROP WINDOW 'WINDOWENTRYFN 'GIVE.TTY.PROCESS)
+      (WINDOWADDPROP WINDOW 'CLOSEFN (FUNCTION MAG-DEBUG-KEY-PROBE-CLOSEFN))
+      (MODERNWINDOW WINDOW)
+      (MAG-DEBUG-KEY-PROBE-DRAW WINDOW NIL)
+      (SETQ PROC (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-KEY-PROBE-TYPEIN) WINDOW)
+                              'NAME 'MAG-DEBUG-KEY-PROBE))
+      (WINDOWPROP WINDOW 'PROCESS PROC)
+      (WINDOWPROP WINDOW 'MAG-DEBUG-KEY-PROCESS PROC)
+      (TTY.PROCESS PROC)
+      (RETURN WINDOW))])
+)
+
+STOP

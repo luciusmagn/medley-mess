@@ -1,119 +1,217 @@
 (DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
 
+(FILESLOAD RECORD)
+
 (DEFINEQ
 
-(MAG-EXEC-REGION
+(MAG-EXTRAS-PATH
   [LAMBDA NIL
-    (CREATEREGION 8 96 (IDIFFERENCE SCREENWIDTH 16)
-                  (IDIFFERENCE SCREENHEIGHT 128))])
+    (CONCAT (OR (UNIX-GETENV "MEDLEYDIR")
+                "/home/mag/src/medley")
+            "/greetfiles/MAG-EXTRAS")])
 
-(MAG-PROMPT-REGION
+(MAG-LOAD-EXTRAS
   [LAMBDA NIL
-    (CREATEREGION 8 8 (IDIFFERENCE SCREENWIDTH 16) 72)])
+    (OR (MAG-EXTRAS-LOADED-P)
+        (LOAD (MAG-EXTRAS-PATH) T))
+    (MAG-EXTRAS-LOADED-P)])
 
-(MAG-CHAT-REGION
+(MAG-EXTRAS-LOADED-P
   [LAMBDA NIL
-    (CREATEREGION 8 8 (IDIFFERENCE SCREENWIDTH 16)
-                  (IDIFFERENCE SCREENHEIGHT 48))])
+    (AND (GETD 'MAG-SHELL)
+	         (GETD 'MAG-CODEX)
+		         (GETD 'MAG-RUN)
+		         (GETD 'MAG-GOPHER)
+		         (GETD 'MAG-DEBUG-SHOW)
+		         (GETD 'MAG-DEBUG-KEY-PROBE)
+		         (GETD 'MAG-DEBUG-RPC-START)
+		         (GETD 'MAG-INSTALL-WHO-LINE-BATTERY)
+		         (GETD 'MAG-VTERM-CSI-RESET)
+		         (GETD 'MAG-GHOSTTY-REFRESH)
+	         (GETD 'MAG-GOPHER-HANDLE-KEY))])
 
-(MAG-LOCAL-SHELL-STREAM
-  [LAMBDA (TERMTYPE COMMAND)
-    (LET ((STR (CREATE-SHELL-STREAM TERMTYPE COMMAND)))
-      (AND STR
-           (PROGN
-             (STREAMPROP STR 'SETDISPLAYTYPE (FUNCTION NILL))
-             STR)))])
-
-(MAG-LAYOUT-WINDOWS
+(MAG-APPS-INIT
   [LAMBDA NIL
-    (SETQ CHAT.WINDOW.REGION (MAG-CHAT-REGION))
-    (SETQ CHAT.WINDOW.SIZE NIL)
-    [MAPC (OPENWINDOWS)
-          (FUNCTION
-            (LAMBDA (W)
-              (COND
-                ((STREQUAL (WINDOWPROP W 'TITLE) "Prompt Window")
-                 (PROGN
-                   (SHAPEW W (MAG-PROMPT-REGION))
-                   (CLEARW W)))
-                ((AND (STRINGP (WINDOWPROP W 'TITLE))
-                      (STRPOS "Exec" (WINDOWPROP W 'TITLE)))
-                 (PROGN
-                   (WINDOWPROP W 'TITLE "Exec  (INTERLISP)")
-                   (SHAPEW W (MAG-EXEC-REGION))))
-                ((WINDOWPROP W 'CHATSTATE)
-                 (SHAPEW W (MAG-CHAT-REGION))))))]])
+    (OR (GETD 'Apps.DoInit)
+        (LOAD (CONCAT (OR (UNIX-GETENV "MEDLEYDIR")
+                          "/home/mag/src/medley")
+                      "/greetfiles/APPS-INIT")))
+    (AND (GETD 'Apps.DoInit)
+         (NLSETQ (Apps.DoInit)))
+    (AND (GETD 'Apps.ActivateRooms)
+         (NLSETQ (Apps.ActivateRooms T)))
+    (AND (GETD 'Apps.InitNotecards)
+         (NLSETQ (Apps.InitNotecards T)))])
 
-(MAG-ENSURE-VTCHAT
+(MAG-DISPATCH
+  [LAMBDA (FN)
+    (MAG-LOAD-EXTRAS)
+    (COND
+      ((GETD FN) (APPLY* FN))
+      (T (PROMPTPRINT "Mag extras failed to load")))])
+
+(MAG-FIND-BUTTON
+  [LAMBDA (LABEL)
+    (AND (BOUNDP '*ALL-BUTTONS*)
+         (for B in *ALL-BUTTONS* thereis
+           (AND (OR (AND (GETD 'BUTTON-LABEL)
+                         (EQUAL LABEL (BUTTON-LABEL B)))
+                    (EQUAL LABEL (WINDOWPROP B 'BUTTON-LABEL)))
+                B)))])
+
+(MAG-SHOW-DOC
+  [LAMBDA (URL)
+    (ShellBrowse URL)])
+
+(MAG-CREATE-BUTTON-IF-MISSING
+  [LAMBDA (LABEL FORM X Y)
+    (OR (MAG-FIND-BUTTON LABEL)
+        (AND (GETD 'CREATE-BUTTON)
+             (CREATE-BUTTON FORM LABEL
+                            (create POSITION XCOORD _ X YCOORD _ Y))))])
+
+(MAG-CREATE-STARTUP-BUTTONS
   [LAMBDA NIL
-    (FILESLOAD UNIXCHAT)
-    [OR (GETD 'VTCHAT.STATE)
-        (FILESLOAD VTCHAT)]
-    [OR (ASSOC 'MSHELL CHAT.PROTOCOLTYPES)
-        (SETQ CHAT.PROTOCOLTYPES
-              (CONS '(MSHELL . MAG-MSHELL-HOST-FILTER)
-                    CHAT.PROTOCOLTYPES))]
-    [OR (ASSOC 'CODEX CHAT.PROTOCOLTYPES)
-        (SETQ CHAT.PROTOCOLTYPES
-              (CONS '(CODEX . MAG-CODEX-HOST-FILTER)
-                    CHAT.PROTOCOLTYPES))]
-    [OR (CL:ASSOC "MSHELL" CHAT.HOST.TO.PROTOCOL :TEST 'STRING-EQUAL)
-        (SETQ CHAT.HOST.TO.PROTOCOL
-              (CONS '(MSHELL . MSHELL) CHAT.HOST.TO.PROTOCOL))]
-    [OR (CL:ASSOC "CODEX" CHAT.HOST.TO.PROTOCOL :TEST 'STRING-EQUAL)
-        (SETQ CHAT.HOST.TO.PROTOCOL
-              (CONS '(CODEX . CODEX) CHAT.HOST.TO.PROTOCOL))]
-    (SETQ CHAT.DISPLAYTYPES '((SHELL NIL VT100) (MSHELL NIL VT100) (CODEX NIL VT100) (NIL NIL VT100)))
-    (MAG-LAYOUT-WINDOWS)])
+    (LET ((X (IDIFFERENCE SCREENWIDTH 140)))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "BASICS"
+        '(MAG-SHOW-DOC "https://interlisp.org/docs/medley/orientation/")
+        X
+        (IDIFFERENCE SCREENHEIGHT 280))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "PRIMER"
+        '(MAG-SHOW-DOC "https://primer.interlisp.org/")
+        X
+        (IDIFFERENCE SCREENHEIGHT 335))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "MANUAL"
+        '(MAG-SHOW-DOC "https://interlisp.org/documentation/IRM.pdf")
+        X
+        (IDIFFERENCE SCREENHEIGHT 390))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "ROOMS DOC"
+        '(MAG-SHOW-DOC "https://interlisp.org/documentation/ROOMSTECHDESC.pdf")
+        X
+        (IDIFFERENCE SCREENHEIGHT 445))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "NOTES DOC"
+        '(MAG-SHOW-DOC "https://interlisp.org/documentation/Notecards-User-Guide-v2.0.pdf")
+        X
+        (IDIFFERENCE SCREENHEIGHT 500))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "ROOMS"
+        '(MAG-ACTIVATE-ROOMS)
+        X
+        (IDIFFERENCE SCREENHEIGHT 610))
+      (MAG-CREATE-BUTTON-IF-MISSING
+        "NOTECARDS"
+        '(MAG-ACTIVATE-NOTECARDS)
+        X
+        (IDIFFERENCE SCREENHEIGHT 665)))])
 
-(MAG-MSHELL-HOST-FILTER
-  [LAMBDA (HOST)
-    (if (AND (EQ \MACHINETYPE \MAIKO)
-             (STRING.EQUAL HOST "MSHELL"))
-        then (QUOTE (MSHELL MAG-MSHELL-OPEN)))])
+(MAG-CALL-PACKAGE-FN
+  [LAMBDA (PACKAGE NAME)
+    (LET* ((PKG (CL:FIND-PACKAGE PACKAGE))
+           (SYM (AND PKG (CL:FIND-SYMBOL NAME PKG))))
+      (AND SYM
+           (CL:FBOUNDP SYM)
+           (CL:FUNCALL SYM)))])
 
-(MAG-MSHELL-OPEN
-  [LAMBDA (HOST TERMTYPE LOGOPTION)
-    (AND (EQ \MACHINETYPE \MAIKO)
-         (LET ((STR (MAG-LOCAL-SHELL-STREAM TERMTYPE NIL)))
-           (AND STR
-                (LIST STR STR (QUOTE LOGOPTION) (QUOTE NONE)))))])
-
-(MAG-CODEX-HOST-FILTER
-  [LAMBDA (HOST)
-    (if (AND (EQ \MACHINETYPE \MAIKO)
-             (STRING.EQUAL HOST "CODEX"))
-        then (QUOTE (CODEX MAG-CODEX-OPEN)))])
-
-(MAG-CODEX-OPEN
-  [LAMBDA (HOST TERMTYPE LOGOPTION)
-    (AND (EQ \MACHINETYPE \MAIKO)
-         (LET ((STR (MAG-LOCAL-SHELL-STREAM TERMTYPE "medley-codex")))
-           (AND STR
-                (LIST STR STR (QUOTE LOGOPTION) (QUOTE NONE)))))])
-
-(MAG-SHELL
+(MAG-ACTIVATE-ROOMS
   [LAMBDA NIL
-    (MAG-ENSURE-VTCHAT)
-    (CHAT "MSHELL" 'NONE NIL NIL NIL])
+    (OR (CAR (NLSETQ (MAG-CALL-PACKAGE-FN "ROOMS" "RESET")))
+        (PROMPTPRINT "Rooms are not available in this sysout"))])
 
-(MAG-CODEX
+(MAG-ACTIVATE-NOTECARDS
   [LAMBDA NIL
-    (MAG-ENSURE-VTCHAT)
-    (CHAT "CODEX" 'NONE NIL NIL NIL])
+    (AND (GETD 'NC.SetUpNOTECARDSDIRECTORIES)
+         (UNIX-GETENV "NOTECARDSDIR")
+         (NLSETQ (NC.SetUpNOTECARDSDIRECTORIES
+                   (CONCAT (UNIX-GETENV "NOTECARDSDIR") "/"))))
+    (OR (AND (GETD 'NC.BringUpNoteCardsIcon)
+             (CAR (NLSETQ
+                    (NC.BringUpNoteCardsIcon
+                      (create POSITION
+                              XCOORD _ (IDIFFERENCE SCREENWIDTH 220)
+                              YCOORD _ 80)))))
+        (PROMPTPRINT "NoteCards are not available in this sysout"))])
+
+(MAG-BOOT-SHELL
+  [LAMBDA NIL
+    (MAG-DISPATCH 'MAG-SHELL)])
+
+(MAG-BOOT-CODEX
+  [LAMBDA NIL
+    (MAG-DISPATCH 'MAG-CODEX)])
+
+(MAG-BOOT-RUN
+  [LAMBDA NIL
+    (MAG-DISPATCH 'MAG-RUN)])
+
+(MAG-BOOT-GOPHER
+  [LAMBDA NIL
+    (MAG-DISPATCH 'MAG-GOPHER)])
+
+(MAG-BOOT-DEBUG
+  [LAMBDA NIL
+    (MAG-DISPATCH 'MAG-DEBUG-SHOW)])
+
+(MAG-BOOT-KEYS
+  [LAMBDA NIL
+    (MAG-DISPATCH 'MAG-DEBUG-KEY-PROBE)])
+
+(MAG-LOGOUT
+  [LAMBDA NIL
+    (LOGOUT)])
+
+(MAG-STARTUP-INIT
+  [LAMBDA NIL
+    (NLSETQ (MAG-LOAD-EXTRAS))
+    (NLSETQ (MAG-APPS-INIT))
+    (AND (GETD 'MAG-INSTALL-WHO-LINE-BATTERY)
+         (NLSETQ (MAG-INSTALL-WHO-LINE-BATTERY)))
+    (AND (GETD 'MAG-WRITE-UTF8-TEXT-FILE)
+         (NLSETQ
+           (MAG-WRITE-UTF8-TEXT-FILE
+             "/tmp/medley-mag-startup.txt"
+             (CONCAT "mag startup\n"
+                     "rpc-function="
+                     (COND ((GETD 'MAG-DEBUG-RPC-START) "yes") (T "no"))
+                     "\nmax-command="
+                     (SUBRCALL UNIX-HANDLECOMM 8)
+                     "\n"))))
+    (AND (GETD 'MAG-DEBUG-RPC-START)
+         (NLSETQ (MAG-DEBUG-RPC-START)))
+    [OR (SASSOC "Mag Shell" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Shell" '(MAG-BOOT-SHELL)
+                                                     "Open a local shell rendered in a Medley window"))]
+    [OR (SASSOC "Mag Codex" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Codex" '(MAG-BOOT-CODEX)
+                                                     "Open Codex rendered in a Medley window"))]
+    [OR (SASSOC "Mag Run..." BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Run..." '(MAG-BOOT-RUN)
+                                                     "Prompt for a command and render it in a Medley terminal window"))]
+    [OR (SASSOC "Mag Gopher" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Gopher" '(MAG-BOOT-GOPHER)
+                                                      "Open the gopher client rendered in a Medley window"))]
+    [OR (SASSOC "Mag Debug" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Debug" '(MAG-BOOT-DEBUG)
+                                                     "Show Maiko/Medley Mag debug status"))]
+    [OR (SASSOC "Mag Keys" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Keys" '(MAG-BOOT-KEYS)
+                                                    "Inspect raw Medley key codes and Mag terminal key ids"))]
+    [OR (SASSOC "Mag Logout" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Logout" '(MAG-LOGOUT)
+                                                      "Save the Medley virtual memory image and exit"))]
+    (SETQ BackgroundMenu NIL)
+    T])
 )
 
+(NLSETQ (MAG-STARTUP-INIT))
+
 [COND
-   ((STKPOS 'GREET)
-    (SETQ USERGREETFILES NIL)
-    [OR (SASSOC "Mag Shell" BackgroundMenuCommands)
-        (NCONC1 BackgroundMenuCommands '("Mag Shell" '(MAG-SHELL)
-                                                     "Open a local VT100 Unix shell in a CHAT window"))]
-    [OR (SASSOC "Mag Codex" BackgroundMenuCommands)
-        (NCONC1 BackgroundMenuCommands '("Mag Codex" '(MAG-CODEX)
-                                                     "Open Codex in a local VT100 shell without alternate screen"))]
-    (SETQ BackgroundMenu NIL)
-    (MAG-LAYOUT-WINDOWS)
-    (CLOSEF? (INPUT))
-    (RETFROM 'GREET]
+	   ((STKPOS 'GREET)
+	    (SETQ USERGREETFILES NIL)
+	    (CLOSEF? (INPUT))
+	    (RETFROM 'GREET))]
 STOP

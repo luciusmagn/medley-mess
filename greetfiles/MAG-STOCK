@@ -1,0 +1,217 @@
+(DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
+
+(FILESLOAD RECORD)
+(FILESLOAD CHATDECLS)
+
+(DEFINEQ
+
+(MAG-BATTERY-AVAILABLEP
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
+      (AND MAXCOMMAND (IGEQ MAXCOMMAND 34)))])
+
+(MAG-WHO-LINE-BATTERY
+  [LAMBDA NIL
+    (COND
+      ((MAG-BATTERY-AVAILABLEP)
+       (LET ((BUFFER (NCREATE 'VMEMPAGEP))
+             LEN)
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 34 BUFFER))
+         (COND
+           ((AND LEN (IGREATERP LEN 0))
+            (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+           (T ""))))
+      (T ""))])
+
+(MAG-INSTALL-WHO-LINE-BATTERY
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD WHO-LINE))
+    (AND (BOUNDP '*WHO-LINE-ENTRIES*)
+         (NOT (SASSOC "Bat" *WHO-LINE-ENTRIES*))
+         (LET ((ENTRY '("Bat" (MAG-WHO-LINE-BATTERY)
+                        8 NIL NIL "Battery percentage and charging state"))
+               TAIL)
+           (SETQ TAIL (AND (BOUNDP '*WHO-LINE-TIME-ENTRY*)
+                           (MEMB *WHO-LINE-TIME-ENTRY* *WHO-LINE-ENTRIES*)))
+           (SETQ *WHO-LINE-ENTRIES*
+                 (COND
+                   (TAIL (APPEND (LDIFF *WHO-LINE-ENTRIES* TAIL)
+                                 (CONS ENTRY TAIL)))
+                   (T (APPEND *WHO-LINE-ENTRIES* (LIST ENTRY)))))
+           (AND (GETD 'INSTALL-WHO-LINE-OPTIONS)
+                (INSTALL-WHO-LINE-OPTIONS))))])
+
+(MAG-ACTIVATE-ROOMS
+  [LAMBDA NIL
+    (MAG-ACTIVATE-ROOMS-INTERNAL)
+    (MAG-CREATE-APP-BUTTONS)])
+
+(MAG-ACTIVATE-NOTECARDS
+  [LAMBDA NIL
+    (MAG-SAFE-ACTIVATE-NOTECARDS NIL)
+    (MAG-CREATE-APP-BUTTONS)])
+
+(MAG-CALL-PACKAGE-FN
+  [LAMBDA (PACKAGE NAME ARGS)
+    (CL:MULTIPLE-VALUE-BIND (SYM STATUS)
+        (CL:FIND-SYMBOL NAME PACKAGE)
+      (AND SYM
+           (CL:FBOUNDP SYM)
+           (CL:APPLY SYM ARGS)))])
+
+(MAG-ACTIVATE-ROOMS-INTERNAL
+  [LAMBDA NIL
+    (OR (AND (BOUNDP 'MAG-ROOMS-ACTIVATED)
+             MAG-ROOMS-ACTIVATED)
+        (CAR (NLSETQ
+               (PROGN
+                 (MAG-CALL-PACKAGE-FN "ROOMS" "RESET" NIL)
+                 (SETQ MAG-ROOMS-ACTIVATED T)))))])
+
+(MAG-NOTECARDS-DIR
+  [LAMBDA NIL
+    (OR (UNIX-GETENV 'NOTEFILESDIR)
+        (AND (BOUNDP 'LOGINDIR)
+             LOGINDIR
+             (CONCAT LOGINDIR "notefiles")))])
+
+(MAG-NOTECARDS-DIR-READY
+  [LAMBDA NIL
+    (LET ((DIR (MAG-NOTECARDS-DIR)))
+      (AND DIR
+           (CAR (NLSETQ (DIRECTORYNAME DIR)))))])
+
+(MAG-SAFE-ACTIVATE-NOTECARDS
+  [LAMBDA (DO-NOT-REFRESH)
+    (COND
+      ((MAG-NOTECARDS-DIR-READY)
+       (CAR (NLSETQ
+              (PROGN
+                (AND (GETD 'NC.SetUpNOTECARDSDIRECTORIES)
+                     (UNIX-GETENV "NOTECARDSDIR")
+                     (NC.SetUpNOTECARDSDIRECTORIES
+                       (CONCAT (UNIX-GETENV "NOTECARDSDIR") "/")))
+                (AND (GETD 'NC.BringUpNoteCardsIcon)
+                     (NC.BringUpNoteCardsIcon
+                       (create POSITION
+                               XCOORD _ (IDIFFERENCE SCREENWIDTH 220)
+                               YCOORD _ 80)))
+                (SETQ MAG-NOTECARDS-ACTIVATED T)
+                (AND (NOT DO-NOT-REFRESH)
+                     (MAG-CREATE-APP-BUTTONS))
+                T))))
+      (T
+       NIL))])
+
+(MAG-FIND-BUTTON
+  [LAMBDA (LABEL)
+    (AND (BOUNDP '*ALL-BUTTONS*)
+         (for B in *ALL-BUTTONS* thereis
+           (AND (OR (AND (GETD 'BUTTON-LABEL)
+                         (EQUAL LABEL (BUTTON-LABEL B)))
+                    (EQUAL LABEL (WINDOWPROP B 'BUTTON-LABEL)))
+                B)))])
+
+(MAG-STOCK-APPS-INIT
+  [LAMBDA NIL
+    (MAG-ACTIVATE-ROOMS-INTERNAL)
+    (MAG-SAFE-ACTIVATE-NOTECARDS T)
+    (MAG-CREATE-APP-BUTTONS)
+    T])
+
+(MAG-CREATE-APP-BUTTONS
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD BUTTONS))
+    (AND (GETD 'CREATE-BUTTON)
+         (PROGN
+           (MAG-CREATE-DOC-BUTTONS)
+           (MAG-CREATE-FEATURE-BUTTONS)))])
+
+(MAG-SHOW-DOC
+  [LAMBDA (URL)
+    (ShellBrowse URL)])
+
+(MAG-CREATE-LABEL
+  [LAMBDA (TEXT CENTERX BOTTOMY)
+    (LET* ((DS (DSPCREATE))
+           (FONT (DSPFONT '(HELVETICA 18 BOLD) DS))
+           (SR (STRINGREGION TEXT DS))
+           (BMW (fetch (REGION WIDTH) of SR))
+           (BMH (IPLUS (fetch (REGION HEIGHT) of SR)
+                       (fetch (REGION BOTTOM) of SR)))
+           (BM (BITMAPCREATE BMW BMH))
+           (POS (create POSITION
+                        XCOORD _ (IDIFFERENCE CENTERX (IQUOTIENT BMW 2))
+                        YCOORD _ BOTTOMY))
+           IW)
+      (DSPDESTINATION BM DS)
+      (PRIN1 TEXT DS)
+      (SETQ IW (ICONW BM BM POS))
+      (WINDOWPROP IW 'ICONLABEL TEXT)
+      IW)])
+
+(MAG-CREATE-DOC-BUTTONS
+  [LAMBDA NIL
+    (PROG ((RIGHT 140)
+           (Y 225)
+           (DY 55)
+           DOCS B)
+      (SETQ DOCS '(("https://interlisp.org/docs/medley/orientation/" "BASICS")
+                   ("https://primer.interlisp.org/" "PRIMER")
+                   ("https://interlisp.org/documentation/IRM.pdf" "MANUAL")
+                   ("https://interlisp.org/documentation/Notecards-User-Guide-v2.0.pdf" "NOTECARDS")
+                   ("https://interlisp.org/documentation/ROOMSTECHDESC.pdf" "ROOMS")))
+      (OR (MAG-FIND-BUTTON "BASICS")
+          (MAG-CREATE-LABEL "DOCUMENTATION"
+                            (IDIFFERENCE SCREENWIDTH
+                                         (IDIFFERENCE RIGHT 50))
+                            (IDIFFERENCE SCREENHEIGHT Y)))
+      (for DOC in DOCS do
+        (SETQ Y (IPLUS Y DY))
+        (OR (MAG-FIND-BUTTON (CADR DOC))
+            (PROGN
+              (SETQ B (CREATE-BUTTON (LIST 'MAG-SHOW-DOC (CAR DOC))
+                                      (CADR DOC)
+                                      (create POSITION
+                                              XCOORD _ (IDIFFERENCE SCREENWIDTH RIGHT)
+                                              YCOORD _ (IDIFFERENCE SCREENHEIGHT Y))))
+              (WINDOWPROP B 'MAG-BUTTON 'DOC))))
+      (RETURN T))])
+
+(MAG-CREATE-FEATURE-BUTTONS
+  [LAMBDA NIL
+    (PROG ((RIGHT 140)
+           (Y 555)
+           (DY 55)
+           ANY)
+      (COND
+        ((NOT (AND (BOUNDP 'MAG-ROOMS-ACTIVATED) MAG-ROOMS-ACTIVATED))
+         (SETQ ANY T)
+         (OR (MAG-FIND-BUTTON "ROOMS")
+             (CREATE-BUTTON '(MAG-ACTIVATE-ROOMS)
+                            "ROOMS"
+                            (create POSITION
+                                    XCOORD _ (IDIFFERENCE SCREENWIDTH RIGHT)
+                                    YCOORD _ (IDIFFERENCE SCREENHEIGHT
+                                                          (SETQ Y (IPLUS Y DY))))))))
+      (COND
+        ((NOT (AND (BOUNDP 'MAG-NOTECARDS-ACTIVATED) MAG-NOTECARDS-ACTIVATED))
+         (SETQ ANY T)
+         (OR (MAG-FIND-BUTTON "NOTECARDS")
+             (CREATE-BUTTON '(MAG-ACTIVATE-NOTECARDS)
+                            "NOTECARDS"
+                            (create POSITION
+                                    XCOORD _ (IDIFFERENCE SCREENWIDTH RIGHT)
+                                    YCOORD _ (IDIFFERENCE SCREENHEIGHT
+                                                          (SETQ Y (IPLUS Y DY))))))))
+      (AND ANY
+           (NOT (MAG-FIND-BUTTON "ROOMS"))
+           (MAG-CREATE-LABEL "ACTIVATE"
+                             (IDIFFERENCE SCREENWIDTH
+                                          (IDIFFERENCE RIGHT 50))
+                             (IDIFFERENCE SCREENHEIGHT 575)))
+      (RETURN T))])
+)
+
+STOP

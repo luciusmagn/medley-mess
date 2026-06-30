@@ -1,0 +1,1786 @@
+(DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
+
+(FILESLOAD RECORD)
+(FILESLOAD CHATDECLS)
+(RPAQQ MAG-GOPHER-KEY-LOG-ENTRIES NIL)
+(RPAQQ MAG-GOPHER-LAST-WINDOW NIL)
+
+(DEFINEQ
+
+(MAG-GOPHER-LINEHEIGHT
+  [LAMBDA (WINDOW)
+    (MAG-WINDOW-LINEHEIGHT WINDOW)])
+
+(MAG-GOPHER-DRAW-LINE
+  [LAMBDA (WINDOW ROW TEXT)
+    (MAG-WINDOW-DRAW-LINE WINDOW ROW TEXT)])
+
+(MAG-GOPHER-VISIBLE-COUNT
+  [LAMBDA (WINDOW)
+    (IMAX 1 (IQUOTIENT (IDIFFERENCE (WINDOWPROP WINDOW 'HEIGHT) 48)
+                       (MAG-GOPHER-LINEHEIGHT WINDOW)))])
+
+(MAG-GOPHER-VIEW-JUMP
+  [LAMBDA (WINDOW)
+    (IMIN 10 (MAG-GOPHER-VISIBLE-COUNT WINDOW))])
+
+(MAG-GOPHER-KEY-LOG-TRIM
+  [LAMBDA (ENTRIES COUNT)
+    (COND
+      ((OR (NULL ENTRIES) (ILEQ COUNT 0))
+       NIL)
+      (T
+       (CONS (CAR ENTRIES)
+             (MAG-GOPHER-KEY-LOG-TRIM (CDR ENTRIES) (SUB1 COUNT)))))])
+
+(MAG-GOPHER-RECORD-KEY
+  [LAMBDA (CH)
+    (LET ((KEYID (MAG-GOPHER-SPECIAL-KEYID CH)))
+      (SETQ MAG-GOPHER-KEY-LOG-ENTRIES
+            (CONS (LIST CH KEYID)
+                  (MAG-GOPHER-KEY-LOG-TRIM MAG-GOPHER-KEY-LOG-ENTRIES 23)))
+      CH)])
+
+(MAG-GOPHER-KEY-LOG-LINE
+  [LAMBDA (OUT ENTRY)
+    (LET ((CH (CAR ENTRY))
+          (KEYID (CADR ENTRY)))
+      (MAG-STRING-OUTPUT
+        (CONCAT "raw=" CH
+                " high=" (LRSH CH 8)
+                " low=" (LOGAND CH 255)
+                " key-id=" (OR KEYID "none"))
+        OUT)
+      (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT))])
+
+(MAG-GOPHER-KEY-LOG-REPORT
+  [LAMBDA NIL
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+      (MAG-STRING-OUTPUT "Mag Gopher key log (newest first)" OUT)
+      (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+      (COND
+        (MAG-GOPHER-KEY-LOG-ENTRIES
+         (for ENTRY in MAG-GOPHER-KEY-LOG-ENTRIES do
+           (MAG-GOPHER-KEY-LOG-LINE OUT ENTRY)))
+        (T
+         (MAG-STRING-OUTPUT "no keys recorded" OUT)
+         (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)))
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
+
+(MAG-GOPHER-RPC-WRITE-LINE
+  [LAMBDA (OUT TEXT)
+    (MAG-STRING-OUTPUT (OR TEXT "") OUT)
+    (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)])
+
+(MAG-GOPHER-ACTIVE-WINDOW
+  [LAMBDA NIL
+    (AND MAG-GOPHER-LAST-WINDOW
+         (OPENWP MAG-GOPHER-LAST-WINDOW)
+         MAG-GOPHER-LAST-WINDOW)])
+
+(MAG-GOPHER-STATE-REPORT
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag Gopher window")
+        (T
+         (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+               (ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)))
+           (MAG-GOPHER-RPC-WRITE-LINE OUT "Mag Gopher state")
+           (MAG-GOPHER-RPC-WRITE-LINE
+             OUT (CONCAT "host=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-HOST) "")
+                         " port=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-PORT) "")
+                         " selector=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR) "")))
+           (MAG-GOPHER-RPC-WRITE-LINE
+             OUT (CONCAT "top=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0)
+                         " selected=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED) 0)
+                         " visible=" (MAG-GOPHER-VISIBLE-COUNT WINDOW)
+                         " count=" (LENGTH ENTRIES)))
+           (MAG-GOPHER-RPC-WRITE-LINE
+             OUT (CONCAT "history=" (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY))
+                         " forward=" (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD))
+                         " status=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS) "")))
+           (CL:GET-OUTPUT-STREAM-STRING OUT)))))])
+
+(MAG-GOPHER-RPC-KEY
+  [LAMBDA (CH)
+    (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag Gopher window")
+        (T
+         (MAG-GOPHER-HANDLE-KEY WINDOW CH)
+         (MAG-GOPHER-STATE-REPORT))))])
+
+(MAG-GOPHER-TEST-ENTRIES
+  [LAMBDA (COUNT)
+    (PROG ((N 1)
+           ENTRIES)
+    LP
+      (COND
+        ((IGREATERP N COUNT)
+         (RETURN (MAG-GOPHER-ANNOTATE-LABELS (DREVERSE ENTRIES)))))
+      (SETQ ENTRIES
+            (CONS (LIST 'ITEM
+                        (CONCAT "Test directory entry " N)
+                        49
+                        (CONCAT "/test/" N)
+                        "test.local"
+                        70)
+                  ENTRIES))
+      (SETQ N (ADD1 N))
+      (GO LP))])
+
+(MAG-GOPHER-RPC-TEST-PAGE
+  [LAMBDA NIL
+    (MAG-VTERM-ENSURE)
+    (PROG ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW))
+           PROC)
+      (COND
+        ((NULL WINDOW)
+         (SETQ WINDOW (MAG-GOPHER))))
+      (SETQ MAG-GOPHER-LAST-WINDOW WINDOW)
+      (COND
+        ((SETQ PROC (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS NIL))
+         (MAG-GOPHER-CLOSE-CHANNEL WINDOW NIL)
+         (DEL.PROCESS PROC)))
+      (WINDOWPROP WINDOW 'TITLE "Mag Gopher Test")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-HOST "test.local")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-PORT 70)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR "")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE 49)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 1)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-FIND-TEXT NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS "local test page")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES (MAG-GOPHER-TEST-ENTRIES 60))
+      (MAG-GOPHER-REPAINT WINDOW)
+      (RETURN (MAG-GOPHER-STATE-REPORT)))])
+
+(MAG-GOPHER-PARSE-INT
+  [LAMBDA (STR DEFAULT)
+    (PROG ((I 1)
+           (N 0)
+           (LEN (AND STR (NCHARS STR)))
+           CH)
+      (COND
+        ((OR (NULL STR) (EQ LEN 0))
+         (RETURN DEFAULT)))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN N)))
+      (SETQ CH (NTHCHARCODE STR I))
+      (COND
+        ((AND (IGEQ CH 48) (ILEQ CH 57))
+         (SETQ N (IPLUS (ITIMES N 10) (IDIFFERENCE CH 48)))
+          (SETQ I (ADD1 I))
+          (GO LP))
+        (T (RETURN DEFAULT))))])
+
+(MAG-GOPHER-NONEMPTY
+  [LAMBDA (STR DEFAULT)
+    (COND
+      ((AND STR (IGREATERP (NCHARS STR) 0))
+       STR)
+      (T DEFAULT))])
+
+(MAG-GOPHER-SPLIT-TABS
+  [LAMBDA (STR)
+    (PROG ((START 1)
+           (POS 1)
+           (LEN (NCHARS STR))
+           PARTS CH)
+    LP
+      (COND
+        ((IGREATERP POS LEN)
+         (RETURN (DREVERSE (CONS (OR (SUBSTRING STR START LEN) "")
+                                  PARTS)))))
+      (SETQ CH (NTHCHARCODE STR POS))
+      (COND
+        ((EQ CH 9)
+         (SETQ PARTS (CONS (OR (SUBSTRING STR START (SUB1 POS)) "")
+                           PARTS))
+         (SETQ START (ADD1 POS))))
+      (SETQ POS (ADD1 POS))
+      (GO LP))])
+
+(MAG-GOPHER-WRITE-CHANNEL-STRING
+  [LAMBDA (CHAN STR)
+    (PROG ((I 1)
+           (LEN (AND STR (NCHARS STR))))
+    LP
+      (COND
+        ((NULL STR)
+         (RETURN T))
+        ((IGREATERP I LEN)
+         (RETURN T))
+        ((MAG-VTERM-WRITE-BYTES CHAN
+                                  (MAG-VTERM-UTF8-BYTES
+                                    (NTHCHARCODE STR I)))
+         (SETQ I (ADD1 I))
+         (GO LP))
+        (T
+         (RETURN NIL))))])
+
+(MAG-GOPHER-READ-BUFFER
+  [LAMBDA (WINDOW)
+    (COND
+      (WINDOW
+       (OR (WINDOWPROP WINDOW 'MAG-GOPHER-READ-BUFFER)
+           (WINDOWPROP WINDOW 'MAG-GOPHER-READ-BUFFER (NCREATE 'VMEMPAGEP))))
+      (T
+       (NCREATE 'VMEMPAGEP)))])
+
+(MAG-GOPHER-UNSTUFF-LINE
+  [LAMBDA (LINE)
+    (COND
+      ((AND LINE
+            (IGREATERP (NCHARS LINE) 1)
+            (EQ (NTHCHARCODE LINE 1) 46)
+            (EQ (NTHCHARCODE LINE 2) 46))
+       (SUBSTRING LINE 2))
+      (T LINE))])
+
+(MAG-GOPHER-CONTINUATION-BYTEP
+  [LAMBDA (BYTE)
+    (AND (IGEQ BYTE 128)
+         (ILEQ BYTE 191))])
+
+(MAG-GOPHER-DECODE-LINE
+  [LAMBDA (LINE)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (I 1)
+           (LEN (AND LINE (NCHARS LINE)))
+           BYTE B2 B3 B4 CODE)
+      (COND
+        ((NULL LINE)
+         (RETURN "")))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (SETQ BYTE (NTHCHARCODE LINE I))
+      (COND
+        ((ILESSP BYTE 128)
+         (CL:WRITE-CHAR (CL:CODE-CHAR BYTE) OUT)
+         (SETQ I (ADD1 I)))
+        ((AND (IGEQ BYTE 194)
+              (ILEQ BYTE 223)
+              (ILEQ (ADD1 I) LEN)
+              (MAG-GOPHER-CONTINUATION-BYTEP
+                (SETQ B2 (NTHCHARCODE LINE (ADD1 I)))))
+         (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 31) 6)
+                           (LOGAND B2 63)))
+         (CL:WRITE-CHAR (CL:CODE-CHAR CODE) OUT)
+         (SETQ I (IPLUS I 2)))
+        ((AND (IGEQ BYTE 224)
+              (ILEQ BYTE 239)
+              (ILEQ (IPLUS I 2) LEN)
+              (MAG-GOPHER-CONTINUATION-BYTEP
+                (SETQ B2 (NTHCHARCODE LINE (ADD1 I))))
+              (MAG-GOPHER-CONTINUATION-BYTEP
+                (SETQ B3 (NTHCHARCODE LINE (IPLUS I 2))))
+              (OR (NEQ BYTE 224) (IGEQ B2 160))
+              (OR (NEQ BYTE 237) (ILESSP B2 160)))
+         (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 15) 12)
+                           (LLSH (LOGAND B2 63) 6)
+                           (LOGAND B3 63)))
+         (CL:WRITE-CHAR (CL:CODE-CHAR CODE) OUT)
+         (SETQ I (IPLUS I 3)))
+        ((AND (IGEQ BYTE 240)
+              (ILEQ BYTE 244)
+              (ILEQ (IPLUS I 3) LEN)
+              (MAG-GOPHER-CONTINUATION-BYTEP
+                (SETQ B2 (NTHCHARCODE LINE (ADD1 I))))
+              (MAG-GOPHER-CONTINUATION-BYTEP
+                (SETQ B3 (NTHCHARCODE LINE (IPLUS I 2))))
+              (MAG-GOPHER-CONTINUATION-BYTEP
+                (SETQ B4 (NTHCHARCODE LINE (IPLUS I 3))))
+              (OR (NEQ BYTE 240) (IGEQ B2 144))
+              (OR (NEQ BYTE 244) (ILESSP B2 144)))
+         (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 7) 18)
+                           (LLSH (LOGAND B2 63) 12)
+                           (LLSH (LOGAND B3 63) 6)
+                           (LOGAND B4 63)))
+         (CL:WRITE-CHAR (CL:CODE-CHAR CODE) OUT)
+         (SETQ I (IPLUS I 4)))
+        (T
+         (CL:WRITE-CHAR (CL:CODE-CHAR BYTE) OUT)
+         (SETQ I (ADD1 I))))
+      (GO LP))])
+
+(MAG-GOPHER-CLEAN-LINE
+  [LAMBDA (LINE)
+    (MAG-GOPHER-DECODE-LINE (MAG-GOPHER-UNSTUFF-LINE LINE))])
+
+(MAG-GOPHER-CLOSE-CHANNEL
+  [LAMBDA (WINDOW CHAN)
+    (LET ((ACTIVE (AND WINDOW (WINDOWPROP WINDOW 'MAG-GOPHER-CHANNEL NIL))))
+      (COND
+         (ACTIVE (SUBRCALL UNIX-HANDLECOMM 3 ACTIVE 0))
+         (CHAN (SUBRCALL UNIX-HANDLECOMM 3 CHAN 0))))])
+
+(MAG-GOPHER-FETCH-RAW
+  [LAMBDA (HOST PORT SELECTOR WINDOW)
+    (PROG (CHAN CH LINES OUT LINE SEEN SPINS BUFFER LEN I)
+      (SETQ CHAN (SUBRCALL UNIX-HANDLECOMM 21
+                            (\DTEST HOST 'ONED-ARRAY)
+                            (\DTEST PORT 'SMALLP)))
+      (COND
+        ((NULL CHAN)
+         (RETURN (LIST (LIST 'ERROR (CONCAT "Could not connect to "
+                                            HOST ":" PORT))))))
+      (AND WINDOW (WINDOWPROP WINDOW 'MAG-GOPHER-CHANNEL CHAN))
+      (SETQ OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+      (SETQ BUFFER (MAG-GOPHER-READ-BUFFER WINDOW))
+      (SETQ SPINS 0)
+      (COND
+        ((NOT (AND (MAG-GOPHER-WRITE-CHANNEL-STRING CHAN SELECTOR)
+                   (MAG-VTERM-WRITE-BYTES CHAN '(13 10))))
+         (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+         (RETURN (LIST (LIST 'ERROR "Could not write gopher request")))))
+    LP
+      (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+      (COND
+        ((EQ LEN T)
+         (SETQ SPINS (ADD1 SPINS))
+         (COND
+           ((IGREATERP SPINS 5000)
+            (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+            (RETURN (LIST (LIST 'ERROR "Timed out reading gopher response")))))
+         (BLOCK)
+         (GO LP))
+        ((NULL LEN)
+         (COND
+                    (SEEN
+                     (SETQ LINE (CL:GET-OUTPUT-STREAM-STRING OUT))
+                     (COND
+                       ((NOT (STREQUAL LINE "."))
+                        (SETQ LINES
+                              (CONS (MAG-GOPHER-CLEAN-LINE LINE)
+                                    LINES))))))
+                  (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+                  (RETURN (DREVERSE LINES)))
+        (T
+         (SETQ SPINS 0)
+         (SETQ I 0)))
+    BYTES
+      (COND
+        ((IGEQ I LEN)
+         (GO LP)))
+      (SETQ CH (\GETBASEBYTE BUFFER I))
+      (SETQ I (ADD1 I))
+      (COND
+        ((EQ CH 10)
+         (SETQ LINE (CL:GET-OUTPUT-STREAM-STRING OUT))
+         (SETQ OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+         (SETQ SEEN NIL)
+                  (COND
+                    ((STREQUAL LINE ".")
+                     (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+                     (RETURN (DREVERSE LINES)))
+                    (T
+                     (SETQ LINES (CONS (MAG-GOPHER-CLEAN-LINE LINE)
+                                        LINES))
+                     (GO BYTES))))
+        ((EQ CH 13)
+         (SETQ SEEN T)
+         (GO BYTES))
+        (T
+         (CL:WRITE-CHAR (CL:CODE-CHAR (LOGAND CH 255)) OUT)
+         (SETQ SEEN T)
+         (GO BYTES))))])
+
+(MAG-GOPHER-TYPE-TAG
+  [LAMBDA (TYPE)
+    (SELECTQ TYPE
+      (48 "TEXT")
+      (49 "DIR ")
+      (50 "CSO ")
+      (51 "ERR ")
+      (52 "HEX ")
+      (53 "DOS ")
+      (54 "UU  ")
+      (55 "FIND")
+      (56 "TEL ")
+      (57 "BIN ")
+      (43 "RED ")
+      (59 "VID ")
+      (80 "PDF ")
+      (84 "TN32")
+      (100 "DOC ")
+      (103 "GIF ")
+      (104 "HTML")
+      (105 "    ")
+      (73 "IMG ")
+      (112 "PNG ")
+      (115 "SND ")
+      ("????"))])
+
+(MAG-GOPHER-PARSE-LINE
+  [LAMBDA (LINE HOST PORT)
+    (PROG (TYPE REST FIELDS LABEL SELECTOR ITEMHOST ITEMPORT)
+      (COND
+        ((OR (NULL LINE) (EQ (NCHARS LINE) 0))
+         (RETURN (LIST 'TEXT ""))))
+      (SETQ TYPE (NTHCHARCODE LINE 1))
+      (COND
+        ((EQ TYPE 46)
+         (RETURN NIL)))
+      (SETQ REST (OR (SUBSTRING LINE 2 (NCHARS LINE)) ""))
+      (SETQ FIELDS (MAG-GOPHER-SPLIT-TABS REST))
+      (SETQ LABEL (OR (CAR FIELDS) ""))
+      (SETQ SELECTOR (OR (CADR FIELDS) ""))
+             (SETQ ITEMHOST (MAG-GOPHER-NONEMPTY (CADDR FIELDS) HOST))
+             (SETQ ITEMPORT (MAG-GOPHER-PARSE-INT (CADDDR FIELDS) PORT))
+             (COND
+               ((EQ TYPE 105)
+                (RETURN (LIST 'TEXT LABEL)))
+               ((EQ TYPE 51)
+                (RETURN (LIST 'TEXT (CONCAT "ERROR: " LABEL))))
+               (T
+                (RETURN (LIST 'ITEM LABEL TYPE SELECTOR ITEMHOST ITEMPORT)))))])
+
+(MAG-GOPHER-TYPE-FROM-CHAR
+  [LAMBDA (CH)
+    (SELECTQ CH
+      ((43 48 49 50 51 52 53 54 55 56 57 59 73 80 84 100 103 104 105 112 115)
+       CH)
+      NIL)])
+
+(MAG-GOPHER-HEX-DIGIT
+  [LAMBDA (CH)
+    (COND
+      ((AND (IGEQ CH 48) (ILEQ CH 57))
+       (IDIFFERENCE CH 48))
+      ((AND (IGEQ CH 65) (ILEQ CH 70))
+       (IPLUS 10 (IDIFFERENCE CH 65)))
+      ((AND (IGEQ CH 97) (ILEQ CH 102))
+       (IPLUS 10 (IDIFFERENCE CH 97)))
+      (T NIL))])
+
+(MAG-GOPHER-PERCENT-BYTE
+  [LAMBDA (STR I LEN)
+    (PROG (HI LO)
+      (COND
+        ((AND (ILEQ (IPLUS I 2) LEN)
+              (EQ (NTHCHARCODE STR I) 37)
+              (NEQ (SETQ HI (MAG-GOPHER-HEX-DIGIT
+                               (NTHCHARCODE STR (ADD1 I))))
+                   NIL)
+              (NEQ (SETQ LO (MAG-GOPHER-HEX-DIGIT
+                               (NTHCHARCODE STR (IPLUS I 2))))
+                   NIL))
+         (RETURN (IPLUS (ITIMES 16 HI) LO)))
+        (T
+         (RETURN NIL))))])
+
+(MAG-GOPHER-WRITE-PERCENT-LITERAL
+  [LAMBDA (OUT STR I)
+    (CL:WRITE-CHAR (CL:CODE-CHAR (NTHCHARCODE STR I)) OUT)
+    (CL:WRITE-CHAR (CL:CODE-CHAR (NTHCHARCODE STR (ADD1 I))) OUT)
+    (CL:WRITE-CHAR (CL:CODE-CHAR (NTHCHARCODE STR (IPLUS I 2))) OUT)])
+
+(MAG-GOPHER-URL-DECODE
+  [LAMBDA (STR)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (I 1)
+           (LEN (AND STR (NCHARS STR)))
+           CH BYTE B2 B3 B4 CODE)
+      (COND
+        ((NULL STR)
+         (RETURN "")))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (SETQ CH (NTHCHARCODE STR I))
+      (COND
+        ((AND (EQ CH 37)
+              (NEQ (SETQ BYTE (MAG-GOPHER-PERCENT-BYTE STR I LEN)) NIL))
+         (COND
+           ((ILESSP BYTE 128)
+            (CL:WRITE-CHAR (CL:CODE-CHAR BYTE) OUT))
+           ((AND (IGEQ BYTE 194)
+                 (ILEQ BYTE 223)
+                 (NEQ (SETQ B2 (MAG-GOPHER-PERCENT-BYTE
+                                  STR (IPLUS I 3) LEN))
+                      NIL)
+                 (IGEQ B2 128)
+                 (ILEQ B2 191))
+            (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 31) 6)
+                              (LOGAND B2 63)))
+            (CL:WRITE-CHAR (CL:CODE-CHAR CODE) OUT)
+            (SETQ I (IPLUS I 3)))
+           ((AND (IGEQ BYTE 224)
+                 (ILEQ BYTE 239)
+                 (NEQ (SETQ B2 (MAG-GOPHER-PERCENT-BYTE
+                                  STR (IPLUS I 3) LEN))
+                      NIL)
+                 (NEQ (SETQ B3 (MAG-GOPHER-PERCENT-BYTE
+                                  STR (IPLUS I 6) LEN))
+                      NIL)
+                 (IGEQ B2 128)
+                 (ILEQ B2 191)
+                 (IGEQ B3 128)
+                 (ILEQ B3 191)
+                 (OR (NEQ BYTE 224) (IGEQ B2 160))
+                 (OR (NEQ BYTE 237) (ILESSP B2 160)))
+            (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 15) 12)
+                              (LLSH (LOGAND B2 63) 6)
+                              (LOGAND B3 63)))
+            (CL:WRITE-CHAR (CL:CODE-CHAR CODE) OUT)
+            (SETQ I (IPLUS I 6)))
+           ((AND (IGEQ BYTE 240)
+                 (ILEQ BYTE 244)
+                 (NEQ (SETQ B2 (MAG-GOPHER-PERCENT-BYTE
+                                  STR (IPLUS I 3) LEN))
+                      NIL)
+                 (NEQ (SETQ B3 (MAG-GOPHER-PERCENT-BYTE
+                                  STR (IPLUS I 6) LEN))
+                      NIL)
+                 (NEQ (SETQ B4 (MAG-GOPHER-PERCENT-BYTE
+                                  STR (IPLUS I 9) LEN))
+                      NIL)
+                 (IGEQ B2 128)
+                 (ILEQ B2 191)
+                 (IGEQ B3 128)
+                 (ILEQ B3 191)
+                 (IGEQ B4 128)
+                 (ILEQ B4 191)
+                 (OR (NEQ BYTE 240) (IGEQ B2 144))
+                 (OR (NEQ BYTE 244) (ILESSP B2 144)))
+            (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 7) 18)
+                              (LLSH (LOGAND B2 63) 12)
+                              (LLSH (LOGAND B3 63) 6)
+                              (LOGAND B4 63)))
+            (CL:WRITE-CHAR (CL:CODE-CHAR CODE) OUT)
+            (SETQ I (IPLUS I 9)))
+           (T
+            (MAG-GOPHER-WRITE-PERCENT-LITERAL OUT STR I)))
+         (SETQ I (IPLUS I 3))
+         (GO LP))
+        (T
+         (CL:WRITE-CHAR (CL:CODE-CHAR CH) OUT)
+         (SETQ I (ADD1 I))
+         (GO LP))))])
+
+(MAG-GOPHER-BUILD-DIRECTORY
+  [LAMBDA (LINES HOST PORT)
+    (for LINE in LINES
+      bind ENTRY
+      when (SETQ ENTRY (MAG-GOPHER-PARSE-LINE LINE HOST PORT))
+      collect ENTRY)])
+
+(MAG-GOPHER-BUILD-TEXT
+  [LAMBDA (LINES)
+    (for LINE in LINES collect (LIST 'TEXT LINE))])
+
+(MAG-GOPHER-CHAR-STRING
+  [LAMBDA (CH)
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+      (CL:WRITE-CHAR (CL:CODE-CHAR CH) OUT)
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
+
+(MAG-GOPHER-LABEL-FOR-N
+  [LAMBDA (N)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (K (OR N 0))
+           A B C)
+      (COND
+        ((ILESSP K 676)
+         (SETQ A (IQUOTIENT K 26))
+         (SETQ B (IREMAINDER K 26))
+         (CL:WRITE-CHAR (CL:CODE-CHAR (IPLUS 97 A)) OUT)
+         (CL:WRITE-CHAR (CL:CODE-CHAR (IPLUS 97 B)) OUT))
+        (T
+         (SETQ K (IDIFFERENCE K 676))
+         (SETQ A (IQUOTIENT K 676))
+         (SETQ B (IQUOTIENT (IREMAINDER K 676) 26))
+         (SETQ C (IREMAINDER K 26))
+         (CL:WRITE-CHAR (CL:CODE-CHAR (IPLUS 97 A)) OUT)
+         (CL:WRITE-CHAR (CL:CODE-CHAR (IPLUS 97 B)) OUT)
+         (CL:WRITE-CHAR (CL:CODE-CHAR (IPLUS 97 C)) OUT)))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
+(MAG-GOPHER-ANNOTATE-LABELS
+  [LAMBDA (ENTRIES)
+    (PROG ((N 0)
+           OUT ENTRY)
+    LP
+      (COND
+        ((NULL ENTRIES)
+         (RETURN (DREVERSE OUT))))
+      (SETQ ENTRY (CAR ENTRIES))
+      (COND
+        ((AND ENTRY (EQ (CAR ENTRY) 'ITEM))
+         (SETQ ENTRY (APPEND ENTRY (LIST (MAG-GOPHER-LABEL-FOR-N N))))
+         (SETQ N (ADD1 N))))
+      (SETQ OUT (CONS ENTRY OUT))
+      (SETQ ENTRIES (CDR ENTRIES))
+      (GO LP))])
+
+(MAG-GOPHER-ENTRY-LABEL
+  [LAMBDA (ENTRY)
+    (AND ENTRY
+         (EQ (CAR ENTRY) 'ITEM)
+         (CADDR (CDDDDR ENTRY)))])
+
+(MAG-GOPHER-STRING-PREFIX-P
+  [LAMBDA (PREFIX TEXT)
+    (AND PREFIX TEXT
+         (ILEQ (NCHARS PREFIX) (NCHARS TEXT))
+         (STREQUAL PREFIX (SUBSTRING TEXT 1 (NCHARS PREFIX))))])
+
+(MAG-GOPHER-ENTRY-AT
+  [LAMBDA (WINDOW INDEX)
+    (LET ((ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)))
+      (AND ENTRIES
+           (IGREATERP INDEX 0)
+           (CAR (NTH ENTRIES INDEX))))])
+
+(MAG-GOPHER-LABEL-INDEX
+  [LAMBDA (WINDOW LABEL)
+    (PROG ((ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))
+           (INDEX 1)
+           ENTRY)
+    LP
+      (COND
+        ((NULL ENTRIES)
+         (RETURN NIL)))
+      (SETQ ENTRY (CAR ENTRIES))
+      (COND
+        ((AND (MAG-GOPHER-ENTRY-LABEL ENTRY)
+              (STREQUAL LABEL (MAG-GOPHER-ENTRY-LABEL ENTRY)))
+         (RETURN INDEX)))
+      (SETQ ENTRIES (CDR ENTRIES))
+      (SETQ INDEX (ADD1 INDEX))
+      (GO LP))])
+
+(MAG-GOPHER-LABEL-PREFIX-P
+  [LAMBDA (WINDOW PREFIX)
+    (PROG ((ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))
+           ENTRY)
+    LP
+      (COND
+        ((NULL ENTRIES)
+         (RETURN NIL)))
+      (SETQ ENTRY (CAR ENTRIES))
+      (COND
+        ((MAG-GOPHER-STRING-PREFIX-P PREFIX (MAG-GOPHER-ENTRY-LABEL ENTRY))
+         (RETURN T)))
+      (SETQ ENTRIES (CDR ENTRIES))
+      (GO LP))])
+
+(MAG-GOPHER-LOWER-LETTER
+  [LAMBDA (CH)
+    (COND
+      ((AND (IGEQ CH 97) (ILEQ CH 122)) CH)
+      ((AND (IGEQ CH 65) (ILEQ CH 90)) (IPLUS CH 32))
+      (T NIL))])
+
+(MAG-GOPHER-BOLD-FONT
+  [LAMBDA (WINDOW)
+    (OR (WINDOWPROP WINDOW 'MAG-GOPHER-BOLD-FONT)
+        (LET ((FONT (DSPFONT NIL WINDOW)))
+          (WINDOWPROP WINDOW 'MAG-GOPHER-BOLD-FONT
+                      (OR (CAR (NLSETQ
+                                 (FONTCREATE (OR (FONTPROP FONT 'FAMILY) 'GACHA)
+                                             (OR (FONTPROP FONT 'SIZE) 10)
+                                             'BOLD)))
+                          FONT))))])
+
+(MAG-GOPHER-ENTRY-TEXT
+  [LAMBDA (ENTRY)
+    (SELECTQ (CAR ENTRY)
+      (ITEM (CONCAT (MAG-GOPHER-TYPE-TAG (CADDR ENTRY)) "  " (CADR ENTRY)))
+      (TEXT (CADR ENTRY))
+      (CADR ENTRY))])
+
+(MAG-GOPHER-DRAW-ENTRY-LINE
+  [LAMBDA (WINDOW ROW ENTRY SELECTED)
+    (LET ((PLAIN (DSPFONT NIL WINDOW))
+          (BOLD (MAG-GOPHER-BOLD-FONT WINDOW))
+          (Y (MAG-WINDOW-ROW-Y WINDOW ROW))
+          LABEL)
+      (MAG-WINDOW-CLEAR-LINE WINDOW ROW)
+      (MOVETO 8 Y WINDOW)
+      (PRIN1 (COND (SELECTED "> ") (T "  ")) WINDOW)
+      (COND
+        ((EQ (CAR ENTRY) 'ITEM)
+         (SETQ LABEL (MAG-GOPHER-ENTRY-LABEL ENTRY))
+         (DSPFONT BOLD WINDOW)
+         (PRIN1 (OR LABEL "  ") WINDOW)
+         (DSPFONT PLAIN WINDOW)
+         (PRIN1 "  " WINDOW)
+         (DSPFONT BOLD WINDOW)
+         (PRIN1 (MAG-GOPHER-TYPE-TAG (CADDR ENTRY)) WINDOW)
+         (DSPFONT PLAIN WINDOW)
+         (PRIN1 "  " WINDOW)
+         (PRIN1 (CADR ENTRY) WINDOW))
+        (T
+         (DSPFONT PLAIN WINDOW)
+         (PRIN1 "    " WINDOW)
+         (PRIN1 (MAG-GOPHER-ENTRY-TEXT ENTRY) WINDOW)))
+      (DSPFONT PLAIN WINDOW))])
+
+(MAG-GOPHER-ENTRY-LINE
+  [LAMBDA (ENTRY SELECTED)
+    (CONCAT (COND (SELECTED "> ") (T "  "))
+            (COND ((MAG-GOPHER-ENTRY-LABEL ENTRY)
+                   (CONCAT (MAG-GOPHER-ENTRY-LABEL ENTRY) "  "))
+                  (T "    "))
+            (MAG-GOPHER-ENTRY-TEXT ENTRY))])
+
+(MAG-GOPHER-STATUS-LINE
+  [LAMBDA (WINDOW)
+    (CONCAT "aa open  arrows/j/k move  SPC/BS page  b/F hist  o open  v text  d dl  / find  q close  "
+            (COND ((WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX)
+                   (CONCAT "label " (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX) "  "))
+                  (T ""))
+            (OR (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS) ""))])
+
+(MAG-GOPHER-DRAW-HEADER
+  [LAMBDA (WINDOW HOST PORT SELECTOR)
+    (LET ((PLAIN (DSPFONT NIL WINDOW))
+          (BOLD (MAG-GOPHER-BOLD-FONT WINDOW))
+          (Y (MAG-WINDOW-ROW-Y WINDOW 0)))
+      (MAG-WINDOW-CLEAR-LINE WINDOW 0)
+      (MOVETO 8 Y WINDOW)
+      (DSPFONT BOLD WINDOW)
+      (PRIN1 "Mag Gopher" WINDOW)
+      (DSPFONT PLAIN WINDOW)
+      (PRIN1 "  " WINDOW)
+      (DSPFONT BOLD WINDOW)
+      (PRIN1 (CONCAT HOST ":" PORT) WINDOW)
+      (DSPFONT PLAIN WINDOW)
+      (PRIN1 "  /" WINDOW)
+      (PRIN1 SELECTOR WINDOW)
+      (DSPFONT PLAIN WINDOW))])
+
+(MAG-GOPHER-DRAW-STATUS-LINE
+  [LAMBDA (WINDOW)
+    (LET ((PLAIN (DSPFONT NIL WINDOW))
+          (BOLD (MAG-GOPHER-BOLD-FONT WINDOW))
+          (Y (MAG-WINDOW-ROW-Y WINDOW 1)))
+      (MAG-WINDOW-CLEAR-LINE WINDOW 1)
+      (MOVETO 8 Y WINDOW)
+      (DSPFONT BOLD WINDOW)
+      (PRIN1 "Keys " WINDOW)
+      (DSPFONT PLAIN WINDOW)
+      (PRIN1 (MAG-GOPHER-STATUS-LINE WINDOW) WINDOW)
+      (DSPFONT PLAIN WINDOW))])
+
+(MAG-GOPHER-SET-STATUS
+  [LAMBDA (WINDOW STATUS)
+    (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS STATUS)
+    (AND (OPENWP WINDOW)
+         (MAG-GOPHER-DRAW-STATUS-LINE WINDOW))
+    STATUS])
+
+(MAG-GOPHER-DRAW-DIVIDER
+  [LAMBDA (WINDOW)
+    (LET ((Y (IPLUS (MAG-WINDOW-ROW-BOTTOM WINDOW 2)
+                    (IQUOTIENT (MAG-WINDOW-LINEHEIGHT WINDOW) 2)))
+          (WIDTH (IMAX 1 (IDIFFERENCE (WINDOWPROP WINDOW 'WIDTH) 16))))
+      (MAG-WINDOW-CLEAR-LINE WINDOW 2)
+      (BLTSHADE BLACKSHADE WINDOW 8 Y WIDTH 1 'REPLACE))])
+
+(MAG-GOPHER-DRAW-CHROME
+  [LAMBDA (WINDOW HOST PORT SELECTOR)
+    (MAG-GOPHER-DRAW-HEADER WINDOW HOST PORT SELECTOR)
+    (MAG-GOPHER-DRAW-STATUS-LINE WINDOW)
+    (MAG-GOPHER-DRAW-DIVIDER WINDOW)])
+
+(MAG-GOPHER-TYPE-CHAR
+  [LAMBDA (TYPE)
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+      (CL:WRITE-CHAR (CL:CODE-CHAR (OR TYPE 49)) OUT)
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
+
+(MAG-GOPHER-HEX-CHAR
+  [LAMBDA (N)
+    (COND
+      ((ILESSP N 10)
+       (IPLUS 48 N))
+      (T (IPLUS 55 N)))])
+
+(MAG-GOPHER-URL-SAFE-BYTEP
+  [LAMBDA (BYTE)
+    (OR (AND (IGEQ BYTE 48) (ILEQ BYTE 57))
+        (AND (IGEQ BYTE 65) (ILEQ BYTE 90))
+        (AND (IGEQ BYTE 97) (ILEQ BYTE 122))
+        (EQ BYTE 45)
+        (EQ BYTE 46)
+        (EQ BYTE 95)
+        (EQ BYTE 126))])
+
+(MAG-GOPHER-WRITE-PERCENT-BYTE
+  [LAMBDA (OUT BYTE)
+    (CL:WRITE-CHAR (CL:CODE-CHAR 37) OUT)
+    (CL:WRITE-CHAR (CL:CODE-CHAR (MAG-GOPHER-HEX-CHAR (LRSH BYTE 4))) OUT)
+    (CL:WRITE-CHAR (CL:CODE-CHAR (MAG-GOPHER-HEX-CHAR (LOGAND BYTE 15))) OUT)])
+
+(MAG-GOPHER-URL-ENCODE
+  [LAMBDA (TEXT)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           BYTES)
+      (COND
+        ((NULL TEXT)
+         (RETURN "")))
+      (for I from 1 to (NCHARS TEXT) do
+        (SETQ BYTES (MAG-VTERM-UTF8-BYTES (NTHCHARCODE TEXT I)))
+        (for BYTE in BYTES do
+          (COND
+            ((MAG-GOPHER-URL-SAFE-BYTEP BYTE)
+             (CL:WRITE-CHAR (CL:CODE-CHAR BYTE) OUT))
+            (T
+             (MAG-GOPHER-WRITE-PERCENT-BYTE OUT BYTE)))))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
+(MAG-GOPHER-BUILD-URL
+  [LAMBDA (HOST PORT TYPE SELECTOR)
+    (CONCAT "gopher://"
+            (OR HOST "")
+            ":"
+            (OR PORT 70)
+            "/"
+            (MAG-GOPHER-TYPE-CHAR (OR TYPE 49))
+            (MAG-GOPHER-URL-ENCODE (OR SELECTOR "")))])
+
+(MAG-GOPHER-CURRENT-URL
+  [LAMBDA (WINDOW)
+    (MAG-GOPHER-BUILD-URL (WINDOWPROP WINDOW 'MAG-GOPHER-HOST)
+                          (WINDOWPROP WINDOW 'MAG-GOPHER-PORT)
+                          (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE)
+                          (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR))])
+
+(MAG-GOPHER-ENTRY-URL
+  [LAMBDA (ENTRY)
+    (AND ENTRY
+         (EQ (CAR ENTRY) 'ITEM)
+         (MAG-GOPHER-BUILD-URL (CAR (CDDDDR ENTRY))
+                               (CADR (CDDDDR ENTRY))
+                               (CADDR ENTRY)
+                               (CADDDR ENTRY)))])
+
+(MAG-GOPHER-SHOW-URL
+  [LAMBDA (WINDOW)
+    (MAG-GOPHER-SET-STATUS WINDOW (MAG-GOPHER-CURRENT-URL WINDOW))])
+
+(MAG-GOPHER-COPY-URL
+  [LAMBDA (WINDOW)
+    (LET ((URL (MAG-GOPHER-CURRENT-URL WINDOW))
+          COPIED)
+      (COND
+        ((MAG-CLIPBOARD-PUT URL)
+         (SETQ COPIED T)
+         (MAG-GOPHER-SET-STATUS WINDOW (CONCAT "Copied " URL)))
+        (T
+         (SETQ COPIED NIL)
+         (MAG-GOPHER-SET-STATUS WINDOW
+                                "Clipboard copy failed (install xclip?)")))
+      COPIED)])
+
+(MAG-GOPHER-COPY-ITEM-URL
+  [LAMBDA (WINDOW)
+    (LET ((URL (MAG-GOPHER-ENTRY-URL (MAG-GOPHER-SELECTED-ENTRY WINDOW)))
+          COPIED)
+      (COND
+        ((AND URL (MAG-CLIPBOARD-PUT URL))
+         (SETQ COPIED T)
+         (MAG-GOPHER-SET-STATUS WINDOW (CONCAT "Copied item " URL)))
+        (URL
+         (SETQ COPIED NIL)
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     "Clipboard copy failed (install xclip?)"))
+        (T
+         (SETQ COPIED NIL)
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     "Selected line has no gopher URL")))
+      COPIED)])
+
+(MAG-GOPHER-PAGE-TEXT
+  [LAMBDA (WINDOW)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))
+           LINE)
+    LP
+      (COND
+        ((NULL ENTRIES)
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (SETQ LINE (MAG-GOPHER-ENTRY-TEXT (CAR ENTRIES)))
+      (MAG-STRING-OUTPUT LINE OUT)
+      (SETQ ENTRIES (CDR ENTRIES))
+      (AND ENTRIES (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT))
+      (GO LP))])
+
+(MAG-GOPHER-COPY-PAGE
+  [LAMBDA (WINDOW)
+    (LET ((TEXT (MAG-GOPHER-PAGE-TEXT WINDOW))
+          COPIED)
+      (COND
+        ((AND TEXT (MAG-CLIPBOARD-PUT TEXT))
+         (SETQ COPIED T)
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     (CONCAT "Copied " (NCHARS TEXT) " chars of page text")))
+        (T
+         (SETQ COPIED NIL)
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     "Clipboard copy failed (install xclip?)")))
+      COPIED)])
+
+(MAG-GOPHER-WRITE-TEXT-FILE
+  [LAMBDA (PATH TEXT)
+    (MAG-WRITE-UTF8-TEXT-FILE PATH TEXT)])
+
+(MAG-GOPHER-SAVE-PAGE
+  [LAMBDA (WINDOW)
+    (LET ((PATH (MAG-PROMPT-LINE "save gopher page file" NIL))
+          (TEXT (MAG-GOPHER-PAGE-TEXT WINDOW)))
+      (COND
+        ((AND PATH (MAG-GOPHER-WRITE-TEXT-FILE PATH TEXT))
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     (CONCAT "Saved " (NCHARS TEXT) " chars to " PATH)))
+        (PATH
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     (CONCAT "Could not save to " PATH)))))])
+
+(MAG-GOPHER-SAVE-RAW-RESOURCE
+  [LAMBDA (HOST PORT SELECTOR PATH WINDOW)
+    (PROG (CHAN STREAM BUFFER LEN I SPINS COUNT)
+      (COND
+        ((OR (NULL PATH) (EQ (NCHARS PATH) 0))
+         (RETURN (LIST NIL "No output file"))))
+      (SETQ STREAM (CAR (NLSETQ (OPENSTREAM PATH 'OUTPUT 'NEW))))
+      (COND
+        ((NULL STREAM)
+         (RETURN (LIST NIL (CONCAT "Could not open " PATH)))))
+      (SETQ CHAN (SUBRCALL UNIX-HANDLECOMM 21
+                            (\DTEST HOST 'ONED-ARRAY)
+                            (\DTEST PORT 'SMALLP)))
+      (COND
+        ((NULL CHAN)
+         (CLOSEF STREAM)
+         (RETURN (LIST NIL (CONCAT "Could not connect to " HOST ":" PORT)))))
+      (AND WINDOW (WINDOWPROP WINDOW 'MAG-GOPHER-CHANNEL CHAN))
+      (SETQ BUFFER (MAG-GOPHER-READ-BUFFER WINDOW))
+      (COND
+        ((NOT (AND (MAG-GOPHER-WRITE-CHANNEL-STRING CHAN SELECTOR)
+                   (MAG-VTERM-WRITE-BYTES CHAN '(13 10))))
+         (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+         (CLOSEF STREAM)
+         (RETURN (LIST NIL "Could not write gopher request"))))
+      (SETQ SPINS 0)
+      (SETQ COUNT 0)
+    RAWREAD
+      (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+      (COND
+        ((EQ LEN T)
+         (SETQ SPINS (ADD1 SPINS))
+         (COND
+           ((IGREATERP SPINS 5000)
+            (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+            (CLOSEF STREAM)
+            (RETURN (LIST NIL "Timed out reading gopher response"))))
+         (BLOCK)
+         (GO RAWREAD))
+        ((NULL LEN)
+         (MAG-GOPHER-CLOSE-CHANNEL WINDOW CHAN)
+         (CLOSEF STREAM)
+         (RETURN (LIST T COUNT)))
+        (T
+         (SETQ SPINS 0)
+         (SETQ I 0)))
+    BYTES
+      (COND
+        ((IGEQ I LEN)
+         (GO RAWREAD)))
+      (BOUT STREAM (\GETBASEBYTE BUFFER I))
+      (SETQ COUNT (ADD1 COUNT))
+      (SETQ I (ADD1 I))
+      (GO BYTES))])
+
+(MAG-GOPHER-SAVE-ENTRY
+  [LAMBDA (WINDOW ENTRY PATH)
+    (PROG (RESULT)
+      (COND
+        ((OR (NULL ENTRY) (NEQ (CAR ENTRY) 'ITEM))
+         (MAG-GOPHER-SET-STATUS WINDOW "Selected line is not downloadable")
+         (RETURN NIL)))
+      (SETQ RESULT (MAG-GOPHER-SAVE-RAW-RESOURCE
+                     (CAR (CDDDDR ENTRY))
+                     (CADR (CDDDDR ENTRY))
+                     (CADDDR ENTRY)
+                     PATH
+                     WINDOW))
+      (COND
+        ((CAR RESULT)
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     (CONCAT "Downloaded " (CADR RESULT) " bytes to " PATH))
+         (RETURN T))
+        (T
+         (MAG-GOPHER-SET-STATUS WINDOW (CADR RESULT))
+         (RETURN NIL))))])
+
+(MAG-GOPHER-SAVE-SELECTED
+  [LAMBDA (WINDOW)
+    (MAG-GOPHER-SAVE-ENTRY WINDOW
+                           (MAG-GOPHER-SELECTED-ENTRY WINDOW)
+                           (MAG-PROMPT-LINE "download selected gopher item file" NIL))])
+
+(MAG-GOPHER-VIEW-ENTRY-AS-TEXT
+  [LAMBDA (WINDOW ENTRY)
+    (COND
+      ((AND ENTRY (EQ (CAR ENTRY) 'ITEM))
+       (MAG-GOPHER-START-LOAD WINDOW
+                              (CAR (CDDDDR ENTRY))
+                              (CADR (CDDDDR ENTRY))
+                              (CADDDR ENTRY)
+                              48
+                              T))
+      (T
+       (MAG-GOPHER-SET-STATUS WINDOW "Selected line is not a gopher item")
+       NIL))])
+
+(MAG-GOPHER-VIEW-SELECTED-AS-TEXT
+  [LAMBDA (WINDOW)
+    (MAG-GOPHER-VIEW-ENTRY-AS-TEXT WINDOW
+                                   (MAG-GOPHER-SELECTED-ENTRY WINDOW))])
+
+(MAG-GOPHER-CLAMP-SELECTION
+  [LAMBDA (WINDOW)
+    (PROG ((COUNT (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)))
+           (SELECTED (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED) 1)))
+      (COND
+        ((ILESSP COUNT 1)
+         (SETQ SELECTED 1))
+        ((ILESSP SELECTED 1)
+         (SETQ SELECTED 1))
+        ((IGREATERP SELECTED COUNT)
+         (SETQ SELECTED COUNT)))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED SELECTED)
+      (RETURN SELECTED))])
+
+(MAG-GOPHER-ENSURE-SELECTION-VISIBLE
+  [LAMBDA (WINDOW)
+    (PROG ((SELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW))
+           (VISIBLE (MAG-GOPHER-VISIBLE-COUNT WINDOW))
+           (JUMP (MAG-GOPHER-VIEW-JUMP WINDOW))
+           (TOP (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0))
+           MAXTOP)
+      (SETQ MAXTOP (MAG-GOPHER-MAX-TOP WINDOW))
+      (COND
+        ((ILEQ SELECTED TOP)
+         (SETQ TOP (IMIN (SUB1 SELECTED)
+                         (IDIFFERENCE TOP JUMP))))
+        ((IGREATERP SELECTED (IPLUS TOP VISIBLE))
+         (SETQ TOP (IMAX (IDIFFERENCE SELECTED VISIBLE)
+                         (IPLUS TOP JUMP)))))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TOP
+                  (IMAX 0 (IMIN MAXTOP TOP))))])
+
+(MAG-GOPHER-SELECTED-ENTRY
+  [LAMBDA (WINDOW)
+    (LET ((ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))
+          (SELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW)))
+      (AND ENTRIES (CAR (NTH ENTRIES SELECTED))))])
+
+(MAG-GOPHER-MOVE-SELECTION
+  [LAMBDA (WINDOW DELTA)
+    (PROG ((OLDSELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW))
+           (OLDTOP (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0))
+           NEWSELECTED NEWTOP)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED
+                  (IPLUS OLDSELECTED DELTA))
+      (MAG-GOPHER-ENSURE-SELECTION-VISIBLE WINDOW)
+      (SETQ NEWSELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW))
+      (SETQ NEWTOP (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0))
+      (COND
+        ((NEQ OLDTOP NEWTOP)
+         (MAG-GOPHER-REPAINT WINDOW))
+        ((NEQ OLDSELECTED NEWSELECTED)
+         (MAG-GOPHER-DRAW-INDEX WINDOW OLDSELECTED)
+         (MAG-GOPHER-DRAW-INDEX WINDOW NEWSELECTED))))])
+
+(MAG-GOPHER-FIND-FROM
+  [LAMBDA (WINDOW NEEDLE START)
+    (PROG ((ENTRIES (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))
+           (COUNT (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)))
+           (INDEX (OR START 1))
+           ENTRY TEXT)
+      (COND
+        ((OR (NULL NEEDLE) (EQ (NCHARS NEEDLE) 0))
+         (RETURN NIL)))
+      (COND
+        ((ILESSP INDEX 1)
+         (SETQ INDEX 1)))
+    LP
+      (COND
+        ((IGREATERP INDEX COUNT)
+         (RETURN NIL)))
+      (SETQ ENTRY (CAR (NTH ENTRIES INDEX)))
+      (SETQ TEXT (AND ENTRY (MAG-GOPHER-ENTRY-TEXT ENTRY)))
+      (COND
+        ((AND TEXT (STRPOS NEEDLE TEXT))
+         (RETURN INDEX)))
+      (SETQ INDEX (ADD1 INDEX))
+      (GO LP))])
+
+(MAG-GOPHER-FIND-TEXT
+  [LAMBDA (WINDOW NEEDLE START)
+    (PROG ((COUNT (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)))
+           INDEX)
+      (COND
+        ((OR (NULL NEEDLE) (EQ (NCHARS NEEDLE) 0))
+         (MAG-GOPHER-SET-STATUS WINDOW "No find text")
+         (RETURN NIL)))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-FIND-TEXT NEEDLE)
+      (SETQ INDEX (MAG-GOPHER-FIND-FROM WINDOW NEEDLE (OR START 1)))
+      (COND
+        ((NULL INDEX)
+         (SETQ INDEX (MAG-GOPHER-FIND-FROM WINDOW NEEDLE 1))))
+      (COND
+        (INDEX
+         (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED INDEX)
+         (MAG-GOPHER-ENSURE-SELECTION-VISIBLE WINDOW)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS
+                     (CONCAT "Found " NEEDLE " at " INDEX "/" COUNT))
+         (MAG-GOPHER-REPAINT WINDOW)
+         (RETURN INDEX))
+        (T
+         (MAG-GOPHER-SET-STATUS WINDOW
+                     (CONCAT "Not found: " NEEDLE))
+         (RETURN NIL))))])
+
+(MAG-GOPHER-FIND-PROMPT
+  [LAMBDA (WINDOW)
+    (LET ((NEEDLE (MAG-PROMPT-LINE "find in gopher page"
+                                   (WINDOWPROP WINDOW 'MAG-GOPHER-FIND-TEXT))))
+      (AND NEEDLE
+           (MAG-GOPHER-FIND-TEXT WINDOW NEEDLE
+                                 (ADD1 (MAG-GOPHER-CLAMP-SELECTION WINDOW)))))])
+
+(MAG-GOPHER-FIND-AGAIN
+  [LAMBDA (WINDOW)
+    (LET ((NEEDLE (WINDOWPROP WINDOW 'MAG-GOPHER-FIND-TEXT)))
+      (COND
+        ((AND NEEDLE (IGREATERP (NCHARS NEEDLE) 0))
+         (MAG-GOPHER-FIND-TEXT WINDOW NEEDLE
+                               (ADD1 (MAG-GOPHER-CLAMP-SELECTION WINDOW))))
+        (T
+         (MAG-GOPHER-FIND-PROMPT WINDOW))))])
+
+(MAG-GOPHER-REPAINT
+  [LAMBDA (WINDOW)
+    (PROG ((HOST (OR (WINDOWPROP WINDOW 'MAG-GOPHER-HOST) ""))
+           (PORT (OR (WINDOWPROP WINDOW 'MAG-GOPHER-PORT) 70))
+           (SELECTOR (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR) ""))
+           (ENTRIES (OR (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)
+                        (LIST (LIST 'TEXT "Loading..."))))
+           (TOP (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0))
+           (VISIBLE (MAG-GOPHER-VISIBLE-COUNT WINDOW))
+           SELECTED
+           (N 1)
+	           (DRAWN 0))
+	      (SETQ SELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW))
+	      (CLEARW WINDOW)
+	      (MAG-GOPHER-DRAW-CHROME WINDOW HOST PORT SELECTOR)
+	      (for ENTRY in ENTRIES do
+        (COND
+	                   ((AND (IGEQ N (ADD1 TOP)) (ILESSP DRAWN VISIBLE))
+	                     (MAG-GOPHER-DRAW-ENTRY-LINE WINDOW (IPLUS 3 DRAWN)
+	                                                ENTRY (EQ N SELECTED))
+	                     (SETQ DRAWN (ADD1 DRAWN))))
+	                 (SETQ N (ADD1 N))))])
+
+(MAG-GOPHER-DRAW-INDEX
+  [LAMBDA (WINDOW INDEX)
+    (PROG ((TOP (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0))
+           (VISIBLE (MAG-GOPHER-VISIBLE-COUNT WINDOW))
+           ROW ENTRY SELECTED)
+      (COND
+        ((OR (ILEQ INDEX TOP)
+             (IGREATERP INDEX (IPLUS TOP VISIBLE)))
+         (RETURN NIL)))
+      (SETQ ROW (IPLUS 3 (IDIFFERENCE INDEX (ADD1 TOP))))
+      (SETQ ENTRY (MAG-GOPHER-ENTRY-AT WINDOW INDEX))
+      (SETQ SELECTED (EQ INDEX (MAG-GOPHER-CLAMP-SELECTION WINDOW)))
+      (COND
+        (ENTRY
+         (MAG-GOPHER-DRAW-ENTRY-LINE WINDOW ROW ENTRY SELECTED)
+         (RETURN T))
+        (T
+         (MAG-WINDOW-CLEAR-LINE WINDOW ROW)
+         (RETURN NIL))))])
+
+(MAG-GOPHER-MAX-TOP
+  [LAMBDA (WINDOW)
+    (IMAX 0 (IDIFFERENCE (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))
+                         (MAG-GOPHER-VISIBLE-COUNT WINDOW)))])
+
+(MAG-GOPHER-SCROLL
+  [LAMBDA (WINDOW DELTA)
+    (WINDOWPROP WINDOW 'MAG-GOPHER-TOP
+                (IMAX 0 (IMIN (MAG-GOPHER-MAX-TOP WINDOW)
+                              (IPLUS (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0)
+                                      DELTA))))
+    (MAG-GOPHER-REPAINT WINDOW)])
+
+(MAG-GOPHER-LOAD
+  [LAMBDA (WINDOW HOST PORT SELECTOR TYPE)
+    (PROG (RAW ENTRIES RESTORE)
+      (SETQ RAW (MAG-GOPHER-FETCH-RAW HOST PORT SELECTOR WINDOW))
+      (COND
+        ((AND RAW (EQ (CAAR RAW) 'ERROR))
+         (SETQ ENTRIES RAW)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS (CADAR RAW)))
+        ((EQ TYPE 48)
+         (SETQ ENTRIES (MAG-GOPHER-BUILD-TEXT RAW))
+         (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS
+                     (CONCAT (LENGTH ENTRIES) " text lines")))
+        (T
+         (SETQ ENTRIES (MAG-GOPHER-ANNOTATE-LABELS
+                         (MAG-GOPHER-BUILD-DIRECTORY RAW HOST PORT)))
+         (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS
+                     (CONCAT (LENGTH ENTRIES) " directory entries"))))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES ENTRIES)
+      (SETQ RESTORE (WINDOWPROP WINDOW 'MAG-GOPHER-RESTORE-STATE NIL))
+      (COND
+        (RESTORE
+         (WINDOWPROP WINDOW 'MAG-GOPHER-TOP
+                     (OR (CAR RESTORE) 0))
+         (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED
+                     (OR (CADR RESTORE) 1))))
+      (MAG-GOPHER-CLAMP-SELECTION WINDOW)
+      (MAG-GOPHER-ENSURE-SELECTION-VISIBLE WINDOW)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS NIL)
+      (AND (OPENWP WINDOW)
+           (MAG-GOPHER-REPAINT WINDOW)))])
+
+(MAG-GOPHER-CURRENT-STATE
+  [LAMBDA (WINDOW)
+    (AND (WINDOWPROP WINDOW 'MAG-GOPHER-HOST)
+         (LIST (WINDOWPROP WINDOW 'MAG-GOPHER-HOST)
+               (WINDOWPROP WINDOW 'MAG-GOPHER-PORT)
+               (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR)
+               (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE)
+               (WINDOWPROP WINDOW 'MAG-GOPHER-TOP)
+               (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED)))])
+
+(MAG-GOPHER-LOAD-STATE
+  [LAMBDA (WINDOW STATE)
+    (AND STATE
+         (PROGN
+           (MAG-GOPHER-START-LOAD WINDOW
+                                  (CAR STATE)
+                                  (CADR STATE)
+                                  (CADDR STATE)
+                                  (CADDDR STATE)
+                                  NIL)
+           (WINDOWPROP WINDOW 'MAG-GOPHER-RESTORE-STATE
+                       (LIST (OR (CAR (CDDDDR STATE)) 0)
+                             (OR (CADR (CDDDDR STATE)) 1)))
+           (MAG-GOPHER-REPAINT WINDOW)))])
+
+(MAG-GOPHER-START-LOAD
+  [LAMBDA (WINDOW HOST PORT SELECTOR TYPE PUSH)
+    (PROG (OLDSTATE PROC)
+      (COND
+        ((SETQ PROC (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS NIL))
+         (MAG-GOPHER-CLOSE-CHANNEL WINDOW NIL)
+         (DEL.PROCESS PROC)))
+      (SETQ OLDSTATE (MAG-GOPHER-CURRENT-STATE WINDOW))
+      (COND
+        ((AND PUSH OLDSTATE)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY
+                     (CONS OLDSTATE
+                                    (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY)))
+         (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD NIL)))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-HOST HOST)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-PORT PORT)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR (OR SELECTOR ""))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE TYPE)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 1)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-FIND-TEXT NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS "loading...")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES (LIST (LIST 'TEXT "Loading...")))
+      (WINDOWPROP WINDOW 'TITLE (CONCAT "Mag Gopher  " HOST ":" PORT))
+      (MAG-GOPHER-REPAINT WINDOW)
+      (SETQ PROC (ADD.PROCESS (LIST (FUNCTION MAG-GOPHER-LOAD)
+                                    WINDOW HOST PORT (OR SELECTOR "") TYPE)
+                              'NAME 'MAG-GOPHER-LOAD))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS PROC))])
+
+(MAG-GOPHER-CANCEL-LOAD
+  [LAMBDA (WINDOW)
+    (PROG ((PROC (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS NIL)))
+      (MAG-GOPHER-CLOSE-CHANNEL WINDOW NIL)
+      (COND
+        (PROC
+         (DEL.PROCESS PROC)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS "cancelled")
+         (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES
+                     (LIST (LIST 'TEXT "Load cancelled.")))
+         (MAG-GOPHER-CLAMP-SELECTION WINDOW)
+         (MAG-GOPHER-REPAINT WINDOW)
+         (RETURN T))
+        (T
+         (MAG-GOPHER-SET-STATUS WINDOW "No load in progress")
+         (RETURN NIL))))])
+
+(MAG-GOPHER-BACK
+  [LAMBDA (WINDOW)
+    (LET ((HISTORY (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY))
+          (CURRENT (MAG-GOPHER-CURRENT-STATE WINDOW)))
+      (COND
+        (HISTORY
+         (AND CURRENT
+              (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD
+                          (CONS CURRENT
+                                (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD))))
+         (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY (CDR HISTORY))
+         (MAG-GOPHER-LOAD-STATE WINDOW (CAR HISTORY)))))])
+
+(MAG-GOPHER-FORWARD
+  [LAMBDA (WINDOW)
+    (LET ((FORWARD (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD))
+          (CURRENT (MAG-GOPHER-CURRENT-STATE WINDOW)))
+      (COND
+        (FORWARD
+         (AND CURRENT
+              (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY
+                          (CONS CURRENT
+                                (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY))))
+         (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD (CDR FORWARD))
+         (MAG-GOPHER-LOAD-STATE WINDOW (CAR FORWARD)))
+        (T
+         (MAG-GOPHER-SET-STATUS WINDOW "No forward history")
+         NIL)))])
+
+(MAG-GOPHER-SEARCH-SELECTOR
+  [LAMBDA (ENTRY QUERY)
+    (AND ENTRY
+         QUERY
+         (IGREATERP (NCHARS QUERY) 0)
+         (CONCAT (CADDDR ENTRY) (MAG-GOPHER-CHAR-STRING 9) QUERY))])
+
+(MAG-GOPHER-SEARCH-ENTRY
+  [LAMBDA (WINDOW ENTRY QUERY)
+    (LET ((SELECTOR (MAG-GOPHER-SEARCH-SELECTOR ENTRY QUERY)))
+      (AND SELECTOR
+           (MAG-GOPHER-START-LOAD WINDOW
+                                  (CAR (CDDDDR ENTRY))
+                                  (CADR (CDDDDR ENTRY))
+                                  SELECTOR
+                                  49
+                                  T)))])
+
+(MAG-GOPHER-PROMPT-SEARCH
+  [LAMBDA (WINDOW ENTRY)
+    (LET ((QUERY (MAG-PROMPT-LINE "search query" NIL)))
+      (AND QUERY (MAG-GOPHER-SEARCH-ENTRY WINDOW ENTRY QUERY)))])
+
+(MAG-GOPHER-SEARCH-SELECTED
+  [LAMBDA (WINDOW)
+    (LET ((ENTRY (MAG-GOPHER-SELECTED-ENTRY WINDOW)))
+      (COND
+        ((AND ENTRY (EQ (CAR ENTRY) 'ITEM) (EQ (CADDR ENTRY) 55))
+         (MAG-GOPHER-PROMPT-SEARCH WINDOW ENTRY))
+        (T
+         (MAG-GOPHER-SET-STATUS WINDOW "Select a FIND item before searching"))))])
+
+(MAG-GOPHER-OPEN-ENTRY
+  [LAMBDA (WINDOW ENTRY)
+    (COND
+      ((AND ENTRY (EQ (CAR ENTRY) 'ITEM))
+       (SELECTQ (CADDR ENTRY)
+                  ((48 49)
+                   (MAG-GOPHER-START-LOAD WINDOW
+                                          (CAR (CDDDDR ENTRY))
+                                          (CADR (CDDDDR ENTRY))
+                                          (CADDDR ENTRY)
+                                          (CADDR ENTRY)
+                                          T))
+                  (55
+                   (MAG-GOPHER-PROMPT-SEARCH WINDOW ENTRY))
+                  (104
+                   (COND
+                     ((EQ (STRPOS "URL:gopher://" (CADDDR ENTRY)) 1)
+                      (MAG-GOPHER-OPEN-SPEC WINDOW (SUBSTRING (CADDDR ENTRY) 5)))
+                     (T
+                      (MAG-GOPHER-SET-STATUS WINDOW
+                                  (CONCAT "HTML/link target: "
+                                          (CADDDR ENTRY))))))
+         (105 NIL)
+         (PROGN
+           (MAG-GOPHER-SET-STATUS WINDOW
+                       (CONCAT "Unsupported gopher item type "
+                                        (MAG-GOPHER-TYPE-TAG (CADDR ENTRY))
+                                        "; use v to view as text or d to download"))))))])
+
+(MAG-GOPHER-INDEX-FROM-Y
+  [LAMBDA (WINDOW Y)
+    (LET* ((LINEHEIGHT (MAG-GOPHER-LINEHEIGHT WINDOW))
+           (ROW (IQUOTIENT (IDIFFERENCE (WINDOWPROP WINDOW 'HEIGHT)
+                                        Y)
+                           LINEHEIGHT)))
+      (IPLUS (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0)
+             (IDIFFERENCE ROW 3)))])
+
+(MAG-GOPHER-CLICKED-ENTRY
+  [LAMBDA (WINDOW)
+    (LET ((INDEX (MAG-GOPHER-INDEX-FROM-Y WINDOW (LASTMOUSEY WINDOW)))
+          (COUNT (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES))))
+      (AND (IGREATERP INDEX 0)
+           (ILEQ INDEX COUNT)
+           (PROGN
+             (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED INDEX)
+             (MAG-GOPHER-ENSURE-SELECTION-VISIBLE WINDOW)
+             (MAG-GOPHER-SELECTED-ENTRY WINDOW))))])
+
+(MAG-GOPHER-OPEN-SPEC
+  [LAMBDA (WINDOW SPEC)
+    (PROG (WORK SLASH HOSTPORT COLON HOST PORT RAWSELECTOR SELECTOR TYPE TYPECHAR)
+      (COND
+        ((OR (NULL SPEC) (EQ (NCHARS SPEC) 0))
+         (RETURN NIL)))
+      (SETQ WORK (COND
+                   ((EQ (STRPOS "URL:gopher://" SPEC) 1)
+                    (SUBSTRING SPEC 14))
+                   ((EQ (STRPOS "gopher://" SPEC) 1)
+                    (SUBSTRING SPEC 10))
+                   (T SPEC)))
+      (SETQ SLASH (STRPOS "/" WORK))
+      (SETQ HOSTPORT (COND
+                       (SLASH (SUBSTRING WORK 1 (SUB1 SLASH)))
+                       (T WORK)))
+      (SETQ RAWSELECTOR (COND
+                          (SLASH (OR (SUBSTRING WORK (ADD1 SLASH)) ""))
+                          (T "")))
+      (SETQ TYPE 49)
+      (COND
+                 ((AND (IGREATERP (NCHARS RAWSELECTOR) 0)
+                       (SETQ TYPECHAR
+                             (MAG-GOPHER-TYPE-FROM-CHAR (NTHCHARCODE RAWSELECTOR 1))))
+                  (SETQ TYPE TYPECHAR)
+                  (SETQ SELECTOR (COND
+                                   ((IGREATERP (NCHARS RAWSELECTOR) 1)
+                                    (MAG-GOPHER-URL-DECODE
+                                      (OR (SUBSTRING RAWSELECTOR 2) "")))
+                                   (T ""))))
+                 (T
+                  (SETQ SELECTOR (MAG-GOPHER-URL-DECODE RAWSELECTOR))))
+      (SETQ COLON (STRPOS ":" HOSTPORT))
+      (SETQ HOST (COND
+                   (COLON (SUBSTRING HOSTPORT 1 (SUB1 COLON)))
+                   (T HOSTPORT)))
+      (COND
+        ((OR (NULL HOST) (EQ (NCHARS HOST) 0))
+         (MAG-GOPHER-SET-STATUS WINDOW "Missing gopher host")
+         (RETURN NIL)))
+      (SETQ PORT (COND
+                   (COLON (MAG-GOPHER-PARSE-INT (SUBSTRING HOSTPORT (ADD1 COLON)) 70))
+                   (T 70)))
+      (MAG-GOPHER-START-LOAD WINDOW HOST PORT SELECTOR TYPE T))])
+
+(MAG-GOPHER-HOME
+  [LAMBDA (WINDOW)
+    (MAG-GOPHER-START-LOAD WINDOW "gopher.floodgap.com" 70 "" 49 T)])
+
+(MAG-GOPHER-PROMPT-OPEN
+  [LAMBDA (WINDOW)
+    (LET ((SPEC (MAG-PROMPT-LINE "gopher://host[:port]/selector" NIL)))
+      (AND SPEC (MAG-GOPHER-OPEN-SPEC WINDOW SPEC)))])
+
+(MAG-GOPHER-MENU
+  [LAMBDA (WINDOW)
+    (SELECTQ (MENU (create MENU
+	                    ITEMS _ '(("Back" BACK "Go to previous gopher page")
+	                              ("Forward" FORWARD "Go forward after Back")
+	                              ("Home" HOME "Open the default gopher root")
+	                              ("Open..." OPEN "Open a gopher URL")
+	                              ("Show URL" URL "Show the current gopher URL")
+	                              ("Copy URL" COPYURL "Copy the current gopher URL")
+	                              ("Copy Item URL" COPYITEMURL "Copy the selected item URL")
+	                              ("Copy Page Text" COPYPAGE "Copy the rendered page text")
+	                              ("Save Page Text..." SAVEPAGE "Save the rendered page text")
+	                              ("Download Item..." SAVEITEM "Download the selected item")
+	                              ("View Item as Text" VIEWTEXT "Render the selected item as text")
+	                                       ("Find Page..." FINDPAGE "Find text in the rendered page")
+	                                       ("Find Again" FINDAGAIN "Repeat the last page-local find")
+	                                       ("Cancel Load" CANCEL "Cancel the current network load")
+                                       ("Reload" RELOAD "Reload this page")
+                              ("Page Up" UP "Scroll one page up")
+                              ("Page Down" DOWN "Scroll one page down")
+                              ("Help" HELP "Show gopher controls"))))
+      (BACK (MAG-GOPHER-BACK WINDOW))
+      (FORWARD (MAG-GOPHER-FORWARD WINDOW))
+      (HOME (MAG-GOPHER-START-LOAD WINDOW "gopher.floodgap.com" 70 "" 49 T))
+               (OPEN (MAG-GOPHER-PROMPT-OPEN WINDOW))
+               (URL (MAG-GOPHER-SHOW-URL WINDOW))
+               (COPYURL (MAG-GOPHER-COPY-URL WINDOW))
+               (COPYITEMURL (MAG-GOPHER-COPY-ITEM-URL WINDOW))
+               (COPYPAGE (MAG-GOPHER-COPY-PAGE WINDOW))
+               (SAVEPAGE (MAG-GOPHER-SAVE-PAGE WINDOW))
+               (SAVEITEM (MAG-GOPHER-SAVE-SELECTED WINDOW))
+               (VIEWTEXT (MAG-GOPHER-VIEW-SELECTED-AS-TEXT WINDOW))
+               (FINDPAGE (MAG-GOPHER-FIND-PROMPT WINDOW))
+               (FINDAGAIN (MAG-GOPHER-FIND-AGAIN WINDOW))
+               (CANCEL (MAG-GOPHER-CANCEL-LOAD WINDOW))
+               (RELOAD (MAG-GOPHER-START-LOAD WINDOW
+                                     (WINDOWPROP WINDOW 'MAG-GOPHER-HOST)
+                                     (WINDOWPROP WINDOW 'MAG-GOPHER-PORT)
+                                     (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR)
+                                     (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE)
+                                     NIL))
+      (UP (MAG-GOPHER-SCROLL WINDOW (IMINUS (MAG-GOPHER-VISIBLE-COUNT WINDOW))))
+      (DOWN (MAG-GOPHER-SCROLL WINDOW (MAG-GOPHER-VISIBLE-COUNT WINDOW)))
+      (HELP (MAG-GOPHER-HELP WINDOW))
+      NIL)])
+
+(MAG-GOPHER-HELP
+  [LAMBDA (WINDOW)
+    (MAG-WINDOW-DRAW-LINES
+      WINDOW
+      '("Mag Gopher"
+        ""
+        "This is a Medley-rendered Gopher client using Maiko TCP streams."
+        ""
+        "RET or right arrow: open selected item"
+        "j/k or up/down arrows: move selection"
+        "SPC/Backspace or page keys: page down/up"
+        "b or left arrow: back"
+                 "F: forward after back"
+                 "g: home"
+                 "o: open gopher://host[:port]/[type][selector]"
+                 "u: show current gopher URL in the status line"
+                 "c: copy current gopher URL to clipboard"
+                 "y: copy selected item URL to clipboard"
+                 "p: copy rendered page text to clipboard"
+                 "w: write rendered page text to a file"
+                 "d: download selected gopher item as raw bytes"
+                 "v: view selected item as text"
+                 "f: find text in the current rendered page"
+                 "n: repeat the last page-local find"
+                 "x, ESC, or C-g: cancel current load"
+                 "/ or s: search selected FIND item"
+        "Middle click: gopher menu"
+        "Left click: open item under pointer"
+        "Right click: Medley window menu for move/reshape/close"
+        "r: reload"
+        "q: close"
+        ""
+        "Use r or any navigation key to return from this help screen."))])
+
+(MAG-GOPHER-RELOAD
+  [LAMBDA (WINDOW)
+    (MAG-GOPHER-START-LOAD WINDOW
+                           (WINDOWPROP WINDOW 'MAG-GOPHER-HOST)
+                           (WINDOWPROP WINDOW 'MAG-GOPHER-PORT)
+                           (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR)
+                           (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE)
+                           NIL)])
+
+(MAG-GOPHER-SPECIAL-KEYID
+  [LAMBDA (CH)
+    (MAG-VTERM-SPECIAL-KEYID CH)])
+
+(MAG-GOPHER-HANDLE-SPECIAL-KEY
+  [LAMBDA (WINDOW CH)
+    (LET ((KEYID (MAG-GOPHER-SPECIAL-KEYID CH)))
+      (COND
+        ((EQ KEYID 1)
+         (MAG-GOPHER-MOVE-SELECTION WINDOW -1)
+         T)
+        ((EQ KEYID 2)
+         (MAG-GOPHER-MOVE-SELECTION WINDOW 1)
+         T)
+        ((EQ KEYID 3)
+         (MAG-GOPHER-OPEN-ENTRY WINDOW (MAG-GOPHER-SELECTED-ENTRY WINDOW))
+         T)
+        ((EQ KEYID 4)
+         (MAG-GOPHER-BACK WINDOW)
+         T)
+        ((EQ KEYID 5)
+         (MAG-GOPHER-HOME WINDOW)
+         T)
+        ((EQ KEYID 7)
+         (MAG-GOPHER-SCROLL WINDOW (IMINUS (MAG-GOPHER-VISIBLE-COUNT WINDOW)))
+         T)
+        ((EQ KEYID 8)
+         (MAG-GOPHER-SCROLL WINDOW (MAG-GOPHER-VISIBLE-COUNT WINDOW))
+         T)
+        (T NIL)))])
+
+(MAG-GOPHER-CANCEL-LABEL-PREFIX
+  [LAMBDA (WINDOW)
+    (COND
+      ((WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX)
+       (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX NIL)
+       (MAG-GOPHER-DRAW-STATUS-LINE WINDOW)
+       T)
+      (T NIL))])
+
+(MAG-GOPHER-HANDLE-LABEL-CHAR
+  [LAMBDA (WINDOW CH)
+    (PROG ((LOW (MAG-GOPHER-LOWER-LETTER CH))
+           (PREFIX (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX))
+           NEXT INDEX)
+      (COND
+        ((NULL LOW)
+         (RETURN NIL)))
+      (SETQ NEXT (CONCAT (OR PREFIX "") (MAG-GOPHER-CHAR-STRING LOW)))
+      (SETQ INDEX (MAG-GOPHER-LABEL-INDEX WINDOW NEXT))
+      (COND
+        (INDEX
+         (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX NIL)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED INDEX)
+         (MAG-GOPHER-ENSURE-SELECTION-VISIBLE WINDOW)
+         (MAG-GOPHER-OPEN-ENTRY WINDOW (MAG-GOPHER-ENTRY-AT WINDOW INDEX))
+         (RETURN T))
+        ((MAG-GOPHER-LABEL-PREFIX-P WINDOW NEXT)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX NEXT)
+         (MAG-GOPHER-DRAW-STATUS-LINE WINDOW)
+         (RETURN T))
+        (PREFIX
+         (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX NIL)
+         (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS (CONCAT "No label " NEXT))
+         (MAG-GOPHER-DRAW-STATUS-LINE WINDOW)
+         (RETURN T))
+        (T
+         (RETURN NIL))))])
+
+(MAG-GOPHER-HANDLE-KEY
+  [LAMBDA (WINDOW CH)
+    (PROG NIL
+      (MAG-GOPHER-RECORD-KEY CH)
+      (COND
+        ((AND (WINDOWPROP WINDOW 'MAG-GOPHER-LABEL-PREFIX)
+              (FMEMB CH '(7 8 27 127)))
+         (RETURN (MAG-GOPHER-CANCEL-LABEL-PREFIX WINDOW)))
+        ((MAG-GOPHER-HANDLE-SPECIAL-KEY WINDOW CH)
+         (RETURN T))
+        ((MAG-GOPHER-HANDLE-LABEL-CHAR WINDOW CH)
+         (RETURN T)))
+      (RETURN
+        (SELECTQ CH
+      ((10 13)
+       (MAG-GOPHER-OPEN-ENTRY WINDOW (MAG-GOPHER-SELECTED-ENTRY WINDOW)))
+      ((8 127)
+       (MAG-GOPHER-SCROLL WINDOW (IMINUS (MAG-GOPHER-VISIBLE-COUNT WINDOW))))
+      (32
+       (MAG-GOPHER-SCROLL WINDOW (MAG-GOPHER-VISIBLE-COUNT WINDOW)))
+      ((47 115)
+       (MAG-GOPHER-SEARCH-SELECTED WINDOW))
+      ((98 104)
+       (MAG-GOPHER-BACK WINDOW))
+      (70
+       (MAG-GOPHER-FORWARD WINDOW))
+      ((103 72)
+       (MAG-GOPHER-HOME WINDOW))
+      (106
+       (MAG-GOPHER-MOVE-SELECTION WINDOW 1))
+      (107
+       (MAG-GOPHER-MOVE-SELECTION WINDOW -1))
+      (111
+       (MAG-GOPHER-PROMPT-OPEN WINDOW))
+               (117
+                (MAG-GOPHER-SHOW-URL WINDOW))
+               (99
+                (MAG-GOPHER-COPY-URL WINDOW))
+               (121
+                (MAG-GOPHER-COPY-ITEM-URL WINDOW))
+               (112
+                (MAG-GOPHER-COPY-PAGE WINDOW))
+               (119
+                (MAG-GOPHER-SAVE-PAGE WINDOW))
+               (100
+                (MAG-GOPHER-SAVE-SELECTED WINDOW))
+               (118
+                (MAG-GOPHER-VIEW-SELECTED-AS-TEXT WINDOW))
+               (63
+       (MAG-GOPHER-HELP WINDOW))
+      (113
+       (CLOSEW WINDOW))
+      (102
+       (MAG-GOPHER-FIND-PROMPT WINDOW))
+      (110
+       (MAG-GOPHER-FIND-AGAIN WINDOW))
+      ((7 27 120)
+       (MAG-GOPHER-CANCEL-LOAD WINDOW))
+      (114
+       (MAG-GOPHER-RELOAD WINDOW))
+      NIL)))])
+
+(MAG-GOPHER-TYPEIN
+  [LAMBDA (WINDOW)
+    (PROG (CH)
+      (while (WINDOWPROP WINDOW 'MAG-GOPHER-RUNNING)
+        do (OR (TTY.PROCESSP)
+               (\WAIT.FOR.TTY))
+           (COND
+             ((\SYSBUFP)
+              (do (SETQ CH (MTOUCODE (\GETKEY)))
+                  (MAG-GOPHER-HANDLE-KEY WINDOW CH)
+                repeatwhile (\SYSBUFP))))
+           (BLOCK))
+      (BLOCK))])
+
+(MAG-GOPHER-BUTTONFN
+  [LAMBDA (WINDOW)
+    (TOTOPW WINDOW)
+    (COND
+      ((PROCESSP (WINDOWPROP WINDOW 'PROCESS))
+       (TTY.PROCESS (WINDOWPROP WINDOW 'PROCESS))))
+    (COND
+      ((LASTMOUSESTATE MIDDLE)
+       (MAG-GOPHER-MENU WINDOW))
+      ((LASTMOUSESTATE LEFT)
+       (MAG-GOPHER-OPEN-ENTRY WINDOW (MAG-GOPHER-CLICKED-ENTRY WINDOW))))])
+
+(MAG-GOPHER-RESHAPEFN
+  [LAMBDA (WINDOW OLDIMAGE IMAGEREGION OLDSCREENREGION)
+    (RESHAPEBYREPAINTFN WINDOW OLDIMAGE IMAGEREGION)
+    (MAG-GOPHER-REPAINT WINDOW)])
+
+(MAG-GOPHER-CLOSEFN
+  [LAMBDA (WINDOW)
+    (PROG ((PROC (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS NIL)))
+      (AND (EQ MAG-GOPHER-LAST-WINDOW WINDOW)
+           (SETQ MAG-GOPHER-LAST-WINDOW NIL))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-RUNNING NIL)
+      (MAG-GOPHER-CLOSE-CHANNEL WINDOW NIL)
+      (AND PROC (DEL.PROCESS PROC))
+      (COND
+        ((SETQ PROC (WINDOWPROP WINDOW 'PROCESS NIL))
+         (DEL.PROCESS PROC))))])
+
+(MAG-GOPHER
+  [LAMBDA NIL
+    (MAG-VTERM-ENSURE)
+    (PROG ((WINDOW (CREATEW (MAG-CHAT-REGION) "Mag Gopher"))
+           INPROC)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-STATE T)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-RUNNING T)
+      (WINDOWPROP WINDOW 'BUTTONEVENTFN (FUNCTION MAG-GOPHER-BUTTONFN))
+      (WINDOWPROP WINDOW 'RIGHTBUTTONFN NIL)
+      (WINDOWPROP WINDOW 'WINDOWENTRYFN 'GIVE.TTY.PROCESS)
+	      (WINDOWPROP WINDOW 'RESHAPEFN (FUNCTION MAG-GOPHER-RESHAPEFN))
+	      (WINDOWADDPROP WINDOW 'CLOSEFN (FUNCTION MAG-GOPHER-CLOSEFN))
+	      (MODERNWINDOW WINDOW)
+	      (SETQ MAG-GOPHER-LAST-WINDOW WINDOW)
+	      (SETQ INPROC (ADD.PROCESS (LIST (FUNCTION MAG-GOPHER-TYPEIN) WINDOW)
+                                'NAME 'MAG-GOPHER-TYPEIN))
+      (WINDOWPROP WINDOW 'PROCESS INPROC)
+      (TTY.PROCESS INPROC)
+      (MAG-GOPHER-START-LOAD WINDOW "gopher.floodgap.com" 70 "" 49 NIL)
+      (RETURN WINDOW))])
+)
+
+STOP

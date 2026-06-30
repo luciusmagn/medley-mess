@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+
+if [ -f "$HOME/.guix-profile/etc/profile" ]; then
+    # Maiko was built against libraries from the user Guix profile.
+    . "$HOME/.guix-profile/etc/profile"
+fi
+
+export MEDLEYDIR="${MEDLEYDIR:-$HOME/src/medley}"
+export MAIKODIR="${MAIKODIR:-$HOME/src/maiko}"
+export NOTECARDSDIR="${NOTECARDSDIR:-$HOME/src/notecards}"
+export NOTEFILESSRC="${NOTEFILESSRC:-$NOTECARDSDIR/notefiles}"
+export NOTEFILESDIR="${NOTEFILESDIR:-$HOME/notefiles}"
+export LOGINDIR="${LOGINDIR:-$HOME/.local/share/medley-logindir}"
+export LDEKBDTYPE="${LDEKBDTYPE:-X}"
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+export PATH="$HOME/.local/bin:$HOME/.guix-profile/bin:$PATH"
+mkdir -p "$NOTEFILESDIR"
+mkdir -p "$LOGINDIR"
+unset TERMINFO
+export TERMINFO_DIRS="/run/current-system/profile/share/terminfo:$HOME/.guix-profile/share/terminfo:${TERMINFO_DIRS:-}"
+
+startup_typeahead="${TMPDIR:-/tmp}/medley-mag-startup-typeahead"
+cat >"$startup_typeahead" <<EOF
+(IL:LOAD "$MEDLEYDIR/greetfiles/MAG-NOGREET" T)
+EOF
+
+export MAIKO_STARTUP_TYPEAHEAD_FILE="$startup_typeahead"
+export MAIKO_STARTUP_TYPEAHEAD_DELAY="${MAIKO_STARTUP_TYPEAHEAD_DELAY:-8}"
+
+exec "$MEDLEYDIR/medley" \
+    --config - \
+    --apps \
+    --interlisp \
+    --noscroll \
+    --geometry 1920x1080 \
+    --screensize 1920x1080 \
+    --title "Medley Interlisp" \
+    --logindir "$LOGINDIR" \
+    --maikodir "$MAIKODIR" \
+    --greet - \
+    --nofork \
+    "$@"
