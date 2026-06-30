@@ -318,9 +318,28 @@ has blocked the bridge. The poller should spawn `MAG-RPC-RELOAD` and return.
 
 ## MCP bridge
 
-`scripts/mag-medley-mcp.js` is registered in `/home/mag/.codex/config.toml` as `medley_mag`. It exposes process/log/status tools and `medley_request`, which writes `/tmp/medley-mag-request`, waits for `/tmp/medley-mag-response`, and returns the live Medley response.
+`scripts/mag-medley-mcp.js` is registered in `/home/mag/.codex/config.toml` as `medley_mag`. The primary Codex transport is streamable HTTP at `http://127.0.0.1:8765/mcp`; `scripts/medley-mag-mcp-ensure` starts the persistent daemon with `setsid` so it survives the shell that launched it. The same JS file still supports stdio for direct protocol smoke tests.
 
-Smoke test:
+Autostart hooks on this machine:
+
+- `/home/mag/.config/fish/conf.d/medley_mcp.fish` starts `medley-mag-mcp-ensure` for interactive fish shells.
+- `/home/mag/.emacs.d/init.el` starts `medley-mag-mcp-ensure` from `emacs-startup-hook` for EXWM login.
+
+The bridge exposes process/log/status tools and `medley_request`, which writes `/tmp/medley-mag-request`, waits for `/tmp/medley-mag-response`, and returns the live Medley response.
+
+HTTP smoke test:
+
+```sh
+/home/mag/.local/bin/medley-mag-mcp-ensure
+/home/mag/.guix-profile/bin/node -e '
+const http=require("http");
+const body=JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"medley_request",arguments:{command:"ping",timeout_ms:5000}}});
+const req=http.request({host:"127.0.0.1",port:8765,path:"/mcp",method:"POST",headers:{"content-type":"application/json","content-length":Buffer.byteLength(body)}},res=>{let d="";res.on("data",c=>d+=c);res.on("end",()=>console.log(res.statusCode,d));});
+req.end(body);
+'
+```
+
+Stdio fallback smoke test:
 
 ```sh
 printf '%s\n' \

@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const http = require('http');
 const net = require('net');
 const { execFileSync } = require('child_process');
 
@@ -12,6 +13,9 @@ const DEBUG_PATH = process.env.MAG_MEDLEY_DEBUG_REPORT || '/tmp/medley-mag-debug
 const REQUEST_PATH = process.env.MAG_MEDLEY_REQUEST || '/tmp/medley-mag-request';
 const RESPONSE_PATH = process.env.MAG_MEDLEY_RESPONSE || '/tmp/medley-mag-response';
 const DAEMON_SOCKET = process.env.MAG_MEDLEY_MCP_SOCKET || '/tmp/medley-mag-mcp.sock';
+const HTTP_HOST = process.env.MAG_MEDLEY_MCP_HOST || '127.0.0.1';
+const HTTP_PORT = Number(process.env.MAG_MEDLEY_MCP_PORT || 8765);
+const HTTP_PATH = process.env.MAG_MEDLEY_MCP_PATH || '/mcp';
 const DAEMON_MODE = process.argv.includes('--daemon');
 let activeInstanceId = process.env.MAG_MEDLEY_INSTANCE || 'default';
 
@@ -268,7 +272,7 @@ function callToolLocal(name, args = {}) {
   switch (name) {
     case 'medley_daemon_status': {
       if (DAEMON_MODE) {
-        return text(`daemon running pid=${process.pid} socket=${DAEMON_SOCKET} active-instance=${activeInstanceId}`);
+        return text(`daemon running pid=${process.pid} socket=${DAEMON_SOCKET} http=http://${HTTP_HOST}:${HTTP_PORT}${HTTP_PATH} active-instance=${activeInstanceId}`);
       }
       if (!fs.existsSync(DAEMON_SOCKET)) {
         return text(`daemon not reachable at ${DAEMON_SOCKET}: socket does not exist`);
@@ -336,6 +340,51 @@ function callTool(name, args = {}) {
   return callToolLocal(name, args);
 }
 
+function dispatch(msg) {
+  if (!msg || typeof msg !== 'object') return null;
+  const { id, method, params } = msg;
+
+  try {
+    switch (method) {
+      case 'initialize':
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: params?.protocolVersion || '2024-11-05',
+            capabilities: { tools: {} },
+            serverInfo: { name: 'mag-medley', version: '0.1.0' },
+          },
+        };
+      case 'notifications/initialized':
+        return null;
+      case 'tools/list':
+        return { jsonrpc: '2.0', id, result: { tools } };
+      case 'tools/call':
+        return { jsonrpc: '2.0', id, result: callTool(params?.name, params?.arguments || {}) };
+      case 'ping':
+        return { jsonrpc: '2.0', id, result: {} };
+      default:
+        if (id !== undefined) {
+          return { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } };
+        }
+        return null;
+    }
+  } catch (err) {
+    if (id !== undefined) {
+      return { jsonrpc: '2.0', id, error: { code: -32000, message: err.message || String(err) } };
+    }
+    return null;
+  }
+}
+
+function dispatchPayload(payload) {
+  if (Array.isArray(payload)) {
+    return payload.map(dispatch).filter(Boolean);
+  }
+  return dispatch(payload);
+}
+
 function send(msg) {
   const body = JSON.stringify(msg);
   process.stdout.write(`Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`);
@@ -350,46 +399,109 @@ function respondError(id, code, message) {
 }
 
 function handle(msg) {
-  if (!msg || typeof msg !== 'object') return;
-  const { id, method, params } = msg;
-  try {
-    switch (method) {
-      case 'initialize':
-        respond(id, {
-          protocolVersion: params?.protocolVersion || '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'mag-medley', version: '0.1.0' },
-        });
-        break;
-      case 'notifications/initialized':
-        break;
-      case 'tools/list':
-        respond(id, { tools });
-        break;
-      case 'tools/call':
-        respond(id, callTool(params?.name, params?.arguments || {}));
-        break;
-      case 'ping':
-        respond(id, {});
-        break;
-      default:
-        if (id !== undefined) respondError(id, -32601, `method not found: ${method}`);
+  const response = dispatch(msg);
+  if (response) send(response);
+}
+
+function startHttpServer() {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(`ok pid=${process.pid} endpoint=http://${HTTP_HOST}:${HTTP_PORT}${HTTP_PATH}\n`);
+      return;
     }
-  } catch (err) {
-    if (id !== undefined) respondError(id, -32000, err.message || String(err));
+
+    if (req.url !== HTTP_PATH) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('not found\n');
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.writeHead(405, {
+        allow: 'POST',
+        'content-type': 'text/plain; charset=utf-8',
+      });
+      res.end('method not allowed\n');
+      return;
+    }
+
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1024 * 1024) req.destroy(new Error('request too large'));
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || 'null');
+        const response = dispatchPayload(payload);
+        if (response === null || (Array.isArray(response) && response.length === 0)) {
+          res.writeHead(202, { 'mcp-session-id': activeInstanceId });
+          res.end();
+          return;
+        }
+
+        const responseBody = JSON.stringify(response);
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'mcp-session-id': activeInstanceId,
+        });
+        res.end(responseBody);
+      } catch (err) {
+        const responseBody = JSON.stringify({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32700, message: err.message || String(err) },
+        });
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(responseBody);
+      }
+    });
+  });
+
+  server.listen(HTTP_PORT, HTTP_HOST, () => {
+    console.error(`mag-medley MCP HTTP pid=${process.pid} url=http://${HTTP_HOST}:${HTTP_PORT}${HTTP_PATH}`);
+  });
+
+  return server;
+}
+
+function legacyDaemonPid(statusText) {
+  const match = String(statusText || '').match(/pid=(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function replaceLegacyDaemonIfNeeded() {
+  if (!fs.existsSync(DAEMON_SOCKET)) return;
+
+  try {
+    const existing = daemonRequestSync('medley_daemon_status', {}, 500);
+    const statusText = existing.content?.[0]?.text || '';
+    if (statusText.includes(`http://${HTTP_HOST}:${HTTP_PORT}${HTTP_PATH}`)) {
+      console.error(statusText);
+      process.exit(0);
+    }
+
+    const pid = legacyDaemonPid(statusText);
+    if (pid && pid !== process.pid) {
+      console.error(`replacing legacy mag-medley MCP daemon pid=${pid}`);
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // It may have exited after answering.
+      }
+      sleepMs(250);
+    }
+  } catch {
+    // No live daemon answered; remove a stale socket below.
   }
+
+  safeUnlink(DAEMON_SOCKET);
 }
 
 function startDaemon() {
-  if (fs.existsSync(DAEMON_SOCKET)) {
-    try {
-      const existing = daemonRequestSync('medley_daemon_status', {}, 500);
-      console.error(existing.content?.[0]?.text || `daemon already running at ${DAEMON_SOCKET}`);
-      process.exit(0);
-    } catch {
-      // No live daemon answered; remove a stale socket below.
-    }
-  }
+  replaceLegacyDaemonIfNeeded();
 
   safeUnlink(DAEMON_SOCKET);
   const server = net.createServer((socket) => {
@@ -422,13 +534,30 @@ function startDaemon() {
     console.error(`mag-medley MCP daemon pid=${process.pid} socket=${DAEMON_SOCKET}`);
   });
 
+  const httpServer = startHttpServer();
+
   const cleanup = () => {
     server.close(() => process.exit(0));
+    httpServer.close();
     safeUnlink(DAEMON_SOCKET);
     setTimeout(() => process.exit(0), 250).unref();
   };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+  process.on('SIGHUP', () => {
+    console.error(`mag-medley MCP daemon ignoring SIGHUP pid=${process.pid}`);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error(`mag-medley MCP daemon uncaughtException: ${err?.stack || err}`);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (err) => {
+    console.error(`mag-medley MCP daemon unhandledRejection: ${err?.stack || err}`);
+    process.exit(1);
+  });
+  process.on('exit', (code) => {
+    console.error(`mag-medley MCP daemon exit pid=${process.pid} code=${code}`);
+  });
 }
 
 let buffer = Buffer.alloc(0);

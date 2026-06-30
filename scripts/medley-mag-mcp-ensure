@@ -1,0 +1,53 @@
+#!/bin/sh
+set -eu
+
+node="${NODE:-/home/mag/.guix-profile/bin/node}"
+server="${MAG_MEDLEY_MCP_SERVER:-/home/mag/src/medley/scripts/mag-medley-mcp.js}"
+host="${MAG_MEDLEY_MCP_HOST:-127.0.0.1}"
+port="${MAG_MEDLEY_MCP_PORT:-8765}"
+path="${MAG_MEDLEY_MCP_PATH:-/mcp}"
+log="${MAG_MEDLEY_MCP_DAEMON_LOG:-/tmp/medley-mag-mcp-daemon.log}"
+
+health_check() {
+  "$node" -e '
+const http = require("http");
+const req = http.get({
+  host: process.argv[1],
+  port: Number(process.argv[2]),
+  path: "/health",
+  timeout: 700,
+}, (res) => {
+  res.resume();
+  process.exit(res.statusCode === 200 ? 0 : 1);
+});
+req.on("timeout", () => req.destroy(new Error("timeout")));
+req.on("error", () => process.exit(1));
+' "$host" "$port" >/dev/null 2>&1
+}
+
+if health_check; then
+  exit 0
+fi
+
+mkdir -p "$(dirname "$log")"
+{
+  printf '%s ensure-start pid=%s endpoint=http://%s:%s%s\n' "$(date -Is)" "$$" "$host" "$port" "$path"
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$node" "$server" --daemon </dev/null >>"$log" 2>&1 &
+  else
+    nohup "$node" "$server" --daemon </dev/null >>"$log" 2>&1 &
+  fi
+  printf '%s daemon-spawned pid=%s\n' "$(date -Is)" "$!"
+} >>"$log" 2>&1
+
+tries=0
+while [ "$tries" -lt 20 ]; do
+  if health_check; then
+    exit 0
+  fi
+  tries=$((tries + 1))
+  sleep 0.1
+done
+
+echo "medley-mag-mcp daemon did not become healthy at http://$host:$port$path" >&2
+exit 1
