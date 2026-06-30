@@ -477,12 +477,90 @@
           (T "MAG-GOPHER-STATE-REPORT is not loaded")))
       (CL:GET-OUTPUT-STREAM-STRING OUT))])
 
+(MAG-DEBUG-RPC-GOAL-STATUS
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (FAIL NIL)
+           DEBUGREPORT CONFIGREPORT KEYREPORT KEYENCODEREPORT BATTERYREPORT
+           BASELINEPAD)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag goal status")
+      (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
+      (SETQ CONFIGREPORT (MAG-DEBUG-CONFIG-REPORT))
+      (SETQ KEYREPORT (MAG-DEBUG-RPC-KEYS-TEST))
+      (SETQ KEYENCODEREPORT (MAG-DEBUG-KEY-ENCODE-REPORT))
+      (SETQ BATTERYREPORT (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
+      (SETQ BASELINEPAD
+            (AND (GETD 'MAG-WINDOW-BASELINE-PAD-VALUE)
+                 (MAG-WINDOW-BASELINE-PAD-VALUE)))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "split Mag modules loaded"
+              (AND (GETD 'MAG-WINDOW-DRAW-LINE)
+                   (GETD 'MAG-VTERM-STATE-REPORT)
+                   (GETD 'MAG-GOPHER-STATE-REPORT)
+                   (GETD 'MAG-WHO-LINE-BATTERY-STATUS))
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "baseline pad active"
+              (AND BASELINEPAD (IGREATERP BASELINEPAD 0))
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT
+        (CONCAT "baseline-pad=" (OR BASELINEPAD "nil")))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "performance config active"
+              (AND (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "vmem-process-mb=256")
+                   (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "timer-interval-us=10000")
+                   (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "noscroll=1"))
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "who-line battery installed"
+              (MAG-DEBUG-RPC-CONTAINS-P BATTERYREPORT "installed=yes")
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT BATTERYREPORT)
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "native terminal path enabled"
+              (MAG-DEBUG-RPC-CONTAINS-P DEBUGREPORT "ghostty-vt=enabled")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "terminal decoder table stable"
+              (AND (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-left raw=57344 high=224 low=0 key-id=4")
+                   (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-right raw=57345 high=224 low=1 key-id=3")
+                   (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-up raw=57346 high=224 low=2 key-id=1")
+                   (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-down raw=57347 high=224 low=3 key-id=2"))
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "native terminal key encoder stable"
+              (AND (MAG-DEBUG-RPC-CONTAINS-P KEYENCODEREPORT "key-id=1 name=up bytes=1B 5B 41")
+                   (MAG-DEBUG-RPC-CONTAINS-P KEYENCODEREPORT "key-id=2 name=down bytes=1B 5B 42")
+                   (MAG-DEBUG-RPC-CONTAINS-P KEYENCODEREPORT "key-id=3 name=right bytes=1B 5B 43")
+                   (MAG-DEBUG-RPC-CONTAINS-P KEYENCODEREPORT "key-id=4 name=left bytes=1B 5B 44"))
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (COND
+          (FAIL "status=FAIL")
+          (T "status=ok")))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
 (MAG-DEBUG-RPC-MAG-SELF-TEST
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
            DEBUGREPORT CONFIGREPORT SHELLREPORT SHELLKEYREPORT GOPHERREPORT
-           KEYREPORT KEYENCODEREPORT BATTERYREPORT)
+           KEYREPORT KEYENCODEREPORT BATTERYREPORT BASELINEPAD)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag integration self-test")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ FAIL
@@ -527,6 +605,24 @@
               OUT
               "performance config noscroll=1"
               (MAG-DEBUG-RPC-CONTAINS-P CONFIGREPORT "noscroll=1")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "split Mag modules loaded"
+              (AND (GETD 'MAG-WINDOW-DRAW-LINE)
+                   (GETD 'MAG-VTERM-STATE-REPORT)
+                   (GETD 'MAG-GOPHER-STATE-REPORT)
+                   (GETD 'MAG-WHO-LINE-BATTERY-STATUS))
+              FAIL))
+      (SETQ BASELINEPAD
+            (AND (GETD 'MAG-WINDOW-BASELINE-PAD-VALUE)
+                 (MAG-WINDOW-BASELINE-PAD-VALUE)))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "baseline pad active"
+              (AND BASELINEPAD (IGREATERP BASELINEPAD 0))
               FAIL))
       (SETQ KEYREPORT (MAG-DEBUG-RPC-KEYS-TEST))
       (SETQ FAIL
@@ -613,6 +709,8 @@
        (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
       ((STREQUAL COMMAND "status-report")
        (MAG-DEBUG-RPC-STATUS-REPORT))
+      ((STREQUAL COMMAND "goal-status")
+       (MAG-DEBUG-RPC-GOAL-STATUS))
       ((STREQUAL COMMAND "write-debug-report")
        (MAG-DEBUG-WRITE-REPORT NIL)
        "wrote /tmp/medley-mag-debug.txt")

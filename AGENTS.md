@@ -113,6 +113,9 @@ For live evidence, use the Medley RPC bridge:
   256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 - `status-report` returns a single combined snapshot with debug, performance,
   battery, key decoder, active shell, and active Gopher state.
+- `goal-status` returns a non-mutating summary of the original Mag integration
+  goal evidence: split modules loaded, baseline pad, performance config,
+  battery who-line, native terminal path, and key decoder/encoder stability.
 - `gopher-keys` reports recent raw keys actually received by
   `MAG-GOPHER-HANDLE-KEY`; use this after pressing arrows inside Mag Gopher to
   see whether Gopher is receiving a different translated stream than Mag Shell.
@@ -237,6 +240,7 @@ CSI `A/B/C/D` before changing terminal arrow handling.
 - `config-report`
 - `performance-report`
 - `status-report`
+- `goal-status`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`

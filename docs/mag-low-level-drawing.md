@@ -118,6 +118,7 @@ Current safe request commands:
 - `config-report`
 - `performance-report`
 - `status-report`
+- `goal-status`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -159,6 +160,12 @@ active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 instance. It combines debug counters, performance config, battery/who-line
 state, key decoding, active shell state, and active Gopher state without
 arbitrary evaluation.
+
+`goal-status` is a lighter, non-mutating progress report for the Mag
+integration objective. It verifies split module loading, baseline padding,
+performance config, battery who-line installation, native terminal enablement,
+and terminal key decoder/encoder stability without opening Gopher pages or
+spawning test shells.
 
 `mag-self-test` is the preferred post-reload smoke test. It checks Maiko's Unix
 helper, the performance-oriented runtime config, the Ghostty-backed Mag
