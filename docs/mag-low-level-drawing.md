@@ -100,6 +100,7 @@ Current safe request commands:
 - `debug-report`
 - `config-report`
 - `performance-report`
+- `status-report`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -130,6 +131,11 @@ Current safe request commands:
 
 `performance-report` verifies that the local faster launch configuration is
 active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
+
+`status-report` is the preferred one-shot snapshot when diagnosing a running
+instance. It combines debug counters, performance config, battery/who-line
+state, key decoding, active shell state, and active Gopher state without
+arbitrary evaluation.
 
 `mag-self-test` is the preferred post-reload smoke test. It checks Maiko's Unix
 helper, the performance-oriented runtime config, the Ghostty-backed Mag

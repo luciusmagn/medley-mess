@@ -330,6 +330,37 @@
           (T "status=ok")))
       (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
 
+(MAG-DEBUG-RPC-SECTION
+  [LAMBDA (OUT TITLE TEXT)
+    (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "== " TITLE " =="))
+    (MAG-DEBUG-RPC-WRITE-LINE OUT (OR TEXT ""))
+    (MAG-DEBUG-RPC-WRITE-LINE OUT "")])
+
+(MAG-DEBUG-RPC-STATUS-REPORT
+  [LAMBDA NIL
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag status report")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "")
+      (MAG-DEBUG-RPC-SECTION OUT "debug" (MAG-DEBUG-REPORT))
+      (MAG-DEBUG-RPC-SECTION OUT "performance" (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
+      (MAG-DEBUG-RPC-SECTION OUT "battery" (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
+      (MAG-DEBUG-RPC-SECTION OUT "keys" (MAG-DEBUG-RPC-KEYS-TEST))
+      (MAG-DEBUG-RPC-SECTION
+        OUT
+        "shell"
+        (COND
+          ((GETD 'MAG-VTERM-STATE-REPORT)
+           (MAG-VTERM-STATE-REPORT))
+          (T "MAG-VTERM-STATE-REPORT is not loaded")))
+      (MAG-DEBUG-RPC-SECTION
+        OUT
+        "gopher"
+        (COND
+          ((GETD 'MAG-GOPHER-STATE-REPORT)
+           (MAG-GOPHER-STATE-REPORT))
+          (T "MAG-GOPHER-STATE-REPORT is not loaded")))
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
+
 (MAG-DEBUG-RPC-MAG-SELF-TEST
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
@@ -450,6 +481,8 @@
        (MAG-DEBUG-CONFIG-REPORT))
       ((STREQUAL COMMAND "performance-report")
        (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
+      ((STREQUAL COMMAND "status-report")
+       (MAG-DEBUG-RPC-STATUS-REPORT))
       ((STREQUAL COMMAND "write-debug-report")
        (MAG-DEBUG-WRITE-REPORT NIL)
        "wrote /tmp/medley-mag-debug.txt")

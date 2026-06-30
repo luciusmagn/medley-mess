@@ -96,6 +96,8 @@ For live evidence, use the Medley RPC bridge:
   interval, no-scroll state, and window/screen dimensions.
 - `performance-report` verifies the local performance-oriented launch config:
   256 MB VM, 10 ms timer, and Maiko `--noscroll`.
+- `status-report` returns a single combined snapshot with debug, performance,
+  battery, key decoder, active shell, and active Gopher state.
 - `gopher-keys` reports recent raw keys actually received by
   `MAG-GOPHER-HANDLE-KEY`; use this after pressing arrows inside Mag Gopher to
   see whether Gopher is receiving a different translated stream than Mag Shell.
@@ -211,6 +213,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `debug-report`
 - `config-report`
 - `performance-report`
+- `status-report`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
