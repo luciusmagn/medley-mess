@@ -15,6 +15,37 @@
   [LAMBDA (WINDOW ROW TEXT)
     (MAG-WINDOW-DRAW-LINE WINDOW ROW TEXT)])
 
+(MAG-GOPHER-DRAW-STAT
+  [LAMBDA (WINDOW PROP)
+    (AND WINDOW
+         (WINDOWPROP WINDOW PROP
+                     (ADD1 (OR (WINDOWPROP WINDOW PROP) 0))))])
+
+(MAG-GOPHER-DRAW-STAT-VALUE
+  [LAMBDA (WINDOW PROP)
+    (OR (AND WINDOW (WINDOWPROP WINDOW PROP)) 0)])
+
+(MAG-GOPHER-RESET-DRAW-STATS
+  [LAMBDA (WINDOW)
+    (AND WINDOW
+         (PROGN
+           (WINDOWPROP WINDOW 'MAG-GOPHER-REPAINT-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRY-DRAW-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GOPHER-DRAW-INDEX-COUNT 0)
+           (WINDOWPROP WINDOW 'MAG-GOPHER-CHROME-DRAW-COUNT 0)))
+    WINDOW])
+
+(MAG-GOPHER-DRAW-STATS-LINE
+  [LAMBDA (WINDOW)
+    (CONCAT "repaints=" (MAG-GOPHER-DRAW-STAT-VALUE
+                          WINDOW 'MAG-GOPHER-REPAINT-COUNT)
+            " entry-draws=" (MAG-GOPHER-DRAW-STAT-VALUE
+                              WINDOW 'MAG-GOPHER-ENTRY-DRAW-COUNT)
+            " draw-index=" (MAG-GOPHER-DRAW-STAT-VALUE
+                             WINDOW 'MAG-GOPHER-DRAW-INDEX-COUNT)
+            " chrome-draws=" (MAG-GOPHER-DRAW-STAT-VALUE
+                               WINDOW 'MAG-GOPHER-CHROME-DRAW-COUNT))])
+
 (MAG-GOPHER-VISIBLE-COUNT
   [LAMBDA (WINDOW)
     (IMAX 1 (IQUOTIENT (IDIFFERENCE (WINDOWPROP WINDOW 'HEIGHT) 48)
@@ -92,16 +123,37 @@
              OUT (CONCAT "host=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-HOST) "")
                          " port=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-PORT) "")
                          " selector=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR) "")))
-           (MAG-GOPHER-RPC-WRITE-LINE
-             OUT (CONCAT "top=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0)
-                         " selected=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED) 0)
-                         " visible=" (MAG-GOPHER-VISIBLE-COUNT WINDOW)
-                         " count=" (LENGTH ENTRIES)))
-           (MAG-GOPHER-RPC-WRITE-LINE
-             OUT (CONCAT "history=" (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY))
-                         " forward=" (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD))
-                         " status=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS) "")))
-           (CL:GET-OUTPUT-STREAM-STRING OUT)))))])
+             (MAG-GOPHER-RPC-WRITE-LINE
+               OUT (CONCAT "top=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0)
+                           " selected=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED) 0)
+                           " visible=" (MAG-GOPHER-VISIBLE-COUNT WINDOW)
+                           " count=" (LENGTH ENTRIES)))
+             (MAG-GOPHER-RPC-WRITE-LINE
+               OUT (MAG-GOPHER-DRAW-STATS-LINE WINDOW))
+             (MAG-GOPHER-RPC-WRITE-LINE
+               OUT (CONCAT "history=" (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-HISTORY))
+                           " forward=" (LENGTH (WINDOWPROP WINDOW 'MAG-GOPHER-FORWARD))
+                           " status=" (OR (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS) "")))
+             (CL:GET-OUTPUT-STREAM-STRING OUT)))))])
+
+(MAG-GOPHER-DRAW-STATS-REPORT
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag Gopher window")
+        (T
+         (MAG-GOPHER-DRAW-STATS-LINE WINDOW))))])
+
+(MAG-GOPHER-RPC-RESET-DRAW-STATS
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-GOPHER-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag Gopher window")
+        (T
+         (MAG-GOPHER-RESET-DRAW-STATS WINDOW)
+         (MAG-GOPHER-DRAW-STATS-LINE WINDOW))))])
 
 (MAG-GOPHER-RPC-KEY
   [LAMBDA (CH)
@@ -164,7 +216,7 @@
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            WINDOW VISIBLE JUMP N FAIL EXPECTEDSELECTED EXPECTEDTOP
-           SELECTED TOP)
+           SELECTED TOP REPAINTS ENTRYDRAWS DRAWINDEX)
       (MAG-GOPHER-RPC-TEST-PAGE)
       (SETQ WINDOW (MAG-GOPHER-ACTIVE-WINDOW))
       (COND
@@ -181,15 +233,48 @@
               (EQ (MAG-GOPHER-SPECIAL-KEYID 57347) 2))
          (MAG-GOPHER-RPC-WRITE-LINE OUT
            "ok decoder left=4 right=3 up=1 down=2"))
-        (T
-         (SETQ FAIL T)
-         (MAG-GOPHER-RPC-WRITE-LINE OUT
-           (CONCAT "FAIL decoder left=" (MAG-GOPHER-SPECIAL-KEYID 57344)
-                   " right=" (MAG-GOPHER-SPECIAL-KEYID 57345)
-                   " up=" (MAG-GOPHER-SPECIAL-KEYID 57346)
-                   " down=" (MAG-GOPHER-SPECIAL-KEYID 57347)))))
-      (SETQ N 0)
-    DOWNLOOP
+          (T
+           (SETQ FAIL T)
+           (MAG-GOPHER-RPC-WRITE-LINE OUT
+             (CONCAT "FAIL decoder left=" (MAG-GOPHER-SPECIAL-KEYID 57344)
+                     " right=" (MAG-GOPHER-SPECIAL-KEYID 57345)
+                     " up=" (MAG-GOPHER-SPECIAL-KEYID 57346)
+                     " down=" (MAG-GOPHER-SPECIAL-KEYID 57347)))))
+        (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+        (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 1)
+        (MAG-GOPHER-RESET-DRAW-STATS WINDOW)
+        (MAG-GOPHER-HANDLE-KEY WINDOW 57347)
+        (SETQ REPAINTS (MAG-GOPHER-DRAW-STAT-VALUE
+                         WINDOW 'MAG-GOPHER-REPAINT-COUNT))
+        (SETQ ENTRYDRAWS (MAG-GOPHER-DRAW-STAT-VALUE
+                           WINDOW 'MAG-GOPHER-ENTRY-DRAW-COUNT))
+        (SETQ DRAWINDEX (MAG-GOPHER-DRAW-STAT-VALUE
+                          WINDOW 'MAG-GOPHER-DRAW-INDEX-COUNT))
+        (SETQ SELECTED (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED))
+        (SETQ TOP (WINDOWPROP WINDOW 'MAG-GOPHER-TOP))
+        (COND
+          ((AND (EQ SELECTED 2)
+                (EQ TOP 0)
+                (EQ REPAINTS 0)
+                (EQ ENTRYDRAWS 2)
+                (EQ DRAWINDEX 2))
+           (MAG-GOPHER-RPC-WRITE-LINE OUT
+             (CONCAT "ok row-redraw repaints=" REPAINTS
+                     " entry-draws=" ENTRYDRAWS
+                     " draw-index=" DRAWINDEX)))
+          (T
+           (SETQ FAIL T)
+           (MAG-GOPHER-RPC-WRITE-LINE OUT
+             (CONCAT "FAIL row-redraw selected=" SELECTED
+                     " top=" TOP
+                     " repaints=" REPAINTS
+                     " entry-draws=" ENTRYDRAWS
+                     " draw-index=" DRAWINDEX))))
+        (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+        (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 1)
+        (MAG-GOPHER-RESET-DRAW-STATS WINDOW)
+        (SETQ N 0)
+      DOWNLOOP
       (COND
         ((ILESSP N VISIBLE)
          (MAG-GOPHER-HANDLE-KEY WINDOW 57347)
@@ -778,6 +863,7 @@
           (BOLD (MAG-GOPHER-BOLD-FONT WINDOW))
           (Y (MAG-WINDOW-ROW-Y WINDOW ROW))
           LABEL)
+      (MAG-GOPHER-DRAW-STAT WINDOW 'MAG-GOPHER-ENTRY-DRAW-COUNT)
       (MAG-WINDOW-CLEAR-LINE WINDOW ROW)
       (MOVETO 8 Y WINDOW)
       (PRIN1 (COND (SELECTED "> ") (T "  ")) WINDOW)
@@ -863,6 +949,7 @@
 
 (MAG-GOPHER-DRAW-CHROME
   [LAMBDA (WINDOW HOST PORT SELECTOR)
+    (MAG-GOPHER-DRAW-STAT WINDOW 'MAG-GOPHER-CHROME-DRAW-COUNT)
     (MAG-GOPHER-DRAW-HEADER WINDOW HOST PORT SELECTOR)
     (MAG-GOPHER-DRAW-STATUS-LINE WINDOW)
     (MAG-GOPHER-DRAW-DIVIDER WINDOW)])
@@ -1254,20 +1341,21 @@
            (ENTRIES (OR (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES)
                         (LIST (LIST 'TEXT "Loading..."))))
            (TOP (OR (WINDOWPROP WINDOW 'MAG-GOPHER-TOP) 0))
-           (VISIBLE (MAG-GOPHER-VISIBLE-COUNT WINDOW))
-           SELECTED
-           (N 1)
-	           (DRAWN 0))
-	      (SETQ SELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW))
-	      (CLEARW WINDOW)
-	      (MAG-GOPHER-DRAW-CHROME WINDOW HOST PORT SELECTOR)
-	      (for ENTRY in ENTRIES do
-        (COND
-	                   ((AND (IGEQ N (ADD1 TOP)) (ILESSP DRAWN VISIBLE))
-	                     (MAG-GOPHER-DRAW-ENTRY-LINE WINDOW (IPLUS 3 DRAWN)
-	                                                ENTRY (EQ N SELECTED))
-	                     (SETQ DRAWN (ADD1 DRAWN))))
-	                 (SETQ N (ADD1 N))))])
+             (VISIBLE (MAG-GOPHER-VISIBLE-COUNT WINDOW))
+             SELECTED
+             (N 1)
+             (DRAWN 0))
+        (MAG-GOPHER-DRAW-STAT WINDOW 'MAG-GOPHER-REPAINT-COUNT)
+        (SETQ SELECTED (MAG-GOPHER-CLAMP-SELECTION WINDOW))
+        (CLEARW WINDOW)
+        (MAG-GOPHER-DRAW-CHROME WINDOW HOST PORT SELECTOR)
+        (for ENTRY in ENTRIES do
+          (COND
+            ((AND (IGEQ N (ADD1 TOP)) (ILESSP DRAWN VISIBLE))
+             (MAG-GOPHER-DRAW-ENTRY-LINE WINDOW (IPLUS 3 DRAWN)
+                                        ENTRY (EQ N SELECTED))
+             (SETQ DRAWN (ADD1 DRAWN))))
+          (SETQ N (ADD1 N))))])
 
 (MAG-GOPHER-DRAW-INDEX
   [LAMBDA (WINDOW INDEX)
@@ -1278,10 +1366,11 @@
         ((OR (ILEQ INDEX TOP)
              (IGREATERP INDEX (IPLUS TOP VISIBLE)))
          (RETURN NIL)))
-      (SETQ ROW (IPLUS 3 (IDIFFERENCE INDEX (ADD1 TOP))))
-      (SETQ ENTRY (MAG-GOPHER-ENTRY-AT WINDOW INDEX))
-      (SETQ SELECTED (EQ INDEX (MAG-GOPHER-CLAMP-SELECTION WINDOW)))
-      (COND
+        (SETQ ROW (IPLUS 3 (IDIFFERENCE INDEX (ADD1 TOP))))
+        (SETQ ENTRY (MAG-GOPHER-ENTRY-AT WINDOW INDEX))
+        (SETQ SELECTED (EQ INDEX (MAG-GOPHER-CLAMP-SELECTION WINDOW)))
+        (MAG-GOPHER-DRAW-STAT WINDOW 'MAG-GOPHER-DRAW-INDEX-COUNT)
+        (COND
         (ENTRY
          (MAG-GOPHER-DRAW-ENTRY-LINE WINDOW ROW ENTRY SELECTED)
          (RETURN T))

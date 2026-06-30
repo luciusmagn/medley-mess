@@ -108,6 +108,11 @@ For live evidence, use the Medley RPC bridge:
   viewport behavior, and the who-line battery hook.
 - `gopher-state` reports the remembered live Gopher window's host, top,
   selected row, visible row count, entry count, and status.
+- `gopher-draw-stats` reports Gopher repaint, entry-row draw, draw-index, and
+  chrome draw counters for the remembered live Gopher window.
+- `gopher-reset-draw-stats` resets those counters. Use it before injected
+  movement tests to prove same-viewport selection movement redraws only the old
+  and new rows, not the whole window.
 - `gopher-key-up`, `gopher-key-down`, `gopher-key-left`, and
   `gopher-key-right` inject direct Medley arrow key codes through
   `MAG-GOPHER-HANDLE-KEY` against the remembered live Gopher window.
@@ -198,6 +203,8 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `keys-test`
 - `gopher-keys`
 - `gopher-state`
+- `gopher-draw-stats`
+- `gopher-reset-draw-stats`
 - `gopher-test-page`
 - `gopher-self-test`
 - `gopher-key-up`

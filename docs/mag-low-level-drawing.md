@@ -37,6 +37,9 @@ This distinction matters. Passing the row bottom directly to `MOVETO` clips glyp
 ## Performance Rules
 
 - Avoid full-window `CLEARW`/repaint on small state changes. Gopher selection movement should redraw old/new rows when the viewport does not change.
+- Use `gopher-reset-draw-stats` followed by one `gopher-key-down` to verify
+  that same-viewport movement reports `repaints=0`, `entry-draws=2`, and
+  `draw-index=2`.
 - When the Gopher viewport does change, jump from the current top by a chunk, currently up to 10 rows, then clamp so the selected row remains visible. Do not compute bottom-edge scroll as `selected - visible + jump`; that can overshoot.
 - Keep slow Lisp loops out of hot terminal paths. Prefer Maiko/C for terminal parse/render state, dirty row tracking, row copyout, cursor drawing, and key encoding.
 - Lisp should orchestrate windows, menus, process lifecycle, and high-level UI state.
@@ -92,6 +95,8 @@ Current safe request commands:
 - `keys-test`
 - `gopher-keys`
 - `gopher-state`
+- `gopher-draw-stats`
+- `gopher-reset-draw-stats`
 - `gopher-test-page`
 - `gopher-self-test`
 - `gopher-key-up`

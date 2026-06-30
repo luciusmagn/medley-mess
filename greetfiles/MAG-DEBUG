@@ -428,6 +428,16 @@
          ((GETD 'MAG-GOPHER-STATE-REPORT)
           (MAG-GOPHER-STATE-REPORT))
          (T "MAG-GOPHER-STATE-REPORT is not loaded")))
+      ((STREQUAL COMMAND "gopher-draw-stats")
+       (COND
+         ((GETD 'MAG-GOPHER-DRAW-STATS-REPORT)
+          (MAG-GOPHER-DRAW-STATS-REPORT))
+         (T "MAG-GOPHER-DRAW-STATS-REPORT is not loaded")))
+      ((STREQUAL COMMAND "gopher-reset-draw-stats")
+       (COND
+         ((GETD 'MAG-GOPHER-RPC-RESET-DRAW-STATS)
+          (MAG-GOPHER-RPC-RESET-DRAW-STATS))
+         (T "MAG-GOPHER-RPC-RESET-DRAW-STATS is not loaded")))
       ((STREQUAL COMMAND "gopher-test-page")
        (COND
          ((GETD 'MAG-GOPHER-RPC-TEST-PAGE)
