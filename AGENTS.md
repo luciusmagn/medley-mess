@@ -108,6 +108,10 @@ For live evidence, use the Medley RPC bridge:
 - `shell-render-stats` reports only those active Mag Shell render counters.
 - `shell-reset-render-stats` resets those counters before a live performance
   probe.
+- `shell-reset-native-stats` resets Maiko/Ghostty counters for the active Mag
+  Shell. `shell-reset-all-native-stats` resets them for all live Ghostty-backed
+  shell jobs. These require `UNIX-HANDLECOMM 42`, so restart into the rebuilt
+  Maiko binary after changing this path.
 - `mag-self-test` runs the integrated smoke test for Maiko helper status,
   Ghostty/Mag terminal status, the verified arrow decoder table, Gopher
   viewport behavior, and the who-line battery hook.
@@ -190,7 +194,7 @@ after restarting into the rebuilt Maiko binary:
 - `gt-last-changed`
 - `gt-hash-rows`
 
-Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 41` reports runtime configuration such as VM size, timer interval, and screen/window dimensions. `MAG-DEBUG-RPC-START` runs a safe Medley-side poller that dispatches only these commands:
+Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 41` reports runtime configuration such as VM size, timer interval, and screen/window dimensions. Local Maiko command `UNIX-HANDLECOMM 42` resets Ghostty timing/copyout counters for one shell job or all shell jobs. `MAG-DEBUG-RPC-START` runs a safe Medley-side poller that dispatches only these commands:
 
 - `ping`
 - `debug-report`
@@ -205,6 +209,8 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `shell-state`
 - `shell-render-stats`
 - `shell-reset-render-stats`
+- `shell-reset-native-stats`
+- `shell-reset-all-native-stats`
 - `mag-self-test`
 - `open-gopher`
 - `keys-test`

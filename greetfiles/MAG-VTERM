@@ -114,6 +114,11 @@
     (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
       (AND MAXCOMMAND (IGEQ MAXCOMMAND 33)))])
 
+(MAG-GHOSTTY-RESET-STATS-P
+  [LAMBDA NIL
+    (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
+      (AND MAXCOMMAND (IGEQ MAXCOMMAND 42)))])
+
 (MAG-GHOSTTY-CHANNEL
   [LAMBDA (STATE)
     (LET ((WINDOW (ffetch (CHAT.STATE WINDOW) of STATE)))
@@ -196,6 +201,31 @@
         (T
          (MAG-VTERM-RESET-RENDER-STATS WINDOW)
          (MAG-VTERM-RENDER-STATS-LINE WINDOW))))])
+
+(MAG-VTERM-RPC-RESET-NATIVE-STATS
+  [LAMBDA NIL
+    (LET* ((WINDOW (MAG-VTERM-ACTIVE-WINDOW))
+           (STATE (AND WINDOW (WINDOWPROP WINDOW 'MAG-VTERM-STATE)))
+           (CHAN (AND STATE (MAG-GHOSTTY-CHANNEL STATE))))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag terminal window")
+        ((NULL CHAN)
+         "Active Mag terminal has no channel")
+        ((NOT (MAG-GHOSTTY-RESET-STATS-P))
+         "native Ghostty counter reset unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 42")
+        ((SUBRCALL UNIX-HANDLECOMM 42 CHAN)
+         (MAG-VTERM-STATE-REPORT))
+        (T
+         "native Ghostty counter reset failed")))])
+
+(MAG-VTERM-RPC-RESET-ALL-NATIVE-STATS
+  [LAMBDA NIL
+    (COND
+      ((NOT (MAG-GHOSTTY-RESET-STATS-P))
+       "native Ghostty counter reset unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 42")
+      (T
+       (CONCAT "native-reset-count=" (OR (SUBRCALL UNIX-HANDLECOMM 42 -1) 0))))])
 
 (MAG-VTERM-STATE-REPORT
   [LAMBDA NIL

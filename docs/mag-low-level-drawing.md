@@ -51,6 +51,8 @@ This distinction matters. Passing the row bottom directly to `MOVETO` clips glyp
 - `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state.
 - `UNIX-HANDLECOMM 41` reports runtime configuration: VM size, timer interval,
   no-scroll state, window dimensions, and screen dimensions.
+- `UNIX-HANDLECOMM 42` resets Ghostty timing/copyout counters for one shell
+  job, or all Ghostty-backed shell jobs when called with `-1`.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, and cursor inversions.
@@ -96,6 +98,8 @@ Current safe request commands:
 - `shell-self-test`
 - `shell-render-stats`
 - `shell-reset-render-stats`
+- `shell-reset-native-stats`
+- `shell-reset-all-native-stats`
 - `mag-self-test`
 - `keys-test`
 - `gopher-keys`

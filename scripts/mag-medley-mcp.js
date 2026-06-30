@@ -25,6 +25,8 @@ const ALLOWED_REQUESTS = new Set([
   'shell-state',
   'shell-render-stats',
   'shell-reset-render-stats',
+  'shell-reset-native-stats',
+  'shell-reset-all-native-stats',
   'mag-self-test',
   'open-gopher',
   'keys-test',

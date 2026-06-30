@@ -427,6 +427,16 @@
          ((GETD 'MAG-VTERM-RPC-RESET-RENDER-STATS)
           (MAG-VTERM-RPC-RESET-RENDER-STATS))
          (T "MAG-VTERM-RPC-RESET-RENDER-STATS is not loaded")))
+      ((STREQUAL COMMAND "shell-reset-native-stats")
+       (COND
+         ((GETD 'MAG-VTERM-RPC-RESET-NATIVE-STATS)
+          (MAG-VTERM-RPC-RESET-NATIVE-STATS))
+         (T "MAG-VTERM-RPC-RESET-NATIVE-STATS is not loaded")))
+      ((STREQUAL COMMAND "shell-reset-all-native-stats")
+       (COND
+         ((GETD 'MAG-VTERM-RPC-RESET-ALL-NATIVE-STATS)
+          (MAG-VTERM-RPC-RESET-ALL-NATIVE-STATS))
+         (T "MAG-VTERM-RPC-RESET-ALL-NATIVE-STATS is not loaded")))
       ((STREQUAL COMMAND "open-gopher")
        (COND
          ((GETD 'MAG-GOPHER)
