@@ -127,6 +127,8 @@ For live evidence, use the Medley RPC bridge:
   see whether Gopher is receiving a different translated stream than Mag Shell.
 - `open-gopher` opens a normal Mag Gopher window through the same async path as
   the UI button.
+- `close-shell` closes the remembered active Mag Shell window. Use it to clean
+  up windows opened by `open-shell` during diagnostics.
 - `shell-self-test` creates a short-lived PTY shell, initializes the native
   Ghostty path, reads output, scans changed rows, reports command 40, and
   closes the test job. Use it to prove terminal creation and native counters
@@ -259,6 +261,7 @@ viewport self-test. `gopher-viewport-status` must show `status=ok`.
 - `reload-mag`
 - `restart-rpc`
 - `open-shell`
+- `close-shell`
 - `shell-self-test`
 - `shell-key-probe`
 - `shell-state`

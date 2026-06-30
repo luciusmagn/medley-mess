@@ -26,6 +26,7 @@ const ALLOWED_REQUESTS = new Set([
   'reload-mag',
   'restart-rpc',
   'open-shell',
+  'close-shell',
   'shell-self-test',
   'shell-key-probe',
   'shell-state',

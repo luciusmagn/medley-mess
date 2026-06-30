@@ -2,7 +2,7 @@
 
 (FILESLOAD RECORD)
 (FILESLOAD CHATDECLS)
-(RPAQQ MAG-DEBUG-RPC-PROCESS NIL)
+(RPAQ? MAG-DEBUG-RPC-PROCESS NIL)
 
 (DEFINEQ
 
@@ -876,6 +876,11 @@
        (MAG-DEBUG-RPC-RESTART))
       ((STREQUAL COMMAND "open-shell")
        (MAG-DEBUG-RPC-OPEN-SHELL))
+      ((STREQUAL COMMAND "close-shell")
+       (COND
+         ((GETD 'MAG-VTERM-RPC-CLOSE-ACTIVE)
+          (MAG-VTERM-RPC-CLOSE-ACTIVE))
+         (T "MAG-VTERM-RPC-CLOSE-ACTIVE is not loaded")))
       ((STREQUAL COMMAND "shell-self-test")
        (MAG-DEBUG-RPC-SHELL-SELF-TEST))
       ((STREQUAL COMMAND "shell-key-probe")

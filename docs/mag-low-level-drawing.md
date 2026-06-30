@@ -130,6 +130,7 @@ Current safe request commands:
 - `who-line-battery`
 - `reload-mag`
 - `open-shell`
+- `close-shell`
 - `restart-rpc`
 - `open-gopher`
 - `shell-self-test`
