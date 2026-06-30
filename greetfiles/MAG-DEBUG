@@ -277,6 +277,22 @@
       (MAG-DEBUG-RPC-KEYS-TEST-LINE OUT "fallback-right-132" 388)
       (CL:GET-OUTPUT-STREAM-STRING OUT))])
 
+(MAG-DEBUG-KEY-ENCODE-REPORT
+  [LAMBDA NIL
+    (NLSETQ (FILESLOAD UNIXCOMM))
+    (LET ((MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0)))
+      (COND
+        ((ILESSP MAXCOMMAND 44)
+         "mag-key-encode unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 44")
+        (T
+         (LET ((BUFFER (NCREATE 'VMEMPAGEP))
+               LEN)
+           (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 44 BUFFER))
+           (COND
+             ((AND LEN (IGREATERP LEN 0))
+              (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+             (T "mag-key-encode unavailable"))))))])
+
 (MAG-DEBUG-RPC-CONTAINS-P
   [LAMBDA (TEXT NEEDLE)
     (AND TEXT NEEDLE (STRPOS NEEDLE TEXT))])
@@ -296,6 +312,45 @@
       ((NOT (MAG-DEBUG-RPC-CHECK-LINE OUT LABEL OK))
        T)
       (T FAIL))])
+
+(MAG-DEBUG-RPC-KEY-ENCODE-TEST
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (FAIL NIL)
+           REPORT)
+      (SETQ REPORT (MAG-DEBUG-KEY-ENCODE-REPORT))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag key encode test")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT REPORT)
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "key-id 1 up sends CSI A"
+              (MAG-DEBUG-RPC-CONTAINS-P REPORT "key-id=1 name=up bytes=1B 5B 41")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "key-id 2 down sends CSI B"
+              (MAG-DEBUG-RPC-CONTAINS-P REPORT "key-id=2 name=down bytes=1B 5B 42")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "key-id 3 right sends CSI C"
+              (MAG-DEBUG-RPC-CONTAINS-P REPORT "key-id=3 name=right bytes=1B 5B 43")
+              FAIL))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "key-id 4 left sends CSI D"
+              (MAG-DEBUG-RPC-CONTAINS-P REPORT "key-id=4 name=left bytes=1B 5B 44")
+              FAIL))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (COND
+          (FAIL "status=FAIL")
+          (T "status=ok")))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
 
 (MAG-DEBUG-RPC-PERFORMANCE-REPORT
   [LAMBDA NIL
@@ -345,6 +400,7 @@
       (MAG-DEBUG-RPC-SECTION OUT "performance" (MAG-DEBUG-RPC-PERFORMANCE-REPORT))
       (MAG-DEBUG-RPC-SECTION OUT "battery" (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
       (MAG-DEBUG-RPC-SECTION OUT "keys" (MAG-DEBUG-RPC-KEYS-TEST))
+      (MAG-DEBUG-RPC-SECTION OUT "key-encode" (MAG-DEBUG-KEY-ENCODE-REPORT))
       (MAG-DEBUG-RPC-SECTION
         OUT
         "shell"
@@ -366,7 +422,7 @@
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
            DEBUGREPORT CONFIGREPORT SHELLREPORT GOPHERREPORT KEYREPORT
-           BATTERYREPORT)
+           KEYENCODEREPORT BATTERYREPORT)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag integration self-test")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ FAIL
@@ -436,6 +492,13 @@
               OUT
               "decoder down=2"
               (MAG-DEBUG-RPC-CONTAINS-P KEYREPORT "direct-down raw=57347 high=224 low=3 key-id=2")
+              FAIL))
+      (SETQ KEYENCODEREPORT (MAG-DEBUG-RPC-KEY-ENCODE-TEST))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "native key encode"
+              (MAG-DEBUG-RPC-CONTAINS-P KEYENCODEREPORT "status=ok")
               FAIL))
       (SETQ SHELLREPORT (MAG-DEBUG-RPC-SHELL-SELF-TEST))
       (SETQ FAIL
@@ -583,6 +646,8 @@
          (T "MAG-GOPHER-RPC-KEY is not loaded")))
       ((STREQUAL COMMAND "keys-test")
        (MAG-DEBUG-RPC-KEYS-TEST))
+      ((STREQUAL COMMAND "key-encode-test")
+       (MAG-DEBUG-RPC-KEY-ENCODE-TEST))
       ((STREQUAL COMMAND "mag-self-test")
        (MAG-DEBUG-RPC-MAG-SELF-TEST))
       ((STREQUAL COMMAND "gopher-keys")

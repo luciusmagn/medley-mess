@@ -82,6 +82,11 @@ The terminal key-id abstraction is the source of truth:
 - key-id `3` sends CSI `C` / right.
 - key-id `4` sends CSI `D` / left.
 
+Maiko command 25 intentionally writes unmodified arrow key ids 1-4 as explicit
+CSI bytes instead of routing them through libghostty's key encoder. If Mag
+Shell arrows are swapped while `keys-test` is correct, inspect that direct CSI
+fast path before changing any Lisp decoder table.
+
 When debugging, test Mag Shell first with Fish autosuggestions and Codex
 selection UIs. Right arrow should accept a Fish autosuggestion; left arrow
 should move backward. Up/down must move Codex selections without producing
@@ -92,6 +97,8 @@ For live evidence, use the Medley RPC bridge:
 
 - `keys-test` reports the currently loaded decoder table for direct and
   high-byte fallback arrow codes.
+- `key-encode-test` reports the native Maiko bytes for terminal key ids 1-4
+  and verifies they are CSI `A/B/C/D` for up/down/right/left.
 - `config-report` reports Maiko runtime configuration such as VM size, timer
   interval, no-scroll state, and window/screen dimensions.
 - `performance-report` verifies the local performance-oriented launch config:
@@ -208,6 +215,14 @@ after restarting into the rebuilt Maiko binary:
 - `gt-hash-rows`
 
 Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-request` into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 40` reports a single Mag terminal job's native state into a caller-provided buffer. Local Maiko command `UNIX-HANDLECOMM 41` reports runtime configuration such as VM size, timer interval, and screen/window dimensions. Local Maiko command `UNIX-HANDLECOMM 42` resets Ghostty timing/copyout counters for one shell job or all shell jobs. `MAG-DEBUG-RPC-START` runs a safe Medley-side poller that dispatches only these commands:
+Local Maiko command `UNIX-HANDLECOMM 43` computes Mag Gopher viewport
+transitions from `top selected delta count visible jump` and returns
+`new-top new-selected repaint-needed` in a compact buffer. Lisp should use
+this through `MAG-GOPHER-VIEWPORT-STEP` rather than duplicating the movement
+math in draw/input hot paths.
+Local Maiko command `UNIX-HANDLECOMM 44` reports the native terminal arrow
+encoding bytes used by command 25. `key-encode-test` must show key ids 1-4 as
+CSI `A/B/C/D` before changing terminal arrow handling.
 
 - `ping`
 - `debug-report`
@@ -229,6 +244,7 @@ Local Maiko command `UNIX-HANDLECOMM 39` reads and consumes `/tmp/medley-mag-req
 - `mag-self-test`
 - `open-gopher`
 - `keys-test`
+- `key-encode-test`
 - `gopher-keys`
 - `gopher-state`
 - `gopher-draw-stats`

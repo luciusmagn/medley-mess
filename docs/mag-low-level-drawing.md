@@ -45,7 +45,14 @@ glyph descenders by about a pixel; text should use the padded baseline.
   that same-viewport movement reports `repaints=0`, `entry-draws=2`, and
   `draw-index=2`.
 - When the Gopher viewport does change, jump from the current top by a chunk, currently up to 10 rows, then clamp so the selected row remains visible. Do not compute bottom-edge scroll as `selected - visible + jump`; that can overshoot.
+- `MAG-GOPHER-VIEWPORT-STEP` delegates that movement/clamping decision to
+  Maiko command 43 when available, keeping Lisp responsible for state storage
+  and redraw dispatch.
 - Keep slow Lisp loops out of hot terminal paths. Prefer Maiko/C for terminal parse/render state, dirty row tracking, row copyout, cursor drawing, and key encoding.
+- Maiko command 25 sends unmodified terminal arrow key ids 1-4 as direct CSI
+  bytes: up `ESC [ A`, down `ESC [ B`, right `ESC [ C`, left `ESC [ D`.
+  Do not rotate Lisp's raw-key decoder to compensate for libghostty encoder
+  behavior.
 - Lisp should orchestrate windows, menus, process lifecycle, and high-level UI state.
 - Use `UNIX-HANDLECOMM` as the integration boundary for C-backed operations until a better debug/control protocol exists.
 - `MAG-GHOSTTY-REFRESH` now uses `UNIX-HANDLECOMM 37` to get a C-computed list of rendered rows whose hashes changed, except for forced refreshes, which still repaint every row.
@@ -61,6 +68,11 @@ glyph descenders by about a pixel; text should use the padded baseline.
   no-scroll state, window dimensions, and screen dimensions.
 - `UNIX-HANDLECOMM 42` resets Ghostty timing/copyout counters for one shell
   job, or all Ghostty-backed shell jobs when called with `-1`.
+- `UNIX-HANDLECOMM 43` computes Mag Gopher viewport transitions from `top
+  selected delta count visible jump` and returns `new-top new-selected
+  repaint-needed` in a compact buffer.
+- `UNIX-HANDLECOMM 44` reports the native terminal arrow key encoding bytes
+  used by command 25.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -86,6 +98,8 @@ Current native commands:
 - `40`: copy a compact per-job Mag terminal state report into a VM page buffer.
 - `41`: copy a compact runtime configuration report into a VM page buffer.
 - `42`: reset Ghostty timing/copyout counters for one shell job or all jobs.
+- `43`: compute Mag Gopher viewport transitions for selection movement.
+- `44`: report native terminal arrow key encoding bytes.
 
 Current Lisp wrappers:
 
@@ -116,6 +130,7 @@ Current safe request commands:
 - `shell-reset-all-native-stats`
 - `mag-self-test`
 - `keys-test`
+- `key-encode-test`
 - `gopher-keys`
 - `gopher-state`
 - `gopher-draw-stats`

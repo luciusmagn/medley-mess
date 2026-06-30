@@ -33,6 +33,7 @@ const ALLOWED_REQUESTS = new Set([
   'mag-self-test',
   'open-gopher',
   'keys-test',
+  'key-encode-test',
   'gopher-keys',
   'gopher-state',
   'gopher-draw-stats',
