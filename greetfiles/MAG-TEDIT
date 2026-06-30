@@ -11,19 +11,20 @@
 (MAG-TEDIT-CHAR-LOOKS
   [LAMBDA (STYLE)
     (SELECTQ STYLE
-      (HEADING1 '(FAMILY HELVETICA SIZE 18 WEIGHT BOLD SLOPE REGULAR
+      (HEADING1 '(FAMILY TIMESROMAN SIZE 18 WEIGHT BOLD SLOPE REGULAR
                          USERINFO (MAG-TEDIT HEADING1)))
-      (HEADING2 '(FAMILY HELVETICA SIZE 16 WEIGHT BOLD SLOPE REGULAR
+      (HEADING2 '(FAMILY TIMESROMAN SIZE 16 WEIGHT BOLD SLOPE REGULAR
                          USERINFO (MAG-TEDIT HEADING2)))
-      (HEADING3 '(FAMILY HELVETICA SIZE 14 WEIGHT BOLD SLOPE REGULAR
+      (HEADING3 '(FAMILY TIMESROMAN SIZE 14 WEIGHT BOLD SLOPE REGULAR
                          USERINFO (MAG-TEDIT HEADING3)))
       (CODE '(FAMILY GACHA SIZE 10 WEIGHT MEDIUM SLOPE REGULAR
                      USERINFO (MAG-TEDIT CODE)))
       (NORMAL '(FAMILY TIMESROMAN SIZE 10 WEIGHT MEDIUM SLOPE REGULAR
+                       UNDERLINE OFF STRIKEOUT OFF OVERLINE OFF
                        USERINFO (MAG-TEDIT NORMAL)))
       (BOLD '(WEIGHT BOLD))
       (ITALIC '(SLOPE ITALIC))
-      (PLAIN '(WEIGHT MEDIUM SLOPE REGULAR
+      (PLAIN '(FAMILY TIMESROMAN SIZE 10 WEIGHT MEDIUM SLOPE REGULAR
                       UNDERLINE OFF STRIKEOUT OFF OVERLINE OFF
                       USERINFO NIL))
       NIL)])
@@ -40,7 +41,8 @@
       (CODE '(USERINFO (MAG-TEDIT CODE) PARALEADING 2 POSTPARALEADING 2))
       (NORMAL '(USERINFO (MAG-TEDIT NORMAL) HEADINGKEEP OFF
                  PARALEADING 0 POSTPARALEADING 0))
-      (PLAIN '(USERINFO NIL HEADINGKEEP OFF))
+      (PLAIN '(USERINFO NIL HEADINGKEEP OFF
+                PARALEADING 0 POSTPARALEADING 0))
       NIL)])
 
 (MAG-TEDIT-APPLY-STYLE
@@ -68,7 +70,7 @@
 	                                (Code 'CODE "Apply monospace code style")
 	                                (Bold 'BOLD "Make selection bold")
 	                                (Italic 'ITALIC "Make selection italic")
-	                                (Plain 'PLAIN "Clear Mag style and bold/italic")
+	                                (Plain 'PLAIN "Reset to plain Times Roman 10pt")
 	                                ("Save now" 'SAVE "Save this document"))
 	                      CENTERFLG _ T)))])
 
