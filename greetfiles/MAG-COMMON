@@ -18,6 +18,10 @@
         (CAR (NLSETQ (BITSPERPIXEL (SCREENBITMAP))))
         8)])
 
+(MAG-WINDOW-MONO-P
+  [LAMBDA NIL
+    (ILEQ (MAG-WINDOW-COLOR-BITS) 1)])
+
 (MAG-ACME-BACKGROUND-SLOT
   [LAMBDA NIL
     (LET ((MAXCOLOR (MAXIMUMCOLOR (MAG-WINDOW-COLOR-BITS))))
@@ -39,22 +43,34 @@
 
 (MAG-WINDOW-BACKGROUND
   [LAMBDA NIL
-    (OR (CAR
-          (NLSETQ
-            (COLORNUMBERP (MAG-ACME-BACKGROUND-RGB)
-                          (MAG-WINDOW-COLOR-BITS)
-                          T)))
-        (MAG-INSTALL-ACME-BACKGROUND-COLOR)
-        WHITESHADE)])
+    (COND
+      ((MAG-WINDOW-MONO-P)
+       WHITESHADE)
+      (T
+       (OR (CAR
+             (NLSETQ
+               (COLORNUMBERP (MAG-ACME-BACKGROUND-RGB)
+                             (MAG-WINDOW-COLOR-BITS)
+                             T)))
+           (MAG-INSTALL-ACME-BACKGROUND-COLOR)
+           WHITESHADE)))])
+
+(MAG-WINDOW-BACKGROUND-REPORT
+  [LAMBDA NIL
+    (CONCAT "bits=" (MAG-WINDOW-COLOR-BITS)
+            " mono=" (COND ((MAG-WINDOW-MONO-P) "yes") (T "no"))
+            " background=" (MAG-WINDOW-BACKGROUND))])
 
 (MAG-WINDOW-SET-BACKGROUND
   [LAMBDA (WINDOW)
     (AND WINDOW
-         (CAR
-           (NLSETQ
-             (DSPBACKCOLOR (MAG-WINDOW-BACKGROUND)
-                           (OR (WINDOWPROP WINDOW 'DSP)
-                               WINDOW)))))])
+         (LET ((BG (MAG-WINDOW-BACKGROUND))
+               (DSP (WINDOWPROP WINDOW 'DSP)))
+           (NLSETQ (DSPTEXTURE BG WINDOW))
+           (AND DSP (NLSETQ (DSPTEXTURE BG DSP)))
+           (NLSETQ (DSPBACKCOLOR BG WINDOW))
+           (AND DSP (NLSETQ (DSPBACKCOLOR BG DSP)))
+           BG))])
 
 (MAG-WINDOW-FILL-REGION
   [LAMBDA (WINDOW REGION)
@@ -62,10 +78,11 @@
          REGION
          (CAR
            (NLSETQ
-             (LET ((DSP (OR (WINDOWPROP WINDOW 'DSP) WINDOW)))
+             (LET ((DSP (OR (WINDOWPROP WINDOW 'DSP) WINDOW))
+                   (BG (MAG-WINDOW-BACKGROUND)))
                (MAG-WINDOW-SET-BACKGROUND WINDOW)
                (DSPFILL REGION
-                        (DSPTEXTURE NIL WINDOW)
+                        BG
                         'REPLACE
                         DSP)
                T))))])

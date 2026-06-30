@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const net = require('net');
 const { execFileSync } = require('child_process');
 
 const MEDLEY_DIR = process.env.MEDLEYDIR || '/home/mag/src/medley';
@@ -10,12 +11,16 @@ const LOG_PATH = process.env.MAG_MEDLEY_LOG || '/tmp/medley-interlisp.log';
 const DEBUG_PATH = process.env.MAG_MEDLEY_DEBUG_REPORT || '/tmp/medley-mag-debug.txt';
 const REQUEST_PATH = process.env.MAG_MEDLEY_REQUEST || '/tmp/medley-mag-request';
 const RESPONSE_PATH = process.env.MAG_MEDLEY_RESPONSE || '/tmp/medley-mag-response';
+const DAEMON_SOCKET = process.env.MAG_MEDLEY_MCP_SOCKET || '/tmp/medley-mag-mcp.sock';
+const DAEMON_MODE = process.argv.includes('--daemon');
+let activeInstanceId = process.env.MAG_MEDLEY_INSTANCE || 'default';
 
 const ALLOWED_REQUESTS = new Set([
   'ping',
   'debug-report',
   'config-report',
   'performance-report',
+  'background-report',
   'status-report',
   'process-status',
   'native-jobs',
@@ -161,6 +166,28 @@ const tools = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'medley_daemon_status',
+    description: 'Show whether the persistent Mag Medley MCP daemon is reachable.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'medley_instances',
+    description: 'List detected Medley/Maiko instances and the selected instance id.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'medley_attach',
+    description: 'Select a detected Medley instance id for daemon-side diagnostics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'medley_log_tail',
     description: 'Tail the Medley launcher log.',
     inputSchema: {
@@ -201,8 +228,75 @@ const tools = [
   },
 ];
 
-function callTool(name, args = {}) {
+function detectMedleyInstances() {
+  return run('ps', ['-eo', 'pid,ppid,stat,comm,args'])
+    .split('\n')
+    .filter((line) => /\/home\/mag\/src\/medley\/medley|\/ldex |\/lde /.test(line))
+    .map((line) => {
+      const id = line.match(/ -id ([^ ]+)/)?.[1] || 'unknown';
+      const geometry = line.match(/ -(?:g|geometry) ([0-9]+x[0-9]+)/)?.[1]
+        || line.match(/ --geometry ([0-9]+x[0-9]+)/)?.[1]
+        || '';
+      return { id, geometry, line: line.trim() };
+    });
+}
+
+function daemonRequestSync(name, args = {}, timeoutMs = 1500) {
+  const helper = [
+    'const net=require("net");',
+    `const sock=${JSON.stringify(DAEMON_SOCKET)};`,
+    `const req=${JSON.stringify(JSON.stringify({ name, args }) + '\n')};`,
+    `const timeout=${Number(timeoutMs)};`,
+    'const c=net.createConnection(sock);',
+    'let data="";',
+    'const t=setTimeout(()=>{console.error("timeout");process.exit(124)},timeout);',
+    'c.on("connect",()=>c.write(req));',
+    'c.on("data",(chunk)=>{data+=chunk.toString("utf8");const i=data.indexOf("\\n");if(i>=0){clearTimeout(t);console.log(data.slice(0,i));c.end();}});',
+    'c.on("error",(err)=>{clearTimeout(t);console.error(err.message);process.exit(1)});',
+  ].join('');
+  const raw = execFileSync(process.execPath, ['-e', helper], {
+    encoding: 'utf8',
+    timeout: timeoutMs + 500,
+    maxBuffer: 1024 * 1024,
+  }).trim();
+  const response = JSON.parse(raw);
+  if (!response.ok) throw new Error(response.error || 'daemon request failed');
+  return response.result;
+}
+
+function callToolLocal(name, args = {}) {
   switch (name) {
+    case 'medley_daemon_status': {
+      if (DAEMON_MODE) {
+        return text(`daemon running pid=${process.pid} socket=${DAEMON_SOCKET} active-instance=${activeInstanceId}`);
+      }
+      if (!fs.existsSync(DAEMON_SOCKET)) {
+        return text(`daemon not reachable at ${DAEMON_SOCKET}: socket does not exist`);
+      }
+      try {
+        const result = daemonRequestSync('medley_daemon_status', {}, 1000);
+        return result;
+      } catch (err) {
+        return text(`daemon not reachable at ${DAEMON_SOCKET}: ${err.message}`);
+      }
+    }
+
+    case 'medley_instances': {
+      const instances = detectMedleyInstances();
+      const lines = instances.map((instance) =>
+        `${instance.id === activeInstanceId ? '*' : ' '} id=${instance.id} geometry=${instance.geometry || '?'} ${instance.line}`);
+      return text(lines.length
+        ? `active-instance=${activeInstanceId}\n${lines.join('\n')}`
+        : 'No Medley processes found.');
+    }
+
+    case 'medley_attach': {
+      const id = String(args.id || '').trim();
+      if (!id) throw new Error('id is required');
+      activeInstanceId = id;
+      return text(`active-instance=${activeInstanceId}`);
+    }
+
     case 'medley_processes':
       return text(run('ps', ['-eo', 'pid,ppid,stat,comm,args'])
         .split('\n')
@@ -236,6 +330,10 @@ function callTool(name, args = {}) {
     default:
       throw new Error(`unknown tool: ${name}`);
   }
+}
+
+function callTool(name, args = {}) {
+  return callToolLocal(name, args);
 }
 
 function send(msg) {
@@ -282,6 +380,57 @@ function handle(msg) {
   }
 }
 
+function startDaemon() {
+  if (fs.existsSync(DAEMON_SOCKET)) {
+    try {
+      const existing = daemonRequestSync('medley_daemon_status', {}, 500);
+      console.error(existing.content?.[0]?.text || `daemon already running at ${DAEMON_SOCKET}`);
+      process.exit(0);
+    } catch {
+      // No live daemon answered; remove a stale socket below.
+    }
+  }
+
+  safeUnlink(DAEMON_SOCKET);
+  const server = net.createServer((socket) => {
+    let data = '';
+    socket.on('data', (chunk) => {
+      data += chunk.toString('utf8');
+      for (;;) {
+        const newline = data.indexOf('\n');
+        if (newline < 0) break;
+        const line = data.slice(0, newline).trim();
+        data = data.slice(newline + 1);
+        if (!line) continue;
+        try {
+          const request = JSON.parse(line);
+          const result = callToolLocal(request.name, request.args || {});
+          socket.write(`${JSON.stringify({ ok: true, result })}\n`);
+        } catch (err) {
+          socket.write(`${JSON.stringify({ ok: false, error: err.message || String(err) })}\n`);
+        }
+      }
+    });
+  });
+
+  server.listen(DAEMON_SOCKET, () => {
+    try {
+      fs.chmodSync(DAEMON_SOCKET, 0o600);
+    } catch {
+      // Non-fatal; /tmp ownership still protects the socket on this machine.
+    }
+    console.error(`mag-medley MCP daemon pid=${process.pid} socket=${DAEMON_SOCKET}`);
+  });
+
+  const cleanup = () => {
+    server.close(() => process.exit(0));
+    safeUnlink(DAEMON_SOCKET);
+    setTimeout(() => process.exit(0), 250).unref();
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+}
+
 let buffer = Buffer.alloc(0);
 
 function parseMessages() {
@@ -313,9 +462,13 @@ function parseMessages() {
   }
 }
 
-process.stdin.on('data', (chunk) => {
-  buffer = Buffer.concat([buffer, chunk]);
-  parseMessages();
-});
+if (DAEMON_MODE) {
+  startDaemon();
+} else {
+  process.stdin.on('data', (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    parseMessages();
+  });
 
-process.stdin.on('end', () => process.exit(0));
+  process.stdin.on('end', () => process.exit(0));
+}

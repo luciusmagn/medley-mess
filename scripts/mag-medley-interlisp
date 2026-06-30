@@ -21,10 +21,13 @@ mkdir -p "$LOGINDIR"
 unset TERMINFO
 export TERMINFO_DIRS="/run/current-system/profile/share/terminfo:$HOME/.guix-profile/share/terminfo:${TERMINFO_DIRS:-}"
 
-MAG_MEDLEY_GEOMETRY="${MAG_MEDLEY_GEOMETRY:-1920x1080}"
+MAG_MEDLEY_GEOMETRY="${MAG_MEDLEY_GEOMETRY:-1920x1040}"
 MAG_MEDLEY_SCREENSIZE="${MAG_MEDLEY_SCREENSIZE:-$MAG_MEDLEY_GEOMETRY}"
 MAG_MEDLEY_MEMORY_MB="${MAG_MEDLEY_MEMORY_MB:-256}"
 MAG_MEDLEY_TITLE="${MAG_MEDLEY_TITLE:-Medley Interlisp}"
+MAG_MEDLEY_FOREGROUND="${MAG_MEDLEY_FOREGROUND:-rgb:00/00/00}"
+MAG_MEDLEY_BACKGROUND="${MAG_MEDLEY_BACKGROUND:-rgb:ff/ff/e8}"
+MAG_MEDLEY_CURSOR_COLOR="${MAG_MEDLEY_CURSOR_COLOR:-rgb:00/00/00}"
 
 case "$MAG_MEDLEY_MEMORY_MB" in
     ''|*[!0-9]*)
@@ -53,4 +56,8 @@ exec "$MEDLEYDIR/medley" \
     --logindir "$LOGINDIR" \
     --maikodir "$MAIKODIR" \
     --greet - \
-    "$@"
+    "$@" \
+    -- \
+    -fg "$MAG_MEDLEY_FOREGROUND" \
+    -bg "$MAG_MEDLEY_BACKGROUND" \
+    -cursorColor "$MAG_MEDLEY_CURSOR_COLOR"
