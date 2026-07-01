@@ -63,6 +63,27 @@ arrow codes.
 
 If Mag Shell arrows work but Gopher arrows are wrong, fix `MAG-GOPHER-SPECIAL-KEYID`; do not perturb the terminal path.
 
+## Medley GC Disabled Warning
+
+The warning
+
+```text
+GC Disabled Warning: Internal garbage collector tables have overflowed, due
+to too many pointers with reference count greater than 1.
+```
+
+is not ordinary VM heap exhaustion. The user may see low Vmem usage when this
+happens. In Maiko this is triggered by the GC reference-count hash/collision
+tables overflowing and `disablegc1` marking all type entries `NOREF`; the live
+image is not recoverable in-place. The immediate action is to save TEdit work
+and restart Medley.
+
+Current mitigation: `MAG-NOGREET` lowers `RECLAIMMIN` to `500` at startup, and
+Mag Shell's Ghostty-backed typeout loop waits `50ms` after a rendered batch
+instead of `20ms`. Do not respond to this failure by only increasing
+`MAG_MEDLEY_MEMORY_MB`; the current `RELEASE=351` build is already the 256 MB
+layout, and the overflowing structure is separate from the main VM heap.
+
 Gopher should delegate key decoding to `MAG-VTERM-SPECIAL-KEYID`. It should
 also avoid `TTYDISPLAYSTREAM` in `MAG-GOPHER-TYPEIN`; the working Mag
 Shell/Ghostty path reads raw keys without it, and `TTYDISPLAYSTREAM` changes

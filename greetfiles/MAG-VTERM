@@ -1231,7 +1231,7 @@
                  (SEEN
                   (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
                   (MAG-GHOSTTY-REFRESH WINDOW STATE)
-                  (DISMISS 20))
+                  (DISMISS 50))
                  ((EQ CH T)
                   (DISMISS 100))
                  (T
