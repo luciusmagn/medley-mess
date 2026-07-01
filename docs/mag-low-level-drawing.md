@@ -89,6 +89,9 @@ glyph descenders by about a pixel; text should use the padded baseline.
   used by command 25.
 - `UNIX-HANDLECOMM 45` reports a native Mag Gopher viewport self-test, proving
   the C-side jump/clamp behavior without driving the UI.
+- `UNIX-HANDLECOMM 50` reports GC table pressure in one VM page: `HTCOLL`
+  high-water/free/live collision-link counts, `HTBIGCOUNT` occupancy,
+  GC-disabled state, and reclaim countdown/min values.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -122,6 +125,8 @@ Current native commands:
 - `48`: compute a fixed-width Mag Gopher type tag for a Gopher type byte.
 - `49`: read and consume `/tmp/medley-mag-typeahead`, injecting it through the
   same X key event path as startup typeahead.
+- `50`: report bounded GC table pressure for `HTCOLL`, `HTBIGCOUNT`,
+  `GCDISABLED`, and reclaim countdown/min values.
 
 Current Lisp wrappers:
 
@@ -139,6 +144,7 @@ Current safe request commands:
 - `status-report`
 - `process-status`
 - `native-jobs`
+- `gc-report`
 - `goal-status`
 - `write-debug-report`
 - `battery`

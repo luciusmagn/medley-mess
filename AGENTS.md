@@ -83,6 +83,9 @@ Mag Shell's Ghostty-backed typeout loop waits `50ms` after a rendered batch
 instead of `20ms`. Do not respond to this failure by only increasing
 `MAG_MEDLEY_MEMORY_MB`; the current `RELEASE=351` build is already the 256 MB
 layout, and the overflowing structure is separate from the main VM heap.
+After restarting into a Maiko binary with command 50, use `gc-report` to inspect
+`HTCOLL` collision-link high-water/free/live counts, `HTBIGCOUNT` occupancy,
+the GC-disabled flag, and reclaim countdown/min values.
 
 Gopher should delegate key decoding to `MAG-VTERM-SPECIAL-KEYID`. It should
 also avoid `TTYDISPLAYSTREAM` in `MAG-GOPHER-TYPEIN`; the working Mag
@@ -149,7 +152,7 @@ For live evidence, use the Medley RPC bridge:
 - `performance-report` verifies the local performance-oriented launch config:
   256 MB VM, 10 ms timer, and Maiko `--noscroll`.
 - `status-report` returns a single combined snapshot with debug, performance,
-  battery, key decoder, active shell, and active Gopher state.
+  GC pressure, battery, key decoder, active shell, and active Gopher state.
 - `process-status` returns a bounded process snapshot for the RPC poller,
   active Mag Shell window, active Mag Gopher window, and known Mag worker
   names. It does not run arbitrary eval or list every process.
@@ -160,6 +163,9 @@ For live evidence, use the Medley RPC bridge:
 - `native-jobs` returns Maiko's bounded native job list from
   `UNIX-HANDLECOMM 46`: aggregate job counts plus compact live job lines that
   fit in one VM page.
+- `gc-report` returns Maiko's bounded GC table status from `UNIX-HANDLECOMM
+  50`: `HTCOLL` high-water/free/live link counts, `HTBIGCOUNT` occupancy,
+  GC-disabled state, and reclaim countdown/min values.
 - `goal-status` returns a non-mutating summary of the original Mag integration
   goal evidence: split modules loaded, baseline pad, performance config,
   battery who-line, native terminal path, and key decoder/encoder stability.
@@ -307,6 +313,10 @@ Local Maiko command `UNIX-HANDLECOMM 49` reads and consumes
 event path used by startup typeahead. MCP eval uses this to type a bounded
 helper form into the live Exec without calling `PROCESS.EVAL` or `EVAL` from
 the RPC poller.
+Local Maiko command `UNIX-HANDLECOMM 50` reports GC table pressure in one VM
+page: `HTCOLL` collision-link high-water/free/live counts, `HTBIGCOUNT`
+occupancy, `GCDISABLED`, and reclaim countdown/min values. The safe RPC command
+is `gc-report`, and `status-report` includes it as the `gc` section.
 
 - `ping`
 - `debug-report`
@@ -315,6 +325,7 @@ the RPC poller.
 - `status-report`
 - `process-status`
 - `native-jobs`
+- `gc-report`
 - `goal-status`
 - `write-debug-report`
 - `battery`
