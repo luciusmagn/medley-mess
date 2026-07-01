@@ -59,6 +59,11 @@ glyph descenders by about a pixel; text should use the padded baseline.
   bytes: up `ESC [ A`, down `ESC [ B`, right `ESC [ C`, left `ESC [ D`.
   Do not rotate Lisp's raw-key decoder to compensate for libghostty encoder
   behavior.
+- Physical X arrow keys should enter Mag raw `\GETKEY` windows as keypad-style
+  codes: `82` up, `69` down, `87` right, `84` left.  The Lisp decoder also
+  accepts dedicated `129..132` codes for direct/synthetic compatibility, but
+  using those as the physical-only path has made Mag Shell and Mag Keys stop
+  seeing arrow input while stock Medley apps still worked.
 - Keep `MAG-VTERM-SEND-KEY` on the same `MAG-VTERM-SPECIAL-KEYID` path used
   by the table tests. It should not carry a duplicate raw `57344`-style arrow
   mapping.
