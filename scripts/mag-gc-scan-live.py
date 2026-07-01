@@ -71,6 +71,8 @@ def parse_args():
     parser.add_argument("pid", nargs="?", type=int, help="ldex PID; auto-detected if omitted")
     parser.add_argument("--ldex", default=DEFAULT_LDEX, help="path to the ldex binary")
     parser.add_argument("--top", type=int, default=40, help="number of type rows to print")
+    parser.add_argument("--atom-names", type=int, default=0,
+                        help="print decoded NEWATOM names from low and high address samples")
     return parser.parse_args()
 
 
@@ -158,12 +160,10 @@ def count_of(content):
     return (content >> 17) & 0x7FFF
 
 
-def seg_of(content):
-    return (content & 0xFFFE) >> 1
-
-
 def ptr_of(content, index):
-    return ((seg_of(content) & 0xFFFF) << 16) | ((index << 1) & 0xFFFF)
+    # BIGVM stores pointer bits 16..27 in bits 1..12 of the GC entry.
+    # The HTmain index supplies the low even address bits.
+    return ((content & 0x1FFE) << 15) | ((index << 1) & 0xFFFF)
 
 
 def bucket_count(count):
@@ -222,6 +222,7 @@ def scan_gc(mem, ptrs):
     type_zero_counts = collections.Counter()
     count_buckets = collections.Counter()
     samples = collections.defaultdict(list)
+    ptrs_by_type = collections.defaultdict(list)
     chain_lengths = []
     visited_coll = set()
     bad_chains = 0
@@ -238,6 +239,7 @@ def scan_gc(mem, ptrs):
         count_buckets[bucket_count(count)] += 1
         if count:
             type_counts[typ] += 1
+            ptrs_by_type[typ].append((ptr, count, coll_offset, index))
             if coll_offset is None:
                 main_nonzero += 1
             else:
@@ -291,6 +293,7 @@ def scan_gc(mem, ptrs):
         "type_zero_counts": type_zero_counts,
         "count_buckets": count_buckets,
         "samples": samples,
+        "ptrs_by_type": ptrs_by_type,
     }
 
 
@@ -346,6 +349,54 @@ def print_report(pid, base, ptrs, words, scan, top):
         print(f"  {typ!s:>4} {name:<18} total={count:7d} coll={coll:7d} zero-seen={zero:7d} sample={sample_text}")
 
 
+def lisp_world_from_ptrs(ptrs):
+    # NativeAligned4FromLAddr(LAddr) is Lisp_world + LAddr DLwords.
+    # HTMAIN_OFFSET is 0x160000 Lisp DLwords in the BIGBIGVM map.
+    return ptrs["HTmain"] - (0x160000 * 2)
+
+
+def native_from_laddr(world, laddr):
+    return world + ((laddr & 0x0FFFFFFF) * 2)
+
+
+def read_atom_name(mem, world, atom_ptr):
+    try:
+        atom_addr = native_from_laddr(world, atom_ptr)
+        pname_cell = mem.u32(atom_addr)
+        pname_base = pname_cell & 0x0FFFFFFF
+        if pname_base == 0:
+            return "<no-pname>"
+        pname_addr = native_from_laddr(world, pname_base)
+        length = mem.read(pname_addr, 1)[0]
+        if length > 200:
+            length = 200
+        raw = mem.read(pname_addr + 1, length)
+    except (OSError, IndexError, struct.error):
+        return "<unreadable>"
+    text = raw.decode("latin-1", "replace")
+    text = "".join(ch if 32 <= ord(ch) < 127 else f"\\x{ord(ch):02x}" for ch in text)
+    return text
+
+
+def print_atom_name_samples(mem, ptrs, scan, limit):
+    if limit <= 0:
+        return
+    entries = sorted(scan["ptrs_by_type"].get(21, []), key=lambda item: item[0])
+    if not entries:
+        print("newatom-names none")
+        return
+    world = lisp_world_from_ptrs(ptrs)
+    low = entries[:limit]
+    high = entries[-limit:]
+    print(f"newatom-names world=0x{world:x} low-address-samples={len(low)} high-address-samples={len(high)}")
+    for label, group in (("low", low), ("high", high)):
+        print(f"  {label}")
+        for ptr, count, coll_offset, index in group:
+            name = read_atom_name(mem, world, ptr)
+            coll = "-" if coll_offset is None else str(coll_offset)
+            print(f"    ptr=0x{ptr:x} count={count} index={index} coll={coll} name={name}")
+
+
 def main():
     args = parse_args()
     pid = args.pid or find_pid(args.ldex)
@@ -356,6 +407,7 @@ def main():
     words = read_runtime_words(mem, ptrs)
     scan = scan_gc(mem, ptrs)
     print_report(pid, base, ptrs, words, scan, args.top)
+    print_atom_name_samples(mem, ptrs, scan, args.atom_names)
 
 
 if __name__ == "__main__":

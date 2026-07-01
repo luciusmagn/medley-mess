@@ -659,7 +659,10 @@
            (Y (DSPYPOSITION NIL DSP))
            (FONTWIDTH (ffetch (CHAT.STATE FONTWIDTH) of STATE)))
       (SETQ CODE (MAG-GHOSTTY-DISPLAY-CODE CODE))
-      (BLTCHAR (UTOMCODE CODE) DSP)
+      (BLTCHAR (COND
+                 ((AND (SMALLP CODE) (ILEQ CODE 127)) CODE)
+                 (T (UTOMCODE CODE)))
+               DSP)
       (COND
         ((ffetch (CHAT.STATE UNDERLINEMODE) of STATE)
          (DRAWLINE X (IDIFFERENCE Y CHAT.UNDERLINE.DESCENT)
@@ -688,18 +691,30 @@
        (for I from 0 to (SUB1 LEN) do
                   (MAG-GHOSTTY-BLT-CODE STATE (\GETBASEBYTE BUFFER I)))))])
 
+(MAG-GHOSTTY-APPLY-FLAGS
+  [LAMBDA (STATE FLAGS)
+    (LET ((DSP (ffetch (CHAT.STATE DSP) of STATE))
+          (PLAINFONT (ffetch (CHAT.STATE PLAINFONT) of STATE)))
+      (DSPFONT (COND
+                 ((NEQ (LOGAND FLAGS 2) 0)
+                  (OR (ffetch (CHAT.STATE CHATBOLDFONT) of STATE)
+                      (freplace (CHAT.STATE CHATBOLDFONT) of STATE
+                                with (FONTCOPY PLAINFONT 'WEIGHT 'BOLD))))
+                 (T PLAINFONT))
+               DSP)
+      (DSPSOURCETYPE (COND
+                       ((NEQ (LOGAND FLAGS 1) 0) 'INVERT)
+                       (T 'INPUT))
+                     DSP)
+      (freplace (CHAT.STATE UNDERLINEMODE) of STATE with NIL)
+      T)])
+
 (MAG-GHOSTTY-SET-FLAGS
   [LAMBDA (WINDOW STATE FLAGS)
     (SETQ FLAGS (LOGAND FLAGS 3))
     (COND
       ((NEQ MAG-GHOSTTY-CUR-FLAGS FLAGS)
-       (TERM.MODIFY.ATTRIBUTES STATE '(NORMAL))
-       (COND
-         ((NEQ (LOGAND FLAGS 1) 0)
-          (TERM.MODIFY.ATTRIBUTES STATE '(INVERSE))))
-       (COND
-         ((NEQ (LOGAND FLAGS 2) 0)
-          (TERM.MODIFY.ATTRIBUTES STATE '(BRIGHT))))
+       (MAG-GHOSTTY-APPLY-FLAGS STATE FLAGS)
        (SETQ MAG-GHOSTTY-CUR-FLAGS FLAGS)))])
 
 (MAG-VTERM-ANSI-COLOR
@@ -736,7 +751,7 @@
 (MAG-GHOSTTY-RESET-COLORS
   [LAMBDA (WINDOW STATE)
     (LET ((DSP (ffetch (CHAT.STATE DSP) of STATE)))
-      (TERM.MODIFY.ATTRIBUTES STATE '(NORMAL))
+      (MAG-GHOSTTY-APPLY-FLAGS STATE 0)
       (COND
         ((WINDOWPROP WINDOW 'MAG-GHOSTTY-DEFAULT-FG)
          (DSPCOLOR (WINDOWPROP WINDOW 'MAG-GHOSTTY-DEFAULT-FG) DSP)))
@@ -1074,19 +1089,32 @@
                                      (MAG-VTERM-RENDER-STAT
                                        WINDOW 'MAG-GHOSTTY-CHANGED-REFRESH-COUNT)
                                      (AND (IGREATERP DIRTYCOUNT 0)
-                                          (for I from 0 to (SUB1 DIRTYCOUNT) do
+                                          (PROG ((I 0))
+                                          DIRTYLP
+                                            (COND
+                                              ((NOT (ILESSP I DIRTYCOUNT))
+                                               (RETURN T)))
                                             (SETQ ROW (\GETBASEBYTE ROWBUFFER I))
                                             (AND (ILESSP ROW ROWS)
                                                  (MAG-GHOSTTY-DRAW-REFRESH-ROW
                                                    WINDOW STATE CHAN ROW BUFFER COLS
-                                                   RGB WIDE COLORED STYLED SEGMENTED PLAIN)))))
+                                                   RGB WIDE COLORED STYLED SEGMENTED PLAIN))
+                                            (SETQ I (ADD1 I))
+                                            (GO DIRTYLP))))
                            (T
                          (MAG-VTERM-RENDER-STAT
                            WINDOW 'MAG-GHOSTTY-FULL-REFRESH-COUNT)
-                         (for ROW from 0 to (SUB1 ROWS) do
+                         (PROG NIL
+                           (SETQ ROW 0)
+                         FULLLP
+                           (COND
+                             ((NOT (ILESSP ROW ROWS))
+                              (RETURN T)))
                            (MAG-GHOSTTY-DRAW-REFRESH-ROW
                              WINDOW STATE CHAN ROW BUFFER COLS
-                             RGB WIDE COLORED STYLED SEGMENTED PLAIN))))
+                             RGB WIDE COLORED STYLED SEGMENTED PLAIN)
+                           (SETQ ROW (ADD1 ROW))
+                           (GO FULLLP))))
                       (freplace (CHAT.STATE WRAPMODE) of STATE with OLDWRAP)
                       (MAG-GHOSTTY-DRAW-CURSOR WINDOW STATE CHAN BUFFER ROWS COLS
                                                RGB WIDE COLORED STYLED SEGMENTED PLAIN)
@@ -1220,31 +1248,38 @@
     (PROG ((CHAN (MAG-GHOSTTY-CHANNEL STATE))
            BUFFER CH SEEN)
       (SETQ BUFFER (MAG-VTERM-READ-BUFFER WINDOW))
-      (while (AND CHAN (EQ (ffetch (CHAT.STATE RUNNING?) of STATE) T))
-        do (COND
-              ((WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)
-               (SETQ SEEN NIL)
-               (while (AND (SETQ CH (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
-                           (NEQ CH T))
-                 do (SETQ SEEN T))
-               (COND
-                 (SEEN
-                  (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
-                  (MAG-GHOSTTY-REFRESH WINDOW STATE)
-                  (DISMISS 50))
-                 ((EQ CH T)
-                  (DISMISS 100))
-                 (T
-                  (GO DONE))))
-              (T
-               (SETQ CH (SUBRCALL UNIX-HANDLECOMM 2 CHAN))
-               (COND
-                 ((EQ CH T)
-                  (DISMISS 100))
-                 ((NULL CH)
-                  (GO DONE))
-                 (T
-                  (MAG-VTERM-HANDLE-CHAR WINDOW STATE (LOGAND CH 255)))))))
+    LOOP
+      (COND
+        ((NOT (AND CHAN (EQ (ffetch (CHAT.STATE RUNNING?) of STATE) T)))
+         (GO DONE)))
+      (COND
+        ((WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)
+         (SETQ SEEN NIL)
+       DRAIN
+         (COND
+           ((AND (SETQ CH (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+                 (NEQ CH T))
+            (SETQ SEEN T)
+            (GO DRAIN)))
+         (COND
+           (SEEN
+            (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
+            (MAG-GHOSTTY-REFRESH WINDOW STATE)
+            (DISMISS 50))
+           ((EQ CH T)
+            (DISMISS 100))
+           (T
+            (GO DONE))))
+        (T
+         (SETQ CH (SUBRCALL UNIX-HANDLECOMM 2 CHAN))
+         (COND
+           ((EQ CH T)
+            (DISMISS 100))
+           ((NULL CH)
+            (GO DONE))
+           (T
+            (MAG-VTERM-HANDLE-CHAR WINDOW STATE (LOGAND CH 255))))))
+      (GO LOOP)
     DONE
       (freplace (CHAT.STATE RUNNING?) of STATE with NIL)
       (AND (OPENWP WINDOW)
