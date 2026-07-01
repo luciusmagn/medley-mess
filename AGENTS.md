@@ -45,6 +45,15 @@ High-byte fallback `(LRSH CH 8) = 1`, using `(LOGAND CH 255)`:
 - `87` or `132` right
 - `84` or `129` left
 
+Maiko's X input layer should make physical arrow keys produce the dedicated
+arrow codes `129..132`, not the keypad digit codes `82`/`69`/`87`/`84`.
+Both `src/xwinman.c`'s X keysym fast path and `inc/XKeymap.h`'s generated
+fallback must converge on `129 left`, `130 up`, `131 down`, and `132 right`.
+The keypad digit codes remain accepted by `MAG-VTERM-SPECIAL-KEYID` for
+compatibility only. If physical arrows appear randomly rotated in both Mag
+Keys and Mag Shell while `keys-test` is correct, suspect that one Maiko path is
+still producing keypad-style arrow codes rather than rotating the Lisp table.
+
 If Mag Shell arrows work but Gopher arrows are wrong, fix `MAG-GOPHER-SPECIAL-KEYID`; do not perturb the terminal path.
 
 Gopher should delegate key decoding to `MAG-VTERM-SPECIAL-KEYID`. It should
