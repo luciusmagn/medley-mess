@@ -82,9 +82,31 @@ struct Span {
     paralook: Option<usize>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct InlineStyle {
+    code: bool,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+    strike: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 struct RenderSegment {
     text: String,
+    heading: Option<u8>,
+    style: InlineStyle,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RenderPart {
+    text: String,
+    style: InlineStyle,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RenderLine {
+    parts: Vec<RenderPart>,
     heading: Option<u8>,
 }
 
@@ -777,6 +799,7 @@ fn render_formatted_markdown(text_bytes: &[u8], formatting: &TeditFormatting) ->
             segments.push(RenderSegment {
                 text: clean_fragment(&text_bytes[cursor..span.start.min(text_bytes.len())]),
                 heading: None,
+                style: InlineStyle::default(),
             });
         }
         let start = span.start.max(cursor).min(text_bytes.len());
@@ -787,8 +810,9 @@ fn render_formatted_markdown(text_bytes: &[u8], formatting: &TeditFormatting) ->
                 .paralook
                 .and_then(|index| formatting.paralooks.get(index));
             segments.push(RenderSegment {
-                text: style_fragment(&clean_fragment(&text_bytes[start..end]), charlook, paralook),
+                text: clean_fragment(&text_bytes[start..end]),
                 heading: paralook.and_then(|look| look.heading),
+                style: inline_style(charlook, paralook),
             });
             cursor = end;
         }
@@ -797,10 +821,22 @@ fn render_formatted_markdown(text_bytes: &[u8], formatting: &TeditFormatting) ->
         segments.push(RenderSegment {
             text: clean_fragment(&text_bytes[cursor..]),
             heading: None,
+            style: InlineStyle::default(),
         });
     }
 
     render_segments_as_lines(&segments)
+}
+
+fn inline_style(charlook: Option<&CharLook>, paralook: Option<&ParaLook>) -> InlineStyle {
+    InlineStyle {
+        code: charlook.map(|look| look.code).unwrap_or(false)
+            || paralook.map(|look| look.code).unwrap_or(false),
+        bold: charlook.map(|look| look.bold).unwrap_or(false),
+        italic: charlook.map(|look| look.italic).unwrap_or(false),
+        underline: charlook.map(|look| look.underline).unwrap_or(false),
+        strike: charlook.map(|look| look.strike).unwrap_or(false),
+    }
 }
 
 fn clean_fragment(bytes: &[u8]) -> String {
@@ -817,23 +853,12 @@ fn clean_fragment(bytes: &[u8]) -> String {
     out
 }
 
-fn style_fragment(
-    text: &str,
-    charlook: Option<&CharLook>,
-    paralook: Option<&ParaLook>,
-) -> String {
+fn style_inline_text(text: &str, style: InlineStyle) -> String {
     if text.trim().is_empty() {
         return text.to_string();
     }
 
-    let code = charlook.map(|look| look.code).unwrap_or(false)
-        || paralook.map(|look| look.code).unwrap_or(false);
-    let bold = charlook.map(|look| look.bold).unwrap_or(false);
-    let italic = charlook.map(|look| look.italic).unwrap_or(false);
-    let underline = charlook.map(|look| look.underline).unwrap_or(false);
-    let strike = charlook.map(|look| look.strike).unwrap_or(false);
-
-    if !(code || bold || italic || underline || strike) {
+    if !(style.code || style.bold || style.italic || style.underline || style.strike) {
         return text.to_string();
     }
 
@@ -850,20 +875,20 @@ fn style_fragment(
     let mut core = text[first..last].to_string();
     let trailing = &text[last..];
 
-    if code {
+    if style.code {
         core = wrap_code(&core);
     } else {
-        if bold && italic {
+        if style.bold && style.italic {
             core = format!("***{core}***");
-        } else if bold {
+        } else if style.bold {
             core = format!("**{core}**");
-        } else if italic {
+        } else if style.italic {
             core = format!("*{core}*");
         }
-        if underline {
+        if style.underline {
             core = format!("<u>{core}</u>");
         }
-        if strike {
+        if style.strike {
             core = format!("~~{core}~~");
         }
     }
@@ -880,46 +905,106 @@ fn wrap_code(text: &str) -> String {
 }
 
 fn render_segments_as_lines(segments: &[RenderSegment]) -> String {
-    let mut lines: Vec<RenderSegment> = vec![RenderSegment::default()];
+    let mut lines: Vec<RenderLine> = vec![RenderLine::default()];
 
     for segment in segments {
         for ch in segment.text.chars() {
             if ch == '\n' {
-                lines.push(RenderSegment::default());
+                lines.push(RenderLine::default());
                 continue;
             }
-            if !ch.is_whitespace() && lines.last().and_then(|line| line.heading).is_none() {
-                if let Some(line) = lines.last_mut() {
+            if let Some(line) = lines.last_mut() {
+                if !ch.is_whitespace() && line.heading.is_none() {
                     line.heading = segment.heading;
                 }
-            }
-            if let Some(line) = lines.last_mut() {
-                line.text.push(ch);
+                if let Some(part) = line.parts.last_mut() {
+                    if part.style == segment.style {
+                        part.text.push(ch);
+                        continue;
+                    }
+                }
+                line.parts.push(RenderPart {
+                    text: ch.to_string(),
+                    style: segment.style,
+                });
             }
         }
     }
 
     let mut out = String::new();
-    for mut line in lines {
-        let trimmed_end = line.text.trim_end().to_string();
-        if let Some(level) = line.heading {
-            let trimmed = trimmed_end.trim_start();
-            if !trimmed.is_empty() {
-                line.text = format!("{} {}", "#".repeat(level as usize), trimmed);
-            } else {
-                line.text = trimmed_end;
+    let mut in_code_block = false;
+    for line in lines {
+        if line_is_whole_code(&line) {
+            if !in_code_block {
+                out.push_str("```\n");
+                in_code_block = true;
             }
-        } else {
-            line.text = trimmed_end;
+            let plain = line_plain_text(&line);
+            out.push_str(plain.trim_end());
+            out.push('\n');
+            continue;
         }
-        if line.text.starts_with("```") {
+
+        if in_code_block {
+            out.push_str("```\n");
+            in_code_block = false;
+        }
+
+        let mut line_text = render_line_inline(&line).trim_end().to_string();
+        if let Some(level) = line.heading {
+            let trimmed = line_text.trim_start();
+            if !trimmed.is_empty() {
+                line_text = format!("{} {}", "#".repeat(level as usize), trimmed);
+            }
+        }
+        if line_text.starts_with("```") {
             out.push('\\');
         }
-        out.push_str(&line.text);
+        out.push_str(&line_text);
         out.push('\n');
     }
 
+    if in_code_block {
+        out.push_str("```\n");
+    }
+
     out.trim_end_matches('\n').to_string()
+}
+
+fn line_is_whole_code(line: &RenderLine) -> bool {
+    if line.heading.is_some() {
+        return false;
+    }
+
+    let mut saw_non_ws = false;
+    for part in &line.parts {
+        for ch in part.text.chars() {
+            if ch.is_whitespace() {
+                continue;
+            }
+            saw_non_ws = true;
+            if !part.style.code {
+                return false;
+            }
+        }
+    }
+    saw_non_ws
+}
+
+fn line_plain_text(line: &RenderLine) -> String {
+    let mut out = String::new();
+    for part in &line.parts {
+        out.push_str(&part.text);
+    }
+    out
+}
+
+fn render_line_inline(line: &RenderLine) -> String {
+    let mut out = String::new();
+    for part in &line.parts {
+        out.push_str(&style_inline_text(&part.text, part.style));
+    }
+    out
 }
 
 fn normalize_markdown_body(text: &str) -> String {
@@ -1172,6 +1257,61 @@ mod tests {
         });
 
         assert_eq!(render_formatted_markdown(b"Title", &formatting), "# Title");
+    }
+
+    #[test]
+    fn renders_inline_code_inside_paragraph() {
+        let mut formatting = TeditFormatting::default();
+        formatting.charlooks.push(CharLook::default());
+        formatting.charlooks.push(CharLook::default());
+        formatting.charlooks.push(CharLook {
+            code: true,
+            ..CharLook::default()
+        });
+        formatting.spans.push(Span {
+            start: 0,
+            end: 4,
+            charlook: 1,
+            paralook: None,
+        });
+        formatting.spans.push(Span {
+            start: 4,
+            end: 7,
+            charlook: 2,
+            paralook: None,
+        });
+        formatting.spans.push(Span {
+            start: 7,
+            end: 12,
+            charlook: 1,
+            paralook: None,
+        });
+
+        assert_eq!(
+            render_formatted_markdown(b"use foo now", &formatting),
+            "use `foo` now"
+        );
+    }
+
+    #[test]
+    fn renders_whole_code_lines_as_one_fenced_block() {
+        let mut formatting = TeditFormatting::default();
+        formatting.charlooks.push(CharLook::default());
+        formatting.charlooks.push(CharLook {
+            code: true,
+            ..CharLook::default()
+        });
+        formatting.spans.push(Span {
+            start: 0,
+            end: 23,
+            charlook: 1,
+            paralook: None,
+        });
+
+        assert_eq!(
+            render_formatted_markdown(b"let x = 1;\nprintln!(x);", &formatting),
+            "```\nlet x = 1;\nprintln!(x);\n```"
+        );
     }
 
     #[test]
