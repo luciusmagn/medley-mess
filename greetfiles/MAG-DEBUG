@@ -3,6 +3,7 @@
 (FILESLOAD RECORD)
 (FILESLOAD CHATDECLS)
 (RPAQ? MAG-DEBUG-RPC-PROCESS NIL)
+(RPAQQ MAG-DEBUG-EVAL-DIR "/tmp/medley-mag-eval/")
 
 (DEFINEQ
 
@@ -134,6 +135,20 @@
          (GO LP)))
       (RETURN (SUBSTRING TEXT 1 END)))])
 
+(MAG-DEBUG-RPC-PREFIXP
+  [LAMBDA (TEXT PREFIX)
+    (AND TEXT
+         PREFIX
+         (IGEQ (NCHARS TEXT) (NCHARS PREFIX))
+         (STREQUAL (SUBSTRING TEXT 1 (NCHARS PREFIX)) PREFIX))])
+
+(MAG-DEBUG-RPC-AFTER-PREFIX
+  [LAMBDA (TEXT PREFIX)
+    (COND
+      ((MAG-DEBUG-RPC-PREFIXP TEXT PREFIX)
+       (OR (SUBSTRING TEXT (ADD1 (NCHARS PREFIX))) ""))
+      (T ""))])
+
 (MAG-DEBUG-RPC-READ
   [LAMBDA NIL
     (COND
@@ -166,6 +181,135 @@
       ((GETD 'MAG-WHO-LINE-BATTERY-STATUS)
        (MAG-WHO-LINE-BATTERY-STATUS))
       (T "who-line battery status unavailable"))])
+
+(MAG-DEBUG-EVAL-ID-CHAR-P
+  [LAMBDA (CH)
+    (OR (AND (IGEQ CH 48) (ILEQ CH 57))
+        (AND (IGEQ CH 65) (ILEQ CH 90))
+        (AND (IGEQ CH 97) (ILEQ CH 122))
+        (EQ CH 45))])
+
+(MAG-DEBUG-EVAL-ID-P
+  [LAMBDA (ID)
+    (PROG ((I 1)
+           (LEN (AND ID (NCHARS ID)))
+           CH)
+      (COND
+        ((OR (NULL LEN)
+             (ILEQ LEN 0)
+             (IGREATERP LEN 80))
+         (RETURN NIL)))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN T)))
+      (SETQ CH (NTHCHARCODE ID I))
+      (COND
+        ((NOT (MAG-DEBUG-EVAL-ID-CHAR-P CH))
+         (RETURN NIL)))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-DEBUG-EVAL-PATH
+  [LAMBDA (ID EXT)
+    (CONCAT MAG-DEBUG-EVAL-DIR ID EXT)])
+
+(MAG-DEBUG-EVAL-VALUE-STRING
+  [LAMBDA (VALUE)
+    (OR (CAR (NLSETQ (CL:WRITE-TO-STRING VALUE :ESCAPE T)))
+        (CAR
+          (NLSETQ
+            (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+              (PRIN1 VALUE OUT)
+              (CL:GET-OUTPUT-STREAM-STRING OUT))))
+        "<unprintable>")])
+
+(MAG-DEBUG-EVAL-WRITE-RESULT
+  [LAMBDA (ID TEXT)
+    (MAG-WRITE-UTF8-TEXT-FILE (MAG-DEBUG-EVAL-PATH ID ".out")
+                              (OR TEXT ""))])
+
+(MAG-DEBUG-EVAL-WRITE-VALUE
+  [LAMBDA (ID VALUE)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           TEXT)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "id=" ID))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "status=ok")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "value=")
+      (MAG-STRING-OUTPUT (MAG-DEBUG-EVAL-VALUE-STRING VALUE) OUT)
+      (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+      (SETQ TEXT (CL:GET-OUTPUT-STREAM-STRING OUT))
+      (MAG-DEBUG-EVAL-WRITE-RESULT ID TEXT)
+      (RETURN TEXT))])
+
+(MAG-DEBUG-EVAL-CALL-THUNK
+  [LAMBDA (ID THUNK)
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           RESULT TEXT)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "id=" ID))
+      (SETQ RESULT (NLSETQ (CL:FUNCALL THUNK)))
+      (COND
+        ((NULL RESULT)
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "status=error")
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "message=eval failed"))
+        (T
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "status=ok")
+         (MAG-DEBUG-RPC-WRITE-LINE OUT "value=")
+         (MAG-STRING-OUTPUT (MAG-DEBUG-EVAL-VALUE-STRING (CAR RESULT)) OUT)
+         (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)))
+      (SETQ TEXT (CL:GET-OUTPUT-STREAM-STRING OUT))
+      (MAG-DEBUG-EVAL-WRITE-RESULT ID TEXT)
+      (RETURN TEXT))])
+
+(MAG-DEBUG-EVAL-QUEUE-EXEC
+  [LAMBDA (TARGET ID)
+    (PROG ((MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
+           INJECTED)
+      (COND
+        ((ILESSP MAXCOMMAND 49)
+         (RETURN NIL)))
+      (TTY.PROCESS TARGET)
+      (SETQ INJECTED (SUBRCALL UNIX-HANDLECOMM 49))
+      (RETURN (AND INJECTED (IGREATERP INJECTED 0))))])
+
+(MAG-DEBUG-RPC-EVAL-START
+  [LAMBDA (ID)
+    (PROG (TARGET STARTED)
+      (SETQ ID (MAG-DEBUG-RPC-TRIM-RIGHT ID))
+      (COND
+        ((NOT (MAG-DEBUG-EVAL-ID-P ID))
+         (RETURN (CONCAT "eval-error invalid-id=" (OR ID "")))))
+      (SETQ TARGET (FIND.PROCESS 'EXEC))
+      (COND
+        ((NOT TARGET)
+         (RETURN "eval-error no-exec-process")))
+      (SETQ STARTED
+            (NLSETQ (MAG-DEBUG-EVAL-QUEUE-EXEC TARGET ID)))
+      (COND
+        ((NULL STARTED)
+         (RETURN (CONCAT "eval-error native-typeahead-failed id=" ID)))
+        (T
+         (RETURN (CONCAT "eval-started id=" ID " target=EXEC backend=native-typeahead")))))])
+
+(MAG-DEBUG-RPC-EVAL-STATUS
+  [LAMBDA NIL
+    (LET ((MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0)))
+      (CONCAT "eval-status="
+              (COND
+                ((IGEQ MAXCOMMAND 49) "available")
+                (T "unavailable"))
+              " backend=native-typeahead command49="
+              (COND
+                ((IGEQ MAXCOMMAND 49) "yes")
+                (T "no"))
+              " exec="
+              (COND
+                ((FIND.PROCESS 'EXEC) "yes")
+                (T "no"))))])
+
+(MAG-DEBUG-RPC-EVAL-RESET
+  [LAMBDA NIL
+    "eval-reset backend=native-typeahead no-worker=yes"])
 
 (MAG-DEBUG-RPC-SHELL-SELF-TEST
   [LAMBDA NIL
@@ -936,6 +1080,13 @@
        (MAG-DEBUG-RPC-BATTERY))
       ((STREQUAL COMMAND "who-line-battery")
        (MAG-DEBUG-RPC-WHO-LINE-BATTERY))
+      ((STREQUAL COMMAND "eval-status")
+       (MAG-DEBUG-RPC-EVAL-STATUS))
+      ((STREQUAL COMMAND "eval-reset")
+       (MAG-DEBUG-RPC-EVAL-RESET))
+      ((MAG-DEBUG-RPC-PREFIXP COMMAND "eval ")
+       (MAG-DEBUG-RPC-EVAL-START
+         (MAG-DEBUG-RPC-AFTER-PREFIX COMMAND "eval ")))
       ((STREQUAL COMMAND "reload-mag")
        (MAG-DEBUG-RPC-RELOAD-MAG))
       ((STREQUAL COMMAND "restart-rpc")

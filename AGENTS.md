@@ -125,6 +125,10 @@ For live evidence, use the Medley RPC bridge:
 - `process-status` returns a bounded process snapshot for the RPC poller,
   active Mag Shell window, active Mag Gopher window, and known Mag worker
   names. It does not run arbitrary eval or list every process.
+- `eval-status` reports whether the native typeahead eval bridge is available.
+  `medley_eval` is exposed at the MCP layer, not as a raw `medley_request`
+  command; it writes a typeahead file and then sends an internal `eval <id>`
+  request to the poller.
 - `native-jobs` returns Maiko's bounded native job list from
   `UNIX-HANDLECOMM 46`: aggregate job counts plus compact live job lines that
   fit in one VM page.
@@ -270,6 +274,11 @@ Local Maiko command `UNIX-HANDLECOMM 47` computes a Mag Gopher quick-label for
 a zero-based item index. `gopher-label-status` must show `status=ok`.
 Local Maiko command `UNIX-HANDLECOMM 48` computes a fixed-width Mag Gopher
 type tag for a Gopher type byte. `gopher-type-status` must show `status=ok`.
+Local Maiko command `UNIX-HANDLECOMM 49` reads and consumes
+`/tmp/medley-mag-typeahead`, injecting its contents through the same X key
+event path used by startup typeahead. MCP eval uses this to type a bounded
+helper form into the live Exec without calling `PROCESS.EVAL` or `EVAL` from
+the RPC poller.
 
 - `ping`
 - `debug-report`
@@ -282,6 +291,8 @@ type tag for a Gopher type byte. `gopher-type-status` must show `status=ok`.
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
+- `eval-status`
+- `eval-reset`
 - `reload-mag`
 - `restart-rpc`
 - `open-shell`
@@ -313,13 +324,15 @@ type tag for a Gopher type byte. `gopher-type-status` must show `status=ok`.
 - `gopher-key-right`
 - `keys-help`
 
-Do not add arbitrary `eval FORM` to this poller without isolating it from the
-RPC loop. Direct eval attempts have wedged the poller even on `eval 42`.
-A later file-backed Lisp worker attempt also made the fixed RPC stop answering
-on `(IPLUS 2 3)`. The failed patch is saved as
-`/tmp/mag-eval-worker-failed-20260630.patch` on this machine for reference.
-Future remote eval should be implemented below the cooperative Lisp process
-layer, or with a proven abortable worker, before it is exposed through MCP.
+MCP eval is deliberately indirect. The JS daemon writes the user's one-line
+expression to `/tmp/medley-mag-eval/<id>.lisp` for diagnostics, writes a helper
+form to `/tmp/medley-mag-typeahead`, and sends internal request `eval <id>`.
+Medley focuses the `EXEC` process and command 49 types that helper form. The
+helper calls a zero-argument thunk and writes `/tmp/medley-mag-eval/<id>.out`.
+Verified smoke forms: `(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
+Do not replace this with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified `EVAL`, or
+`CL:EVAL`; those attempts caused stack overflow, wedged the live process, or
+left Exec in an error prompt.
 
 Keep `reload-mag` asynchronous. Loading `MAG-EXTRAS` inside the RPC poller
 itself can redefine/reset the code that is currently handling the request and
@@ -334,7 +347,11 @@ Autostart hooks on this machine:
 - `/home/mag/.config/fish/conf.d/medley_mcp.fish` starts `medley-mag-mcp-ensure` for interactive fish shells.
 - `/home/mag/.emacs.d/init.el` starts `medley-mag-mcp-ensure` from `emacs-startup-hook` for EXWM login.
 
-The bridge exposes process/log/status tools and `medley_request`, which writes `/tmp/medley-mag-request`, waits for `/tmp/medley-mag-response`, and returns the live Medley response.
+The bridge exposes process/log/status tools, `medley_request`, and `medley_eval`.
+`medley_request` writes `/tmp/medley-mag-request`, waits for
+`/tmp/medley-mag-response`, and returns the live Medley response. `medley_eval`
+uses the command 49 typeahead route described above; check `medley_eval_status`
+before relying on it after a rebuild.
 
 HTTP smoke test:
 

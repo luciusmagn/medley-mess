@@ -100,7 +100,7 @@ glyph descenders by about a pixel; text should use the padded baseline.
 
 ## Debugging Gap
 
-There is now a limited direct agent-facing protocol into the running Medley instance. It is intentionally not arbitrary eval.
+There is now a limited direct agent-facing protocol into the running Medley instance. MCP eval is available, but it is deliberately routed through native typeahead into the live Exec rather than through `PROCESS.EVAL` or the RPC poller process.
 
 Current native commands:
 
@@ -115,6 +115,8 @@ Current native commands:
 - `46`: report a bounded native job list for Maiko shell/process/socket slots.
 - `47`: compute a Mag Gopher quick-label for a zero-based item index.
 - `48`: compute a fixed-width Mag Gopher type tag for a Gopher type byte.
+- `49`: read and consume `/tmp/medley-mag-typeahead`, injecting it through the
+  same X key event path as startup typeahead.
 
 Current Lisp wrappers:
 
@@ -136,6 +138,8 @@ Current safe request commands:
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
+- `eval-status`
+- `eval-reset`
 - `reload-mag`
 - `open-shell`
 - `close-shell`
@@ -168,12 +172,16 @@ Current safe request commands:
 - `shell-state`
 - `keys-help`
 
-Arbitrary `eval FORM` is intentionally not part of this poller. Direct eval
-attempts have wedged the RPC loop even on `eval 42`. A file-backed Lisp worker
-prototype also made the fixed RPC stop answering on `(IPLUS 2 3)`; the failed
-patch was saved as `/tmp/mag-eval-worker-failed-20260630.patch`. A future
-remote REPL should be implemented below the cooperative Lisp process layer, or
-with a proven abortable worker, before being exposed through MCP.
+`medley_eval` is an MCP tool, not a raw safe request. The daemon writes the
+source form to `/tmp/medley-mag-eval/<id>.lisp` for diagnostics, writes a helper
+form to `/tmp/medley-mag-typeahead`, sends internal request `eval <id>`, and
+waits for `/tmp/medley-mag-eval/<id>.out`. The Medley poller only validates the
+id, focuses the `EXEC` process, and calls command 49. Verified smoke forms:
+`(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
+
+Do not implement MCP eval with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified
+`EVAL`, or `CL:EVAL`. Those approaches caused stack overflow or wedged the live
+Medley process on this machine.
 
 `performance-report` verifies that the local faster launch configuration is
 active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
@@ -238,6 +246,10 @@ Current tools:
 - `medley_debug_report_file`: read `/tmp/medley-mag-debug.txt`, written from inside Medley by `(MAG-DEBUG-WRITE-REPORT NIL)`.
 - `medley_worktree_status`: show Medley and Maiko git status.
 - `medley_request`: send a safe request to the running Medley RPC poller and return `/tmp/medley-mag-response`.
+- `medley_eval`: evaluate one physical-line expression through the native
+  typeahead/Exec helper path.
+- `medley_eval_status`: report whether command 49 and Exec are available.
+- `medley_eval_reset`: report reset status for the eval backend.
 
 `/home/mag/.local/bin/medley-interlisp` is mirrored as `scripts/mag-medley-interlisp`. It starts `apps.sysout` with `--greet -` and uses Maiko's `MAIKO_STARTUP_TYPEAHEAD_FILE` hook to type `(IL:LOAD ".../MAG-NOGREET" T)` into the initial exec after a short delay. This avoids depending on EXWM/emacsclient to synthesize the startup load. The launcher must not pass `--nofork`/`-NF`, because that disables Maiko's Unix helper and makes `FORK-SHELL`/Mag Shell fail before a PTY job is created.
 

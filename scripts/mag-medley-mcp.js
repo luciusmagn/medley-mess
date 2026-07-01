@@ -12,6 +12,8 @@ const LOG_PATH = process.env.MAG_MEDLEY_LOG || '/tmp/medley-interlisp.log';
 const DEBUG_PATH = process.env.MAG_MEDLEY_DEBUG_REPORT || '/tmp/medley-mag-debug.txt';
 const REQUEST_PATH = process.env.MAG_MEDLEY_REQUEST || '/tmp/medley-mag-request';
 const RESPONSE_PATH = process.env.MAG_MEDLEY_RESPONSE || '/tmp/medley-mag-response';
+const EVAL_DIR = process.env.MAG_MEDLEY_EVAL_DIR || '/tmp/medley-mag-eval';
+const TYPEAHEAD_PATH = process.env.MAG_MEDLEY_TYPEAHEAD || '/tmp/medley-mag-typeahead';
 const DAEMON_SOCKET = process.env.MAG_MEDLEY_MCP_SOCKET || '/tmp/medley-mag-mcp.sock';
 const HTTP_HOST = process.env.MAG_MEDLEY_MCP_HOST || '127.0.0.1';
 const HTTP_PORT = Number(process.env.MAG_MEDLEY_MCP_PORT || 8765);
@@ -32,6 +34,8 @@ const ALLOWED_REQUESTS = new Set([
   'write-debug-report',
   'battery',
   'who-line-battery',
+  'eval-status',
+  'eval-reset',
   'reload-mag',
   'restart-rpc',
   'open-shell',
@@ -138,8 +142,8 @@ function readStableResponse(path, deadline) {
   return safeRead(path, '');
 }
 
-function requestMedley(command, timeoutMs) {
-  if (!ALLOWED_REQUESTS.has(command)) {
+function requestMedley(command, timeoutMs, opts = {}) {
+  if (!opts.allowDynamic && !ALLOWED_REQUESTS.has(command)) {
     throw new Error(`unsupported request: ${command}`);
   }
 
@@ -161,6 +165,98 @@ function requestMedley(command, timeoutMs) {
   }
 
   throw new Error(`timed out waiting for Medley response to ${command}`);
+}
+
+function makeEvalId() {
+  return `eval-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function ensureEvalDir() {
+  fs.mkdirSync(EVAL_DIR, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(EVAL_DIR, 0o700);
+  } catch {
+    // Non-fatal if the filesystem rejects chmod.
+  }
+}
+
+function evalPath(id, ext) {
+  if (!/^[A-Za-z0-9-]{1,80}$/.test(id)) throw new Error(`invalid eval id: ${id}`);
+  return `${EVAL_DIR}/${id}${ext}`;
+}
+
+function writeEvalInput(id, form) {
+  ensureEvalDir();
+  const source = String(form || '').trim();
+  if (!source) throw new Error('form is required');
+  if (Buffer.byteLength(source, 'utf8') > 64 * 1024) {
+    throw new Error('form is too large; limit is 64 KiB');
+  }
+
+  writeAtomic(evalPath(id, '.lisp'), `${source}\n`);
+  safeUnlink(evalPath(id, '.out'));
+  return source;
+}
+
+function writeEvalTypeahead(id, source) {
+  if (!/^[A-Za-z0-9-]{1,80}$/.test(id)) throw new Error(`invalid eval id: ${id}`);
+  if (/[\r\n]/.test(source)) {
+    throw new Error('form must be one physical line for the native typeahead eval backend');
+  }
+  writeAtomic(
+    TYPEAHEAD_PATH,
+    `(IL:MAG-DEBUG-EVAL-CALL-THUNK "${id}" (CL:FUNCTION (CL:LAMBDA () ${source})))\n`
+  );
+}
+
+function readStableFile(path, deadline) {
+  const value = readStableResponse(path, deadline);
+  return value === null ? null : value;
+}
+
+function waitForEvalResult(id, timeoutMs, startResponse) {
+  const outputPath = evalPath(id, '.out');
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (fs.existsSync(outputPath)) {
+      const result = readStableFile(outputPath, deadline);
+      if (result === null) {
+        sleepMs(50);
+        continue;
+      }
+      safeUnlink(evalPath(id, '.lisp'));
+      safeUnlink(outputPath);
+      return result;
+    }
+    sleepMs(100);
+  }
+
+  return `id=${id}\nstatus=timeout\nmessage=timed out waiting for eval result\nstart-response=${String(startResponse || '').trim()}\n`;
+}
+
+function evalMedley(form, timeoutMs) {
+  const id = makeEvalId();
+  const source = writeEvalInput(id, form);
+  writeEvalTypeahead(id, source);
+
+  let startResponse;
+  try {
+    startResponse = requestMedley(`eval ${id}`, Math.min(timeoutMs, 5000), {
+      allowDynamic: true,
+    });
+  } catch (err) {
+    safeUnlink(TYPEAHEAD_PATH);
+    throw err;
+  }
+
+  if (!String(startResponse).includes(`eval-started id=${id}`)) {
+    safeUnlink(evalPath(id, '.lisp'));
+    safeUnlink(TYPEAHEAD_PATH);
+    throw new Error(`Medley did not start eval ${id}: ${String(startResponse).trim()}`);
+  }
+
+  return waitForEvalResult(id, timeoutMs, startResponse);
 }
 
 const tools = [
@@ -229,6 +325,37 @@ const tools = [
       required: ['command'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'medley_eval',
+    description: 'Evaluate one Interlisp form in the running Medley Exec process and return its printed value.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        form: {
+          type: 'string',
+          description: 'A single physical-line Medley/XCL expression. Prefer explicit CL: or IL: package prefixes.',
+          maxLength: 65536,
+        },
+        timeout_ms: {
+          type: 'integer',
+          minimum: 500,
+          maximum: 30000,
+        },
+      },
+      required: ['form'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'medley_eval_status',
+    description: 'Report whether Medley-side eval dispatch is available.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'medley_eval_reset',
+    description: 'Report eval reset status. The current backend has no separate worker to kill.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
 ];
 
@@ -330,6 +457,17 @@ function callToolLocal(name, args = {}) {
       const timeoutMs = Number.isInteger(args.timeout_ms) ? args.timeout_ms : 5000;
       return text(requestMedley(command, timeoutMs));
     }
+
+    case 'medley_eval': {
+      const timeoutMs = Number.isInteger(args.timeout_ms) ? args.timeout_ms : 5000;
+      return text(evalMedley(args.form, timeoutMs));
+    }
+
+    case 'medley_eval_status':
+      return text(requestMedley('eval-status', 5000));
+
+    case 'medley_eval_reset':
+      return text(requestMedley('eval-reset', 5000));
 
     default:
       throw new Error(`unknown tool: ${name}`);
