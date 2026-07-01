@@ -753,7 +753,7 @@
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (FAIL NIL)
            DEBUGREPORT CONFIGREPORT SHELLREPORT SHELLKEYREPORT GOPHERREPORT
-           KEYREPORT KEYENCODEREPORT BATTERYREPORT BASELINEPAD)
+           KEYREPORT KEYENCODEREPORT BATTERYREPORT BASELINEPAD TEDITACTIONS)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag integration self-test")
       (SETQ DEBUGREPORT (MAG-DEBUG-REPORT))
       (SETQ FAIL
@@ -806,7 +806,23 @@
               (AND (GETD 'MAG-WINDOW-DRAW-LINE)
                    (GETD 'MAG-VTERM-STATE-REPORT)
                    (GETD 'MAG-GOPHER-STATE-REPORT)
-                   (GETD 'MAG-WHO-LINE-BATTERY-STATUS))
+                   (GETD 'MAG-WHO-LINE-BATTERY-STATUS)
+                   (GETD 'MAG-TEDIT-LOOKS-OPEN))
+              FAIL))
+      (SETQ TEDITACTIONS (AND (GETD 'MAG-TEDIT-LOOKS-ACTIONS)
+                              (MAG-TEDIT-LOOKS-ACTIONS)))
+      (SETQ FAIL
+            (MAG-DEBUG-RPC-CHECK
+              OUT
+              "Mag TEdit looks palette loaded"
+              (AND (GETD 'MAG-TEDIT-LOOKS-OPEN)
+                   (GETD 'MAG-TEDIT-LOOKS-BUTTONFN)
+                   (GETD 'MAG-TEDIT-LOOKS-NTH-ACTION)
+                   TEDITACTIONS
+                   (EQUAL (MAG-TEDIT-LOOKS-NTH-ACTION TEDITACTIONS 0)
+                          '("Heading 1" HEADING1))
+                   (EQUAL (MAG-TEDIT-LOOKS-NTH-ACTION TEDITACTIONS 8)
+                          '("Save now" SAVE)))
               FAIL))
       (SETQ BASELINEPAD
             (AND (GETD 'MAG-WINDOW-BASELINE-PAD-VALUE)
