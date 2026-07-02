@@ -298,6 +298,7 @@ static bool json_extract_i64(const char *json, const char *key, long long *out) 
   p = strchr(p + strlen(needle), ':');
   if (!p) return false;
   p = skip_space(p + 1);
+  if (*p == '"') p++;
   errno = 0;
   *out = strtoll(p, &end, 10);
   return errno == 0 && end && end != p;
@@ -406,6 +407,16 @@ static int message_ptr_compare_asc(const void *ap, const void *bp) {
   return 0;
 }
 
+static int chat_ptr_compare_desc(const void *ap, const void *bp) {
+  const struct Chat *a = *(const struct Chat * const *)ap;
+  const struct Chat *b = *(const struct Chat * const *)bp;
+  if (a->order > b->order) return -1;
+  if (a->order < b->order) return 1;
+  if (a->id > b->id) return -1;
+  if (a->id < b->id) return 1;
+  return 0;
+}
+
 static void init_mock(struct Bridge *b) {
   struct Chat *c;
   copy_str(b->backend, sizeof(b->backend), "mock");
@@ -413,12 +424,15 @@ static void init_mock(struct Bridge *b) {
   c = find_chat(b, 1001);
   copy_str(c->title, sizeof(c->title), "Saved Messages");
   copy_str(c->kind, sizeof(c->kind), "private");
+  c->order = 300;
   c = find_chat(b, 1002);
   copy_str(c->title, sizeof(c->title), "Lisp Notes Group");
   copy_str(c->kind, sizeof(c->kind), "group");
+  c->order = 200;
   c = find_chat(b, 1003);
   copy_str(c->title, sizeof(c->title), "Systems Channel");
   copy_str(c->kind, sizeof(c->kind), "channel");
+  c->order = 100;
   set_user_name(b, 42, "Mock Group Friend");
   set_user_name(b, 77, "Mock Channel Admin");
   add_message(b, 1001, 1, 0, false, "Mock bridge is running. Install tdlib and set API credentials for live Telegram.");
@@ -633,13 +647,24 @@ static void handle_auth_update(struct Bridge *b, const char *json) {
 
 static void handle_chat_update(struct Bridge *b, const char *json) {
   long long id = 0;
+  long long order = 0;
   char title[256];
   struct Chat *chat;
-  if (!strstr(json, "updateNewChat") && !strstr(json, "updateChatTitle")) return;
-  if (!json_extract_i64(json, "id", &id)) return;
+  if (!strstr(json, "updateNewChat") &&
+      !strstr(json, "updateChatTitle") &&
+      !strstr(json, "updateChatPosition") &&
+      !strstr(json, "updateChatLastMessage") &&
+      !strstr(json, "updateChatDraftMessage")) {
+    return;
+  }
+  if (!json_extract_i64(json, "chat_id", &id) && !json_extract_i64(json, "id", &id)) return;
   chat = find_chat(b, id);
   if (!chat) return;
   if (json_extract_string(json, "title", title, sizeof(title))) copy_str(chat->title, sizeof(chat->title), title);
+  if (json_extract_i64_after(json, "chatListMain", "order", &order) ||
+      json_extract_i64(json, "order", &order)) {
+    chat->order = order;
+  }
   if (chat->kind[0] == 0) copy_str(chat->kind, sizeof(chat->kind), chat_kind_from_json(json));
 }
 
@@ -746,11 +771,17 @@ static void response_status(struct Bridge *b, char *out, size_t cap) {
 }
 
 static void response_chats(struct Bridge *b, char *out, size_t cap) {
+  struct Chat *items[MAG_TG_MAX_CHATS];
   snprintf(out, cap, "Mag Telegram chats (%zu)\n", b->chat_count);
   for (size_t i = 0; i < b->chat_count; i++) {
-    appendf(out, cap, "%lld [%s] %s\n", b->chats[i].id,
-            b->chats[i].kind[0] ? b->chats[i].kind : "chat",
-            b->chats[i].title[0] ? b->chats[i].title : "(untitled)");
+    items[i] = &b->chats[i];
+  }
+  if (b->chat_count > 1) qsort(items, b->chat_count, sizeof(items[0]), chat_ptr_compare_desc);
+  for (size_t i = 0; i < b->chat_count; i++) {
+    struct Chat *chat = items[i];
+    appendf(out, cap, "%lld [%s] %s\n", chat->id,
+            chat->kind[0] ? chat->kind : "chat",
+            chat->title[0] ? chat->title : "(untitled)");
   }
 }
 
@@ -993,6 +1024,8 @@ static int self_test(void) {
   struct Bridge b;
   struct Bridge cfg;
   char out[8192];
+  char *high;
+  char *low;
   char cfgpath[256];
   const char *old_config = getenv("MAG_TELEGRAM_CONFIG");
   char old_config_copy[512];
@@ -1024,6 +1057,25 @@ static int self_test(void) {
   if (!strstr(out, "backend=mock")) return 1;
   handle_request(&b, "chats", out, sizeof(out));
   if (!strstr(out, "Saved Messages")) return 1;
+  handle_td_update(&b,
+                   "{\"@type\":\"updateNewChat\",\"chat\":{\"@type\":\"chat\",\"id\":4243,"
+                   "\"title\":\"Sorted Low\",\"type\":{\"@type\":\"chatTypePrivate\"},"
+                   "\"positions\":[{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"10\"}]}}");
+  handle_td_update(&b,
+                   "{\"@type\":\"updateNewChat\",\"chat\":{\"@type\":\"chat\",\"id\":4244,"
+                   "\"title\":\"Sorted High\",\"type\":{\"@type\":\"chatTypePrivate\"},"
+                   "\"positions\":[{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"20\"}]}}");
+  handle_request(&b, "chats", out, sizeof(out));
+  high = strstr(out, "Sorted High");
+  low = strstr(out, "Sorted Low");
+  if (!high || !low || high > low) return 1;
+  handle_td_update(&b,
+                   "{\"@type\":\"updateChatPosition\",\"chat_id\":4243,"
+                   "\"position\":{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"30\"}}");
+  handle_request(&b, "chats", out, sizeof(out));
+  high = strstr(out, "Sorted High");
+  low = strstr(out, "Sorted Low");
+  if (!high || !low || low > high) return 1;
   handle_request(&b, "send 1001 hello", out, sizeof(out));
   if (!strstr(out, "mock sent")) return 1;
   handle_request(&b, "messages 1001", out, sizeof(out));

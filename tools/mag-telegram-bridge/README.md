@@ -151,6 +151,7 @@ Implemented now:
 - persistent config file at `~/.config/mag-telegram/config`, with environment
   variables still available as overrides
 - dynamic TDLib loading and basic authorization-state command emission
+- TDLib main chat-list ordering from chat position updates
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
   purpose-built JSON extractor
