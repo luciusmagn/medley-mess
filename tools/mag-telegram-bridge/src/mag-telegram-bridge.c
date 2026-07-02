@@ -797,6 +797,16 @@ static const char *sender_label(struct Bridge *b, struct Message *m, char *buf, 
   return buf;
 }
 
+static void build_send_message_request(long long chat_id, const char *text, char *req, size_t cap) {
+  char escaped[MAG_TG_MAX_TEXT];
+  json_escape(text, escaped, sizeof(escaped));
+  snprintf(req, cap,
+           "{\"@type\":\"sendMessage\",\"chat_id\":%lld,"
+           "\"input_message_content\":{\"@type\":\"inputMessageText\","
+           "\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\",\"entities\":[]}}}",
+           chat_id, escaped);
+}
+
 static void response_messages(struct Bridge *b, long long chat_id, long long from_message_id, char *out, size_t cap) {
   const char *page = from_message_id > 0 ? "older" : "latest";
   struct Message *items[MAG_TG_MAX_MESSAGES];
@@ -838,15 +848,9 @@ static void response_messages(struct Bridge *b, long long chat_id, long long fro
 }
 
 static void command_send(struct Bridge *b, long long chat_id, const char *text, char *out, size_t cap) {
-  char escaped[MAG_TG_MAX_TEXT];
   char req[MAG_TG_MAX_TEXT + 1024];
-  json_escape(text, escaped, sizeof(escaped));
   if (b->live) {
-    snprintf(req, sizeof(req),
-             "{\"@type\":\"sendMessage\",\"chat_id\":%lld,"
-             "\"input_message_content\":{\"@type\":\"inputMessageText\","
-             "\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\"}}}",
-             chat_id, escaped);
+    build_send_message_request(chat_id, text, req, sizeof(req));
     td_send_json(b, req);
     snprintf(out, cap, "sent text request chat=%lld\n", chat_id);
   } else {
@@ -1024,6 +1028,7 @@ static int self_test(void) {
   struct Bridge b;
   struct Bridge cfg;
   char out[8192];
+  char req[MAG_TG_MAX_TEXT + 1024];
   char *high;
   char *low;
   char cfgpath[256];
@@ -1052,6 +1057,10 @@ static int self_test(void) {
   if (strcmp(cfg.encryption_key, "test key") != 0) return 1;
   if (strcmp(cfg.data_dir, "/tmp/mag-telegram-test-db") != 0) return 1;
   if (strcmp(cfg.tdlib_library, "/tmp/libtdjson-test.so") != 0) return 1;
+  build_send_message_request(1234, "hello \"telegram\"", req, sizeof(req));
+  if (!strstr(req, "\"@type\":\"sendMessage\"")) return 1;
+  if (!strstr(req, "\"entities\":[]")) return 1;
+  if (!strstr(req, "hello \\\"telegram\\\"")) return 1;
   init_mock(&b);
   handle_request(&b, "status", out, sizeof(out));
   if (!strstr(out, "backend=mock")) return 1;

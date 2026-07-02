@@ -164,7 +164,7 @@ Implemented now:
 - recent TDLib chat-history fetch on `messages CHAT_ID`
 - older-page chat-history fetch through `older CHAT_ID FROM_MESSAGE_ID`, using
   bridge-returned `oldest-id` metadata
-- send text message request construction
+- send text message request construction with complete `formattedText`
 - Medley dashboard, chat list selection, cached message viewing, text send, and
   basic auth prompts
 
