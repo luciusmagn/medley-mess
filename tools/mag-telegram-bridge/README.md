@@ -132,6 +132,8 @@ Implemented now:
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
   purpose-built JSON extractor
+- compact user-name cache from TDLib `user` / `updateUser` objects so message
+  views show names when available and ids only as fallback
 - recent TDLib chat-history fetch on `messages CHAT_ID`
 - older-page chat-history fetch through `older CHAT_ID FROM_MESSAGE_ID`, using
   bridge-returned `oldest-id` metadata

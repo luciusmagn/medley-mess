@@ -20,6 +20,7 @@
 #define MAG_TG_PID_PATH "/tmp/mag-telegram-bridge.pid"
 #define MAG_TG_MAX_TEXT 4096
 #define MAG_TG_MAX_CHATS 256
+#define MAG_TG_MAX_USERS 512
 #define MAG_TG_MAX_MESSAGES 1024
 #define MAG_TG_HISTORY_LIMIT 40
 #define MAG_TG_HISTORY_WAIT_MS 1500
@@ -49,6 +50,11 @@ struct Message {
   char text[512];
 };
 
+struct User {
+  long long id;
+  char name[256];
+};
+
 struct Bridge {
   bool live;
   bool stop;
@@ -63,6 +69,8 @@ struct Bridge {
   struct TdApi td;
   struct Chat chats[MAG_TG_MAX_CHATS];
   size_t chat_count;
+  struct User users[MAG_TG_MAX_USERS];
+  size_t user_count;
   struct Message messages[MAG_TG_MAX_MESSAGES];
   size_t message_count;
 };
@@ -304,16 +312,40 @@ static const char *chat_kind_from_json(const char *json) {
   return "chat";
 }
 
-static struct Chat *find_chat(struct Bridge *b, long long id) {
+static struct Chat *lookup_chat(struct Bridge *b, long long id) {
   for (size_t i = 0; i < b->chat_count; i++) {
     if (b->chats[i].id == id) return &b->chats[i];
   }
+  return NULL;
+}
+
+static struct Chat *find_chat(struct Bridge *b, long long id) {
+  struct Chat *chat = lookup_chat(b, id);
+  if (chat) return chat;
   if (b->chat_count >= MAG_TG_MAX_CHATS) return NULL;
   b->chats[b->chat_count].id = id;
   b->chats[b->chat_count].title[0] = 0;
   b->chats[b->chat_count].kind[0] = 0;
   b->chats[b->chat_count].order = 0;
   return &b->chats[b->chat_count++];
+}
+
+static struct User *find_user(struct Bridge *b, long long id, bool create) {
+  for (size_t i = 0; i < b->user_count; i++) {
+    if (b->users[i].id == id) return &b->users[i];
+  }
+  if (!create || b->user_count >= MAG_TG_MAX_USERS) return NULL;
+  b->users[b->user_count].id = id;
+  b->users[b->user_count].name[0] = 0;
+  return &b->users[b->user_count++];
+}
+
+static void set_user_name(struct Bridge *b, long long id, const char *name) {
+  struct User *user;
+  if (id == 0) return;
+  user = find_user(b, id, true);
+  if (!user) return;
+  copy_str(user->name, sizeof(user->name), name && name[0] ? name : "unknown");
 }
 
 static void add_message(struct Bridge *b, long long chat_id, long long message_id, long long sender_id,
@@ -363,6 +395,8 @@ static void init_mock(struct Bridge *b) {
   c = find_chat(b, 1003);
   copy_str(c->title, sizeof(c->title), "Systems Channel");
   copy_str(c->kind, sizeof(c->kind), "channel");
+  set_user_name(b, 42, "Mock Group Friend");
+  set_user_name(b, 77, "Mock Channel Admin");
   add_message(b, 1001, 1, 0, false, "Mock bridge is running. Install tdlib and set API credentials for live Telegram.");
   add_message(b, 1002, 1, 42, false, "This is group text; no images/reactions are needed for the first Medley client.");
   add_message(b, 1003, 1, 77, false, "Channel post text will render through the same message path.");
@@ -425,6 +459,15 @@ static void td_request_chat_history(struct Bridge *b, long long chat_id, long lo
            "\"from_message_id\":%lld,\"offset\":0,\"limit\":%d,"
            "\"only_local\":false,\"@extra\":\"mag-history:%lld\"}",
            chat_id, from_message_id, MAG_TG_HISTORY_LIMIT, chat_id);
+  td_send_json(b, req);
+}
+
+static void td_request_user(struct Bridge *b, long long user_id) {
+  char req[256];
+  if (!b->live || strcmp(b->auth_state, "ready") != 0 || user_id == 0) return;
+  if (find_user(b, user_id, false)) return;
+  snprintf(req, sizeof(req), "{\"@type\":\"getUser\",\"user_id\":%lld,\"@extra\":\"mag-user:%lld\"}",
+           user_id, user_id);
   td_send_json(b, req);
 }
 
@@ -511,6 +554,25 @@ static void handle_chat_update(struct Bridge *b, const char *json) {
   if (chat->kind[0] == 0) copy_str(chat->kind, sizeof(chat->kind), chat_kind_from_json(json));
 }
 
+static void handle_user_update(struct Bridge *b, const char *json) {
+  long long id = 0;
+  char first[128] = "";
+  char last[128] = "";
+  char username[128] = "";
+  char name[256];
+  if (!strstr(json, "updateUser") && !strstr(json, "\"@type\":\"user\"")) return;
+  if (!json_extract_i64(json, "id", &id)) return;
+  json_extract_string(json, "first_name", first, sizeof(first));
+  json_extract_string(json, "last_name", last, sizeof(last));
+  json_extract_string(json, "username", username, sizeof(username));
+  if (first[0] && last[0]) snprintf(name, sizeof(name), "%s %s", first, last);
+  else if (first[0]) copy_str(name, sizeof(name), first);
+  else if (last[0]) copy_str(name, sizeof(name), last);
+  else if (username[0]) snprintf(name, sizeof(name), "@%s", username);
+  else snprintf(name, sizeof(name), "user %lld", id);
+  set_user_name(b, id, name);
+}
+
 static void cache_message_object(struct Bridge *b, const char *json) {
   long long chat_id = 0, id = 0, sender_id = 0;
   char text[512];
@@ -520,6 +582,7 @@ static void cache_message_object(struct Bridge *b, const char *json) {
   if (!json_extract_i64_after(json, "messageSenderUser", "user_id", &sender_id)) {
     json_extract_i64_after(json, "messageSenderChat", "chat_id", &sender_id);
   }
+  if (sender_id != 0 && strstr(json, "messageSenderUser")) td_request_user(b, sender_id);
   if (!strstr(json, "messageText") ||
       !json_extract_string_after(json, "formattedText", "text", text, sizeof(text))) {
     copy_str(text, sizeof(text), "[non-text message]");
@@ -561,6 +624,7 @@ static void handle_td_update(struct Bridge *b, const char *json) {
   if (!json) return;
   if (strstr(json, "\"@type\":\"messages\"")) handle_messages_response(b, json);
   if (strstr(json, "updateAuthorizationState")) handle_auth_update(b, json);
+  handle_user_update(b, json);
   handle_chat_update(b, json);
   handle_message_update(b, json);
 }
@@ -598,6 +662,18 @@ static void response_chats(struct Bridge *b, char *out, size_t cap) {
   }
 }
 
+static const char *sender_label(struct Bridge *b, struct Message *m, char *buf, size_t cap) {
+  struct User *user;
+  struct Chat *chat;
+  if (m->outgoing) return "me";
+  user = find_user(b, m->sender_id, false);
+  if (user && user->name[0]) return user->name;
+  chat = lookup_chat(b, m->sender_id);
+  if (chat && chat->title[0]) return chat->title;
+  snprintf(buf, cap, "%lld", m->sender_id);
+  return buf;
+}
+
 static void response_messages(struct Bridge *b, long long chat_id, long long from_message_id, char *out, size_t cap) {
   const char *page = from_message_id > 0 ? "older" : "latest";
   struct Message *items[MAG_TG_MAX_MESSAGES];
@@ -632,8 +708,8 @@ static void response_messages(struct Bridge *b, long long chat_id, long long fro
            chat_id, page, total, count, oldest_id, newest_id);
   for (size_t i = start; i < end; i++) {
     struct Message *m = items[i];
-    if (m->outgoing) appendf(out, cap, "%lld | me: %s\n", m->message_id, m->text);
-    else appendf(out, cap, "%lld | %lld: %s\n", m->message_id, m->sender_id, m->text);
+    char label[256];
+    appendf(out, cap, "%lld | %s: %s\n", m->message_id, sender_label(b, m, label, sizeof(label)), m->text);
   }
   if (count == 0) appendf(out, cap, "No cached text messages for this chat/page yet.\n");
 }
@@ -835,6 +911,12 @@ static int self_test(void) {
   handle_request(&b, "messages 1001", out, sizeof(out));
   if (!strstr(out, "hello")) return 1;
   handle_td_update(&b,
+                   "{\"@type\":\"updateUser\",\"user\":{\"@type\":\"user\",\"id\":777,"
+                   "\"first_name\":\"Alice\",\"last_name\":\"Example\",\"username\":\"alice\"}}");
+  handle_td_update(&b,
+                   "{\"@type\":\"updateUser\",\"user\":{\"@type\":\"user\",\"id\":778,"
+                   "\"first_name\":\"Bob\",\"last_name\":\"Older\",\"username\":\"bob\"}}");
+  handle_td_update(&b,
                    "{\"@type\":\"messages\",\"total_count\":2,\"messages\":[{"
                    "\"@type\":\"message\",\"id\":9001,\"chat_id\":4242,"
                    "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":777},"
@@ -849,10 +931,10 @@ static int self_test(void) {
                    "\"text\":{\"@type\":\"formattedText\",\"text\":\"older hello\",\"entities\":[]}}"
                    "}]}");
   handle_request(&b, "messages 4242", out, sizeof(out));
-  if (!strstr(out, "777: history hello")) return 1;
+  if (!strstr(out, "Alice Example: history hello")) return 1;
   if (!strstr(out, "oldest-id=9000")) return 1;
   handle_request(&b, "older 4242 9001", out, sizeof(out));
-  if (!strstr(out, "778: older hello")) return 1;
+  if (!strstr(out, "Bob Older: older hello")) return 1;
   puts("mag-telegram-bridge self-test ok");
   return 0;
 }
