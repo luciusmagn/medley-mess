@@ -92,6 +92,9 @@ glyph descenders by about a pixel; text should use the padded baseline.
 - `UNIX-HANDLECOMM 50` reports GC table pressure in one VM page: `HTCOLL`
   high-water/free/live collision-link counts, `HTBIGCOUNT` occupancy,
   GC-disabled state, and reclaim countdown/min values.
+- `UNIX-HANDLECOMM 51` reports whether `/tmp/medley-mag-request` exists without
+  taking a Lisp VM page buffer. The RPC loop must use this before command 39 so
+  idle polling does not repeatedly pass a VMEMPAGEP into native code.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -127,6 +130,8 @@ Current native commands:
   same X key event path as startup typeahead.
 - `50`: report bounded GC table pressure for `HTCOLL`, `HTBIGCOUNT`,
   `GCDISABLED`, and reclaim countdown/min values.
+- `51`: report whether `/tmp/medley-mag-request` exists without taking a Lisp
+  VM page buffer.
 
 Current Lisp wrappers:
 
@@ -153,6 +158,7 @@ Current safe request commands:
 - `eval-reset`
 - `reload-mag`
 - `open-shell`
+- `shell-load-test`
 - `close-shell`
 - `restart-rpc`
 - `open-gopher`
@@ -193,6 +199,10 @@ id, focuses the `EXEC` process, and calls command 49. Verified smoke forms:
 Do not implement MCP eval with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified
 `EVAL`, or `CL:EVAL`. Those approaches caused stack overflow or wedged the live
 Medley process on this machine.
+
+Do not use `medley_eval` for UI/window-opening forms such as `(IL:MAG-SHELL)`.
+That route has wedged the request poller/Exec path. Prefer fixed safe request
+commands that spawn asynchronous workers for UI actions.
 
 `performance-report` verifies that the local faster launch configuration is
 active: 256 MB VM, 10 ms timer, and Maiko `--noscroll`.
@@ -262,7 +272,7 @@ Current tools:
 - `medley_eval_status`: report whether command 49 and Exec are available.
 - `medley_eval_reset`: report reset status for the eval backend.
 
-`/home/mag/.local/bin/medley-interlisp` is mirrored as `scripts/mag-medley-interlisp`. It starts `apps.sysout` with `--greet "$MEDLEYDIR/greetfiles/MAG-NOGREET"`. Do not use Maiko's `MAIKO_STARTUP_TYPEAHEAD_FILE` hook for MAG startup here: loading `MAG-NOGREET` through Exec typeahead leaves its final `STOP` outside the `GREET` stack and reproduces idle `HTCOLL` collision-link growth. The launcher must not pass `--nofork`/`-NF`, because that disables Maiko's Unix helper and makes `FORK-SHELL`/Mag Shell fail before a PTY job is created.
+`/home/mag/.local/bin/medley-interlisp` is mirrored as `scripts/mag-medley-interlisp`. It starts `apps.sysout` with `--greet -` and uses Maiko's `MAIKO_STARTUP_TYPEAHEAD_FILE` hook to type `(IL:LOAD ".../MAG-NOGREET" T)` into the initial Exec after a short delay. Directly using `MAG-NOGREET` as the actual greetfile has stalled before the RPC poller starts. The launcher must not pass `--nofork`/`-NF`, because that disables Maiko's Unix helper and makes `FORK-SHELL`/Mag Shell fail before a PTY job is created. Idle RPC polling must keep using command 51 before command 39; otherwise the typeahead startup path regrows `HTCOLL` links.
 
 The launcher explicitly passes `--mem "$MAG_MEDLEY_MEMORY_MB"`, defaulting to
 256 MB. The stock loadup sysouts are 64 MB but expandable; this Maiko build

@@ -179,6 +179,8 @@ For live evidence, use the Medley RPC bridge:
   `gopher-self-test` during diagnostics.
 - `close-shell` closes the remembered active Mag Shell window. Use it to clean
   up windows opened by `open-shell` during diagnostics.
+- `shell-load-test` opens a Mag terminal running a bounded line-output command.
+  Use it for repeatable `HTCOLL` pressure tests of the terminal render path.
 - `shell-self-test` creates a short-lived PTY shell, initializes the native
   Ghostty path, reads output, scans changed rows, reports command 40, and
   closes the test job. Use it to prove terminal creation and native counters
@@ -317,6 +319,10 @@ Local Maiko command `UNIX-HANDLECOMM 50` reports GC table pressure in one VM
 page: `HTCOLL` collision-link high-water/free/live counts, `HTBIGCOUNT`
 occupancy, `GCDISABLED`, and reclaim countdown/min values. The safe RPC command
 is `gc-report`, and `status-report` includes it as the `gc` section.
+Local Maiko command `UNIX-HANDLECOMM 51` checks whether
+`/tmp/medley-mag-request` exists without taking a Lisp VM page buffer argument.
+`MAG-DEBUG-RPC-READ` must use command 51 before command 39 so idle polling does
+not hand a VM buffer to native code on every tick.
 
 - `ping`
 - `debug-report`
@@ -335,6 +341,7 @@ is `gc-report`, and `status-report` includes it as the `gc` section.
 - `reload-mag`
 - `restart-rpc`
 - `open-shell`
+- `shell-load-test`
 - `close-shell`
 - `shell-self-test`
 - `shell-key-probe`
@@ -372,6 +379,10 @@ Verified smoke forms: `(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
 Do not replace this with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified `EVAL`, or
 `CL:EVAL`; those attempts caused stack overflow, wedged the live process, or
 left Exec in an error prompt.
+
+Do not use `medley_eval` for UI/window-opening forms such as `(IL:MAG-SHELL)`.
+That route has wedged the request poller/Exec path. Add fixed safe requests
+that spawn asynchronous workers for UI actions instead.
 
 Keep `reload-mag` asynchronous. Loading `MAG-EXTRAS` inside the RPC poller
 itself can redefine/reset the code that is currently handling the request and
@@ -413,7 +424,7 @@ printf '%s\n' \
   | /home/mag/src/medley/scripts/mag-medley-mcp.js
 ```
 
-Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet "$MEDLEYDIR/greetfiles/MAG-NOGREET"`. Do not restore the older `MAIKO_STARTUP_TYPEAHEAD_FILE` loader for MAG startup: loading `MAG-NOGREET` later through Exec typeahead leaves the file's final `STOP` outside the `GREET` stack and reproduces idle `HTCOLL` collision-link growth. Do not pass `--nofork`/`-NF` here: Maiko uses that flag to skip `fork_Unix`, and Mag Shell/`FORK-SHELL` need the Unix communication helper.
+Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet -` and uses Maiko startup typeahead to load `/home/mag/src/medley/greetfiles/MAG-NOGREET` after the initial Exec exists. Directly passing `MAG-NOGREET` as the actual greetfile has stalled before the RPC poller starts. The old idle `HTCOLL` growth from this typeahead path was fixed by Maiko command 51 plus the guarded `MAG-DEBUG-RPC-READ`; do not remove that guard. Do not pass `--nofork`/`-NF` here: Maiko uses that flag to skip `fork_Unix`, and Mag Shell/`FORK-SHELL` need the Unix communication helper.
 
 The Mag launcher defaults `MAG_MEDLEY_MEMORY_MB` to 256, matching this Maiko
 build's 256 MB VM support and avoiding the stock 64 MB apps.sysout ceiling.

@@ -28,7 +28,6 @@ MAG_MEDLEY_TITLE="${MAG_MEDLEY_TITLE:-Medley Interlisp}"
 MAG_MEDLEY_FOREGROUND="${MAG_MEDLEY_FOREGROUND:-rgb:00/00/00}"
 MAG_MEDLEY_BACKGROUND="${MAG_MEDLEY_BACKGROUND:-rgb:ff/ff/e8}"
 MAG_MEDLEY_CURSOR_COLOR="${MAG_MEDLEY_CURSOR_COLOR:-rgb:00/00/00}"
-MAG_MEDLEY_GREET_FILE="${MAG_MEDLEY_GREET_FILE:-$MEDLEYDIR/greetfiles/MAG-NOGREET}"
 
 case "$MAG_MEDLEY_MEMORY_MB" in
     ''|*[!0-9]*)
@@ -37,11 +36,13 @@ case "$MAG_MEDLEY_MEMORY_MB" in
         ;;
 esac
 
-# The MAG startup file must run as the actual greetfile. Loading it later
-# through Exec typeahead leaves the greetfile STOP outside the GREET stack and
-# steadily grows the GC collision-link table while idle.
-unset MAIKO_STARTUP_TYPEAHEAD_FILE
-unset MAIKO_STARTUP_TYPEAHEAD_DELAY
+startup_typeahead="${TMPDIR:-/tmp}/medley-mag-startup-typeahead"
+cat >"$startup_typeahead" <<EOF
+(IL:LOAD "$MEDLEYDIR/greetfiles/MAG-NOGREET" T)
+EOF
+
+export MAIKO_STARTUP_TYPEAHEAD_FILE="$startup_typeahead"
+export MAIKO_STARTUP_TYPEAHEAD_DELAY="${MAIKO_STARTUP_TYPEAHEAD_DELAY:-8}"
 
 exec "$MEDLEYDIR/medley" \
     --config - \
@@ -54,7 +55,7 @@ exec "$MEDLEYDIR/medley" \
     --title "$MAG_MEDLEY_TITLE" \
     --logindir "$LOGINDIR" \
     --maikodir "$MAIKODIR" \
-    --greet "$MAG_MEDLEY_GREET_FILE" \
+    --greet - \
     "$@" \
     -- \
     -fg "$MAG_MEDLEY_FOREGROUND" \
