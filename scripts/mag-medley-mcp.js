@@ -4,7 +4,7 @@
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 
 const MEDLEY_DIR = process.env.MEDLEYDIR || '/home/mag/src/medley';
 const MAIKO_DIR = process.env.MAIKODIR || '/home/mag/src/maiko';
@@ -19,6 +19,9 @@ const DAEMON_SOCKET = process.env.MAG_MEDLEY_MCP_SOCKET || '/tmp/medley-mag-mcp.
 const HTTP_HOST = process.env.MAG_MEDLEY_MCP_HOST || '127.0.0.1';
 const HTTP_PORT = Number(process.env.MAG_MEDLEY_MCP_PORT || 8765);
 const HTTP_PATH = process.env.MAG_MEDLEY_MCP_PATH || '/mcp';
+const TELEGRAM_BRIDGE = process.env.MAG_TELEGRAM_BRIDGE || '/home/mag/.local/bin/mag-telegram-bridge';
+const TELEGRAM_REQUEST_PATH = process.env.MAG_TELEGRAM_REQUEST || '/tmp/mag-telegram-request';
+const TELEGRAM_RESPONSE_PATH = process.env.MAG_TELEGRAM_RESPONSE || '/tmp/mag-telegram-response';
 const INTERLISP_FILE_INFO = `(DEFINE-FILE-INFO \x1ePACKAGE "INTERLISP" \x1eREADTABLE "INTERLISP" \x1eBASE 10)\n`;
 const DAEMON_MODE = process.argv.includes('--daemon');
 let activeInstanceId = process.env.MAG_MEDLEY_INSTANCE || 'default';
@@ -86,6 +89,23 @@ const ALLOWED_REQUESTS = new Set([
   'gopher-key-left',
   'gopher-key-right',
   'keys-help',
+]);
+
+const ALLOWED_TELEGRAM_COMMANDS = new Set([
+  'status',
+  'doctor',
+  'auth-status',
+  'chats',
+  'chats-view',
+  'chat-at',
+  'messages',
+  'older',
+  'send',
+  'mark-read',
+  'auth-phone',
+  'auth-code',
+  'auth-password',
+  'auth-register',
 ]);
 
 function text(content) {
@@ -312,6 +332,66 @@ function screenshotMedley(timeoutMs, includeBase64) {
   return { content };
 }
 
+function validateTelegramRequest(command, argument) {
+  const cmd = String(command || '').trim();
+  const arg = argument === undefined || argument === null ? '' : String(argument);
+  if (!ALLOWED_TELEGRAM_COMMANDS.has(cmd)) {
+    throw new Error(`unsupported Telegram bridge command: ${cmd}`);
+  }
+  if (/[\r\n]/.test(arg)) {
+    throw new Error('Telegram bridge arguments must be one physical line');
+  }
+  const request = arg ? `${cmd} ${arg}` : cmd;
+  if (Buffer.byteLength(request, 'utf8') > 64 * 1024) {
+    throw new Error('Telegram bridge request is too large; limit is 64 KiB');
+  }
+  return request;
+}
+
+function startTelegramBridge() {
+  if (!fs.existsSync(TELEGRAM_BRIDGE)) {
+    throw new Error(`${TELEGRAM_BRIDGE} does not exist`);
+  }
+  const child = spawn(TELEGRAM_BRIDGE, ['--daemon'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
+function requestTelegramBridgeText(request, timeoutMs) {
+  safeUnlink(TELEGRAM_RESPONSE_PATH);
+  writeAtomic(TELEGRAM_REQUEST_PATH, `${request}\n`);
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(TELEGRAM_RESPONSE_PATH)) {
+      const response = readStableResponse(TELEGRAM_RESPONSE_PATH, deadline);
+      if (response === null) {
+        sleepMs(50);
+        continue;
+      }
+      safeUnlink(TELEGRAM_RESPONSE_PATH);
+      return response;
+    }
+    sleepMs(100);
+  }
+
+  throw new Error(`timed out waiting for Mag Telegram bridge response to ${request.split(/\s+/, 1)[0]}`);
+}
+
+function requestTelegramBridge(command, argument, timeoutMs, startIfNeeded) {
+  const request = validateTelegramRequest(command, argument);
+  try {
+    return text(requestTelegramBridgeText(request, timeoutMs));
+  } catch (err) {
+    if (!startIfNeeded || !/timed out/.test(err.message || '')) throw err;
+    startTelegramBridge();
+    sleepMs(500);
+    return text(requestTelegramBridgeText(request, timeoutMs));
+  }
+}
+
 const tools = [
   {
     name: 'medley_processes',
@@ -370,6 +450,35 @@ const tools = [
           description: 'Include the PPM image payload. Defaults to false because the screenshot is several MB.',
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'mag_telegram_request',
+    description: 'Send one safe single-line request to the host-side Mag Telegram bridge.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          enum: Array.from(ALLOWED_TELEGRAM_COMMANDS),
+        },
+        argument: {
+          type: 'string',
+          description: 'Optional command argument, for example a phone number, chat id, or message text. Newlines are rejected.',
+          maxLength: 65536,
+        },
+        timeout_ms: {
+          type: 'integer',
+          minimum: 500,
+          maximum: 30000,
+        },
+        start_if_needed: {
+          type: 'boolean',
+          description: 'Start mag-telegram-bridge --daemon and retry once if the request times out. Defaults to true.',
+        },
+      },
+      required: ['command'],
       additionalProperties: false,
     },
   },
@@ -521,6 +630,12 @@ function callToolLocal(name, args = {}) {
     case 'medley_screenshot': {
       const timeoutMs = Number.isInteger(args.timeout_ms) ? args.timeout_ms : 5000;
       return screenshotMedley(timeoutMs, Boolean(args.include_base64));
+    }
+
+    case 'mag_telegram_request': {
+      const timeoutMs = Number.isInteger(args.timeout_ms) ? args.timeout_ms : 5000;
+      const startIfNeeded = args.start_if_needed !== false;
+      return requestTelegramBridge(args.command, args.argument, timeoutMs, startIfNeeded);
     }
 
     case 'medley_worktree_status': {

@@ -137,6 +137,12 @@ Supported requests:
 - `raw JSON`
 - `quit`
 
+For agent-side automation, the Medley MCP server also exposes
+`mag_telegram_request`. It writes the same request/response files, accepts the
+normal safe commands above, and intentionally excludes `raw` and `quit` from
+the schema. Use it for parameterized auth and message operations instead of
+adding new Lisp or shell-quoted request paths.
+
 ## Medley UI
 
 Open the Medley dashboard with background menu item `Mag Telegram` or MCP

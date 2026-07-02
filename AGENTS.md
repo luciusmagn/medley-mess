@@ -223,6 +223,10 @@ For live evidence, use the Medley RPC bridge:
 - `telegram-status`, `telegram-auth`, `telegram-doctor`, and
   `telegram-chats` proxy compact bridge diagnostics/listings without exposing
   raw TDLib JSON.
+- MCP tool `mag_telegram_request` sends one safe single-line request directly
+  to the host-side bridge file protocol. Use it for parameterized Telegram
+  operations such as `auth-phone`, `auth-code`, `messages`, `send`, and
+  `mark-read`; do not add Lisp or shell-quoted one-off paths for those.
 - `close-gopher` closes the remembered active Mag Gopher window. Use it to
   clean up windows opened by `open-gopher`, `gopher-test-page`, or
   `gopher-self-test` during diagnostics.
@@ -473,11 +477,16 @@ Autostart hooks on this machine:
 - `/home/mag/.config/fish/conf.d/medley_mcp.fish` starts `medley-mag-mcp-ensure` for interactive fish shells.
 - `/home/mag/.emacs.d/init.el` starts `medley-mag-mcp-ensure` from `emacs-startup-hook` for EXWM login.
 
-The bridge exposes process/log/status tools, `medley_request`, and `medley_eval`.
+The bridge exposes process/log/status tools, `medley_request`, `medley_eval`,
+and `mag_telegram_request`.
 `medley_request` writes `/tmp/medley-mag-request`, waits for
 `/tmp/medley-mag-response`, and returns the live Medley response. `medley_eval`
 uses the command 49 typeahead route described above; check `medley_eval_status`
 before relying on it after a rebuild.
+`mag_telegram_request` writes `/tmp/mag-telegram-request`, waits for
+`/tmp/mag-telegram-response`, and only accepts the supported non-raw Telegram
+bridge commands. It intentionally excludes `raw` and `quit` from the
+agent-facing schema.
 
 HTTP smoke test:
 
