@@ -1,5 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
+use grammers_client::client::UpdatesConfiguration;
 use grammers_client::message::Message;
+use grammers_client::update::Update;
 use grammers_client::{Client, SenderPool};
 use grammers_session::storages::SqliteSession;
 use grammers_session::types::{DcOption, PeerId, PeerInfo, PeerKind, UpdatesState};
@@ -85,6 +87,9 @@ struct DaemonState {
     dialogs_show_names: bool,
     dialogs_loaded_at: Option<Instant>,
     message_pages: Vec<MessagePage>,
+    dirty: bool,
+    dirty_generation: u64,
+    dirty_reason: &'static str,
 }
 
 #[derive(Debug, Clone)]
@@ -531,7 +536,11 @@ where
     Fut: std::future::Future<Output = Result<T>>,
 {
     let session = prepare_sqlite_session(config, options).await?;
-    let SenderPool { runner, handle, .. } = SenderPool::new(Arc::clone(&session), config.api_id);
+    let SenderPool {
+        runner,
+        updates: _,
+        handle,
+    } = SenderPool::new(Arc::clone(&session), config.api_id);
     let client = Client::new(handle);
     let runner_task = tokio::spawn(runner.run());
 
@@ -707,6 +716,9 @@ impl DaemonState {
             dialogs_show_names: true,
             dialogs_loaded_at: None,
             message_pages: Vec::new(),
+            dirty: false,
+            dirty_generation: 0,
+            dirty_reason: "none",
         }
     }
 
@@ -722,6 +734,40 @@ impl DaemonState {
     fn clear_messages_for(&mut self, peer_dialog_id: i64) {
         self.message_pages
             .retain(|page| page.peer_dialog_id != peer_dialog_id);
+    }
+
+    fn mark_dirty(&mut self, reason: &'static str) {
+        self.dirty = true;
+        self.dirty_generation = self.dirty_generation.saturating_add(1);
+        self.dirty_reason = reason;
+        self.dialogs_loaded_at = None;
+        self.message_pages.clear();
+    }
+
+    fn clear_dirty(&mut self) {
+        self.dirty = false;
+        self.dirty_reason = "none";
+    }
+
+    fn needs_refresh_text(&self) -> String {
+        let mut out = String::new();
+        push_line(&mut out, "Mag Telegram refresh");
+        push_line(&mut out, format!("needed={}", yesno(self.dirty)));
+        push_line(&mut out, format!("generation={}", self.dirty_generation));
+        push_line(&mut out, "poll-after=10");
+        push_line(&mut out, format!("reason={}", self.dirty_reason));
+        out
+    }
+}
+
+fn update_dirty_reason(update: &Update) -> Option<&'static str> {
+    match update {
+        Update::NewMessage(_) => Some("new-message"),
+        Update::MessageEdited(_) => Some("message-edited"),
+        Update::MessageDeleted(_) => Some("message-deleted"),
+        Update::Raw(_) => Some("raw-update"),
+        Update::CallbackQuery(_) | Update::InlineQuery(_) | Update::InlineSend(_) => None,
+        _ => Some("other-update"),
     }
 }
 
@@ -1432,7 +1478,11 @@ async fn run_daemon(config: &Config) -> Result<()> {
     let _ = fs::remove_file(DEFAULT_DAEMON_RESPONSE);
 
     let session = prepare_sqlite_session(config, OnlineOptions::default()).await?;
-    let SenderPool { runner, handle, .. } = SenderPool::new(Arc::clone(&session), config.api_id);
+    let SenderPool {
+        runner,
+        updates,
+        handle,
+    } = SenderPool::new(Arc::clone(&session), config.api_id);
     let client = Client::new(handle);
     let runner_task = tokio::spawn(runner.run());
 
@@ -1446,6 +1496,16 @@ async fn run_daemon(config: &Config) -> Result<()> {
         "mag-telegram-grammers daemon backend=grammers auth=ready request={DEFAULT_DAEMON_REQUEST}"
     );
     let mut state = DaemonState::new();
+    let mut updates = client
+        .stream_updates(
+            updates,
+            UpdatesConfiguration {
+                catch_up: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|err| anyhow!("start Telegram update stream: {}", err))?;
 
     loop {
         if let Some(request) = take_daemon_request()? {
@@ -1466,12 +1526,27 @@ async fn run_daemon(config: &Config) -> Result<()> {
             if stop {
                 break;
             }
+            continue;
         }
-        tokio::time::sleep(Duration::from_millis(DAEMON_LOOP_SLEEP_MS)).await;
+        tokio::select! {
+            update = updates.next() => {
+                match update {
+                    Ok(update) => {
+                        if let Some(reason) = update_dirty_reason(&update) {
+                            state.mark_dirty(reason);
+                        }
+                    }
+                    Err(err) => eprintln!("mag-telegram-grammers update error: {err}"),
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(DAEMON_LOOP_SLEEP_MS)) => {}
+        }
     }
 
+    let _ = updates.sync_update_state().await;
     let _ = fs::remove_file(DEFAULT_DAEMON_PID);
     let _ = fs::remove_file(DEFAULT_DAEMON_REQUEST);
+    drop(updates);
     drop(client);
     runner_task.abort();
     let _ = runner_task.await;
@@ -1499,7 +1574,12 @@ async fn handle_daemon_request_text(
         }
         "auth-status" => auth_status_text(client).await?,
         "online-status" => online_status_text(config, client).await?,
-        "chats" => cached_chats_bridge_text(client, state, 60, true, false).await?,
+        "needs-refresh" => state.needs_refresh_text(),
+        "chats" => {
+            let out = cached_chats_bridge_text(client, state, 60, true, false).await?;
+            state.clear_dirty();
+            out
+        }
         "chats-view" => {
             let mut bits = arg.split_whitespace();
             let selected = bits
@@ -1514,7 +1594,10 @@ async fn handle_daemon_request_text(
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(20);
-            cached_chats_view_text(client, state, selected, top, visible, true, false).await?
+            let out =
+                cached_chats_view_text(client, state, selected, top, visible, true, false).await?;
+            state.clear_dirty();
+            out
         }
         "chat-at" => {
             let selected = arg.parse::<isize>().unwrap_or(0);
@@ -1532,7 +1615,19 @@ async fn handle_daemon_request_text(
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(30);
-            cached_messages_page_text(client, session, state, peer, from_message_id, limit, true, false).await?
+            let out = cached_messages_page_text(
+                client,
+                session,
+                state,
+                peer,
+                from_message_id,
+                limit,
+                true,
+                false,
+            )
+            .await?;
+            state.clear_dirty();
+            out
         }
         "older" => {
             let mut bits = arg.split_whitespace();
@@ -1550,7 +1645,19 @@ async fn handle_daemon_request_text(
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(30);
-            cached_messages_page_text(client, session, state, peer, from_message_id, limit, true, false).await?
+            let out = cached_messages_page_text(
+                client,
+                session,
+                state,
+                peer,
+                from_message_id,
+                limit,
+                true,
+                false,
+            )
+            .await?;
+            state.clear_dirty();
+            out
         }
         "send" => {
             let mut bits = arg.splitn(2, char::is_whitespace);
@@ -1564,8 +1671,8 @@ async fn handle_daemon_request_text(
                 bail!("send needs message text");
             }
             let result = send_message_text(client, session, peer, text).await?;
+            state.mark_dirty("send");
             state.clear_messages_for(peer);
-            state.dialogs_loaded_at = None;
             result
         }
         "mark-read" => {
@@ -1576,7 +1683,9 @@ async fn handle_daemon_request_text(
                 .parse::<i64>()
                 .context("mark-read peer must be an integer")?;
             let message_id = bits.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
-            mark_read_text(client, session, peer, message_id).await?
+            let result = mark_read_text(client, session, peer, message_id).await?;
+            state.mark_dirty("mark-read");
+            result
         }
         "auth-phone" | "auth-code" | "auth-password" | "auth-register" => {
             "Mag Telegram auth\nstate=ready\naction=none\nhint=Already authorized through grammers session.\nlast-error=none\n"
