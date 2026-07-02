@@ -167,9 +167,13 @@ Implemented now:
 - dynamic TDLib loading and authorization-state command emission for
   phone/code/password/registration flows
 - TDLib main chat-list ordering from chat position updates
+- C-side chat kind classification for private chats, basic groups,
+  supergroups, channels, and secret chats
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
   purpose-built JSON extractor
+- caption text from non-text message contents is preserved as `[caption] ...`;
+  media itself is intentionally not rendered
 - compact user-name cache from TDLib `user` / `updateUser` objects so message
   views show names when available and ids only as fallback
 - recent TDLib chat-history fetch on `messages CHAT_ID`

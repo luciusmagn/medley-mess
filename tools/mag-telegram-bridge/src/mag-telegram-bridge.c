@@ -309,6 +309,31 @@ static bool json_extract_i64_after(const char *json, const char *marker, const c
   return p ? json_extract_i64(p, key, out) : false;
 }
 
+static bool json_extract_bool(const char *json, const char *key, bool *out) {
+  char needle[128];
+  const char *p;
+  snprintf(needle, sizeof(needle), "\"%s\"", key);
+  p = strstr(json, needle);
+  if (!p) return false;
+  p = strchr(p + strlen(needle), ':');
+  if (!p) return false;
+  p = skip_space(p + 1);
+  if (strncmp(p, "true", 4) == 0) {
+    *out = true;
+    return true;
+  }
+  if (strncmp(p, "false", 5) == 0) {
+    *out = false;
+    return true;
+  }
+  return false;
+}
+
+static bool json_extract_bool_after(const char *json, const char *marker, const char *key, bool *out) {
+  const char *p = strstr(json, marker);
+  return p ? json_extract_bool(p, key, out) : false;
+}
+
 static const char *json_object_end(const char *p) {
   int depth = 0;
   bool in_string = false;
@@ -330,9 +355,13 @@ static const char *json_object_end(const char *p) {
 }
 
 static const char *chat_kind_from_json(const char *json) {
+  bool is_channel = false;
   if (strstr(json, "chatTypePrivate")) return "private";
   if (strstr(json, "chatTypeBasicGroup")) return "group";
-  if (strstr(json, "chatTypeSupergroup")) return "supergroup/channel";
+  if (strstr(json, "chatTypeSupergroup")) {
+    if (json_extract_bool_after(json, "chatTypeSupergroup", "is_channel", &is_channel) && is_channel) return "channel";
+    return "supergroup";
+  }
   if (strstr(json, "chatTypeSecret")) return "secret";
   return "chat";
 }
@@ -371,6 +400,21 @@ static void set_user_name(struct Bridge *b, long long id, const char *name) {
   user = find_user(b, id, true);
   if (!user) return;
   copy_str(user->name, sizeof(user->name), name && name[0] ? name : "unknown");
+}
+
+static bool message_text_from_json(const char *json, char *text, size_t cap) {
+  char caption[512];
+  if (strstr(json, "messageText") &&
+      json_extract_string_after(json, "formattedText", "text", text, cap)) {
+    return true;
+  }
+  if (json_extract_string_after(json, "\"caption\"", "text", caption, sizeof(caption)) && caption[0]) {
+    copy_str(text, cap, "[caption] ");
+    appendf(text, cap, "%s", caption);
+    return true;
+  }
+  copy_str(text, cap, "[non-text message]");
+  return false;
 }
 
 static void add_message(struct Bridge *b, long long chat_id, long long message_id, long long sender_id,
@@ -742,10 +786,7 @@ static void cache_message_object(struct Bridge *b, const char *json) {
     json_extract_i64_after(json, "messageSenderChat", "chat_id", &sender_id);
   }
   if (sender_id != 0 && strstr(json, "messageSenderUser")) td_request_user(b, sender_id);
-  if (!strstr(json, "messageText") ||
-      !json_extract_string_after(json, "formattedText", "text", text, sizeof(text))) {
-    copy_str(text, sizeof(text), "[non-text message]");
-  }
+  message_text_from_json(json, text, sizeof(text));
   add_message(b, chat_id, id, sender_id, outgoing, text);
 }
 
@@ -1268,6 +1309,19 @@ static int self_test(void) {
   low = strstr(out, "Sorted Low");
   if (!high || !low || high > low) return 1;
   handle_td_update(&b,
+                   "{\"@type\":\"updateNewChat\",\"chat\":{\"@type\":\"chat\",\"id\":4250,"
+                   "\"title\":\"Channel Kind\",\"type\":{\"@type\":\"chatTypeSupergroup\","
+                   "\"supergroup_id\":111,\"is_channel\":true},"
+                   "\"positions\":[{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"40\"}]}}");
+  handle_td_update(&b,
+                   "{\"@type\":\"updateNewChat\",\"chat\":{\"@type\":\"chat\",\"id\":4251,"
+                   "\"title\":\"Supergroup Kind\",\"type\":{\"@type\":\"chatTypeSupergroup\","
+                   "\"supergroup_id\":112,\"is_channel\":false},"
+                   "\"positions\":[{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"35\"}]}}");
+  handle_request(&b, "chats", out, sizeof(out));
+  if (!strstr(out, "4250 [channel] Channel Kind")) return 1;
+  if (!strstr(out, "4251 [supergroup] Supergroup Kind")) return 1;
+  handle_td_update(&b,
                    "{\"@type\":\"updateChatPosition\",\"chat_id\":4243,"
                    "\"position\":{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"30\"}}");
   handle_request(&b, "chats", out, sizeof(out));
@@ -1303,6 +1357,15 @@ static int self_test(void) {
   if (!strstr(out, "oldest-id=9000")) return 1;
   handle_request(&b, "older 4242 9001", out, sizeof(out));
   if (!strstr(out, "Bob Older: older hello")) return 1;
+  handle_td_update(&b,
+                   "{\"@type\":\"updateNewMessage\",\"message\":{\"@type\":\"message\","
+                   "\"id\":9010,\"chat_id\":4242,"
+                   "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":777},"
+                   "\"is_outgoing\":false,"
+                   "\"content\":{\"@type\":\"messagePhoto\","
+                   "\"caption\":{\"@type\":\"formattedText\",\"text\":\"caption hello\",\"entities\":[]}}}}");
+  handle_request(&b, "messages 4242", out, sizeof(out));
+  if (!strstr(out, "Alice Example: [caption] caption hello")) return 1;
   puts("mag-telegram-bridge self-test ok");
   return 0;
 }
