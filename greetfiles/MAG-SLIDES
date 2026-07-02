@@ -8,6 +8,14 @@
 (RPAQQ MAG-SLIDES-TOP-MARGIN 86)
 (RPAQQ MAG-SLIDES-FOOTER-Y 40)
 (RPAQQ MAG-SLIDES-BODY-GAP 34)
+(RPAQQ MAG-SLIDES-BODY-LEADING 22)
+(RPAQQ MAG-SLIDES-BULLET-LEADING 34)
+(RPAQQ MAG-SLIDES-BULLET-INDENT 62)
+(RPAQQ MAG-SLIDES-BULLET-DOT-X 18)
+(RPAQQ MAG-SLIDES-BULLET-DOT-SIZE 12)
+(RPAQQ MAG-SLIDES-TABLE-PAD-X 14)
+(RPAQQ MAG-SLIDES-TABLE-PAD-Y 9)
+(RPAQQ MAG-SLIDES-TABLE-GAP 22)
 (RPAQ? MAG-SLIDES-LAST-WINDOW NIL)
 
 (DEFINEQ
@@ -50,12 +58,22 @@
   [LAMBDA (SLIDE)
     (CAR (CDDDR SLIDE))])
 
+(MAG-SLIDES-SLIDE-LAYOUT
+  [LAMBDA (SLIDE)
+    (CADR (CDDDR SLIDE))])
+
+(MAG-SLIDES-SLIDE-IMAGE
+  [LAMBDA (SLIDE)
+    (CADDR (CDDDR SLIDE))])
+
 (MAG-SLIDES-BUILD-SLIDE
-  [LAMBDA (TITLE SUBTITLE BODY META)
+  [LAMBDA (TITLE SUBTITLE BODY META LAYOUT IMAGE)
     (LIST (OR TITLE "")
           SUBTITLE
           (DREVERSE BODY)
-          META)])
+          META
+          LAYOUT
+          IMAGE)])
 
 (MAG-SLIDES-PREFIX-P
   [LAMBDA (PREFIX TEXT)
@@ -71,6 +89,34 @@
        (SUBSTRING TEXT (ADD1 N) (NCHARS TEXT)))
       (T ""))])
 
+(MAG-SLIDES-SPACE-CHAR-P
+  [LAMBDA (CH)
+    (OR (EQ CH 32) (EQ CH 9))])
+
+(MAG-SLIDES-TRIM
+  [LAMBDA (TEXT)
+    (PROG ((START 1)
+           (END (AND TEXT (NCHARS TEXT))))
+      (COND
+        ((OR (NULL TEXT) (EQ END 0))
+         (RETURN "")))
+    LEFT
+      (COND
+        ((AND (ILEQ START END)
+              (MAG-SLIDES-SPACE-CHAR-P (NTHCHARCODE TEXT START)))
+         (SETQ START (ADD1 START))
+         (GO LEFT)))
+    RIGHT
+      (COND
+        ((AND (ILEQ START END)
+              (MAG-SLIDES-SPACE-CHAR-P (NTHCHARCODE TEXT END)))
+         (SETQ END (SUB1 END))
+         (GO RIGHT)))
+      (COND
+        ((IGREATERP START END)
+         (RETURN ""))
+        (T (RETURN (SUBSTRING TEXT START END)))))])
+
 (MAG-SLIDES-BLANK-P
   [LAMBDA (TEXT)
     (PROG ((I 1)
@@ -85,10 +131,27 @@
          (RETURN T)))
       (SETQ CH (NTHCHARCODE TEXT I))
       (COND
-        ((AND (NEQ CH 32) (NEQ CH 9))
+        ((NOT (MAG-SLIDES-SPACE-CHAR-P CH))
          (RETURN NIL)))
       (SETQ I (ADD1 I))
       (GO LP))])
+
+(MAG-SLIDES-LAYOUT-SYMBOL
+  [LAMBDA (TEXT)
+    (COND
+      ((NULL TEXT) NIL)
+      ((STRING-EQUAL TEXT "title") 'TITLE)
+      ((STRING-EQUAL TEXT "body") 'BODY)
+      ((STRING-EQUAL TEXT "image") 'IMAGE)
+      (T (MKATOM (U-CASE TEXT))))])
+
+(MAG-SLIDES-FINISH-PENDING
+  [LAMBDA (SLIDES TITLE SUBTITLE BODY META LAYOUT IMAGE)
+    (COND
+      ((OR TITLE SUBTITLE BODY META LAYOUT IMAGE)
+       (CONS (MAG-SLIDES-BUILD-SLIDE TITLE SUBTITLE BODY META LAYOUT IMAGE)
+             SLIDES))
+      (T SLIDES))])
 
 (MAG-SLIDES-READ-FILE
   [LAMBDA (PATH)
@@ -97,26 +160,38 @@
            (SUBTITLE NIL)
            (BODY NIL)
            (META NIL)
+           (LAYOUT NIL)
+           (IMAGE NIL)
            LINE)
       (CL:WITH-OPEN-FILE (STREAM PATH)
         (while (SETQ LINE (CL:READ-LINE STREAM NIL NIL))
           do
           (COND
             ((STREQUAL LINE "---")
-             (AND (OR TITLE SUBTITLE BODY META)
-                  (SETQ SLIDES
-                        (CONS (MAG-SLIDES-BUILD-SLIDE TITLE SUBTITLE BODY META)
-                              SLIDES)))
+             (SETQ SLIDES
+                   (MAG-SLIDES-FINISH-PENDING SLIDES TITLE SUBTITLE BODY META LAYOUT IMAGE))
              (SETQ TITLE NIL)
              (SETQ SUBTITLE NIL)
              (SETQ BODY NIL)
-             (SETQ META NIL))
+             (SETQ META NIL)
+             (SETQ LAYOUT NIL)
+             (SETQ IMAGE NIL))
+            ((MAG-SLIDES-PREFIX-P "@layout " LINE)
+             (SETQ LAYOUT (MAG-SLIDES-LAYOUT-SYMBOL
+                             (MAG-SLIDES-TRIM (MAG-SLIDES-DROP-PREFIX LINE 8)))))
+            ((MAG-SLIDES-PREFIX-P "@image " LINE)
+             (SETQ IMAGE (MAG-SLIDES-TRIM (MAG-SLIDES-DROP-PREFIX LINE 7)))
+             (SETQ LAYOUT 'IMAGE))
+            ((MAG-SLIDES-PREFIX-P "@meta " LINE)
+             (SETQ META (MAG-SLIDES-DROP-PREFIX LINE 6)))
+            ((MAG-SLIDES-PREFIX-P "@footer " LINE)
+             (SETQ META (MAG-SLIDES-DROP-PREFIX LINE 8)))
+            ((MAG-SLIDES-PREFIX-P "@subtitle " LINE)
+             (SETQ SUBTITLE (MAG-SLIDES-DROP-PREFIX LINE 10)))
             ((MAG-SLIDES-PREFIX-P "## " LINE)
              (SETQ SUBTITLE (MAG-SLIDES-DROP-PREFIX LINE 3)))
             ((MAG-SLIDES-PREFIX-P "# " LINE)
              (SETQ TITLE (MAG-SLIDES-DROP-PREFIX LINE 2)))
-            ((MAG-SLIDES-PREFIX-P "@meta " LINE)
-             (SETQ META (MAG-SLIDES-DROP-PREFIX LINE 6)))
             ((MAG-SLIDES-PREFIX-P "- " LINE)
              (SETQ BODY
                    (CONS (CONCAT "* " (MAG-SLIDES-DROP-PREFIX LINE 2))
@@ -125,10 +200,8 @@
              NIL)
             (T
              (SETQ BODY (CONS LINE BODY))))))
-      (AND (OR TITLE SUBTITLE BODY META)
-           (SETQ SLIDES
-                 (CONS (MAG-SLIDES-BUILD-SLIDE TITLE SUBTITLE BODY META)
-                       SLIDES)))
+      (SETQ SLIDES
+            (MAG-SLIDES-FINISH-PENDING SLIDES TITLE SUBTITLE BODY META LAYOUT IMAGE))
       (RETURN (DREVERSE SLIDES)))])
 
 (MAG-SLIDES-DEMO-SLIDES
@@ -136,20 +209,42 @@
     (LIST (LIST "Mag Slides"
                 "Classic 48 subtitle"
                 NIL
-                "title: TimesRomanD 72")
+                "title: TimesRomanD 72"
+                'TITLE
+                NIL)
           (LIST "Typography Defaults"
                 NIL
                 '("* Body bullets use TimesRoman 36"
                   "* Footer metadata uses TimesRoman 18"
                   "* Page numbers sit bottom-right")
-                "normal slide")
+                "normal slide"
+                'BODY
+                NIL)
+          (LIST "Tables"
+                NIL
+                '("| Role | Font | Size |"
+                  "| Title | TimesRomanD | 72 |"
+                  "| Subtitle | Classic | 48 |"
+                  "| Body | TimesRoman | 36 |")
+                "table syntax"
+                'BODY
+                NIL)
+          (LIST "Image Slides"
+                NIL
+                '("Image slides reserve a framed stage for imported artwork."
+                  "Use @image /path/to/file after @layout image.")
+                "image placeholder"
+                'IMAGE
+                "/home/mag/docs/example-image.png")
           (LIST "Controls"
                 NIL
-                '("* Right/down/space/n: next slide"
-                  "* Left/up/backspace/p: previous slide"
+                '("* Right/down/space/n: reveal or next"
+                  "* Left/up/backspace/p: previous or unreveal"
                   "* r reloads the source file"
                   "* q closes the presenter")
-                "keyboard"))])
+                "keyboard"
+                'BODY
+                NIL))])
 
 (MAG-SLIDES-STATE
   [LAMBDA (WINDOW)
@@ -167,11 +262,24 @@
   [LAMBDA (STATE)
     (CADDR STATE)])
 
-(MAG-SLIDES-CURRENT-SLIDE
-  [LAMBDA (WINDOW)
-    (LET ((STATE (MAG-SLIDES-STATE WINDOW)))
-      (MAG-SLIDES-NTH-SLIDE (MAG-SLIDES-STATE-SLIDES STATE)
-                            (MAG-SLIDES-STATE-INDEX STATE)))])
+(MAG-SLIDES-STATE-REVEAL
+  [LAMBDA (STATE)
+    (OR (CAR (CDDDR STATE)) 0)])
+
+(MAG-SLIDES-SET-STATE
+  [LAMBDA (WINDOW SLIDES INDEX SOURCE REVEAL)
+    (WINDOWPROP WINDOW 'MAG-SLIDES-STATE
+                (LIST SLIDES INDEX SOURCE (OR REVEAL 0)))])
+
+(MAG-SLIDES-NTH-ITEM
+  [LAMBDA (ITEMS INDEX)
+    (COND
+      ((OR (NULL ITEMS) (ILESSP INDEX 0))
+       NIL)
+      ((EQ INDEX 0)
+       (CAR ITEMS))
+      (T
+       (MAG-SLIDES-NTH-ITEM (CDR ITEMS) (SUB1 INDEX))))])
 
 (MAG-SLIDES-NTH-SLIDE
   [LAMBDA (SLIDES INDEX)
@@ -182,6 +290,39 @@
        (CAR SLIDES))
       (T
        (MAG-SLIDES-NTH-SLIDE (CDR SLIDES) (SUB1 INDEX))))])
+
+(MAG-SLIDES-CURRENT-SLIDE
+  [LAMBDA (WINDOW)
+    (LET ((STATE (MAG-SLIDES-STATE WINDOW)))
+      (MAG-SLIDES-NTH-SLIDE (MAG-SLIDES-STATE-SLIDES STATE)
+                            (MAG-SLIDES-STATE-INDEX STATE)))])
+
+(MAG-SLIDES-EFFECTIVE-LAYOUT
+  [LAMBDA (SLIDE INDEX)
+    (OR (MAG-SLIDES-SLIDE-LAYOUT SLIDE)
+        (COND ((EQ INDEX 1) 'TITLE)
+              (T 'BODY)))])
+
+(MAG-SLIDES-BULLET-LINE-P
+  [LAMBDA (LINE)
+    (MAG-SLIDES-PREFIX-P "* " LINE)])
+
+(MAG-SLIDES-BULLET-TEXT
+  [LAMBDA (LINE)
+    (MAG-SLIDES-DROP-PREFIX LINE 2)])
+
+(MAG-SLIDES-SLIDE-REVEAL-COUNT
+  [LAMBDA (SLIDE)
+    (PROG ((LINES (AND SLIDE (MAG-SLIDES-SLIDE-BODY SLIDE)))
+           (COUNT 0))
+    LP
+      (COND
+        ((NULL LINES)
+         (RETURN COUNT)))
+      (AND (MAG-SLIDES-BULLET-LINE-P (CAR LINES))
+           (SETQ COUNT (ADD1 COUNT)))
+      (SETQ LINES (CDR LINES))
+      (GO LP))])
 
 (MAG-SLIDES-DRAW-TOP
   [LAMBDA (WINDOW X YTOP FONT TEXT LEADING)
@@ -196,6 +337,78 @@
       (MOVETO X BASELINE WINDOW)
       (PRIN1 TEXT WINDOW)
       (RETURN (IDIFFERENCE YTOP (IPLUS HEIGHT (OR LEADING 0)))))])
+
+(MAG-SLIDES-WORDS
+  [LAMBDA (TEXT)
+    (PROG ((I 1)
+           (LEN (AND TEXT (NCHARS TEXT)))
+           (START NIL)
+           (WORDS NIL)
+           CH)
+      (COND
+        ((OR (NULL TEXT) (EQ LEN 0))
+         (RETURN NIL)))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (AND START
+              (SETQ WORDS (CONS (SUBSTRING TEXT START LEN) WORDS)))
+         (RETURN (DREVERSE WORDS))))
+      (SETQ CH (NTHCHARCODE TEXT I))
+      (COND
+        ((MAG-SLIDES-SPACE-CHAR-P CH)
+         (AND START
+              (PROGN
+                (SETQ WORDS (CONS (SUBSTRING TEXT START (SUB1 I)) WORDS))
+                (SETQ START NIL))))
+        ((NULL START)
+         (SETQ START I)))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-SLIDES-WORD-GAP
+  [LAMBDA (FONT)
+    (IMAX 18 (IQUOTIENT (STRINGWIDTH "M" FONT) 2))])
+
+(MAG-SLIDES-WORDS-WIDTH
+  [LAMBDA (TEXT FONT)
+    (PROG ((WORDS (MAG-SLIDES-WORDS TEXT))
+           (GAP (MAG-SLIDES-WORD-GAP FONT))
+           (WIDTH 0)
+           FIRST)
+      (SETQ FIRST T)
+    LP
+      (COND
+        ((NULL WORDS)
+         (RETURN WIDTH)))
+      (COND
+        (FIRST (SETQ FIRST NIL))
+        (T (SETQ WIDTH (IPLUS WIDTH GAP))))
+      (SETQ WIDTH (IPLUS WIDTH (STRINGWIDTH (CAR WORDS) FONT)))
+      (SETQ WORDS (CDR WORDS))
+      (GO LP))])
+
+(MAG-SLIDES-DRAW-TOP-WORDS
+  [LAMBDA (WINDOW X YTOP FONT TEXT LEADING)
+    (PROG ((WORDS (MAG-SLIDES-WORDS TEXT))
+           (GAP (MAG-SLIDES-WORD-GAP FONT))
+           HEIGHT DESCENT BASELINE)
+      (COND
+        ((OR (NULL FONT) (NULL TEXT))
+         (RETURN YTOP)))
+      (SETQ HEIGHT (FONTPROP FONT 'HEIGHT))
+      (SETQ DESCENT (OR (FONTPROP FONT 'DESCENT) 0))
+      (SETQ BASELINE (IDIFFERENCE YTOP (IDIFFERENCE HEIGHT DESCENT)))
+      (DSPFONT FONT WINDOW)
+    LP
+      (COND
+        ((NULL WORDS)
+         (RETURN (IDIFFERENCE YTOP (IPLUS HEIGHT (OR LEADING 0))))))
+      (MOVETO X BASELINE WINDOW)
+      (PRIN1 (CAR WORDS) WINDOW)
+      (SETQ X (IPLUS X (STRINGWIDTH (CAR WORDS) FONT) GAP))
+      (SETQ WORDS (CDR WORDS))
+      (GO LP))])
 
 (MAG-SLIDES-CENTER-X
   [LAMBDA (WINDOW FONT TEXT)
@@ -212,6 +425,22 @@
                          FONT
                          TEXT
                          LEADING)])
+
+(MAG-SLIDES-CENTER-X-WORDS
+  [LAMBDA (WINDOW FONT TEXT)
+    (IMAX MAG-SLIDES-MARGIN-X
+          (IQUOTIENT (IDIFFERENCE (WINDOWPROP WINDOW 'WIDTH)
+                                  (MAG-SLIDES-WORDS-WIDTH (OR TEXT "") FONT))
+                     2))])
+
+(MAG-SLIDES-DRAW-TOP-CENTER-WORDS
+  [LAMBDA (WINDOW YTOP FONT TEXT LEADING)
+    (MAG-SLIDES-DRAW-TOP-WORDS WINDOW
+                               (MAG-SLIDES-CENTER-X-WORDS WINDOW FONT TEXT)
+                               YTOP
+                               FONT
+                               TEXT
+                               LEADING)])
 
 (MAG-SLIDES-DRAW-FOOTER
   [LAMBDA (WINDOW SLIDE INDEX COUNT)
@@ -234,6 +463,185 @@
       (PRIN1 PAGE WINDOW)
       T)])
 
+(MAG-SLIDES-TABLE-LINE-P
+  [LAMBDA (LINE)
+    (AND LINE
+         (IGREATERP (NCHARS LINE) 1)
+         (EQ (NTHCHARCODE LINE 1) 124))])
+
+(MAG-SLIDES-SPLIT-TABLE-LINE
+  [LAMBDA (LINE)
+    (PROG ((I 1)
+           (START 1)
+           (LEN (NCHARS LINE))
+           (FIELDS NIL)
+           PART)
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (AND (ILEQ START LEN)
+              (SETQ FIELDS
+                    (CONS (MAG-SLIDES-TRIM (SUBSTRING LINE START LEN))
+                          FIELDS)))
+         (RETURN (DREVERSE FIELDS))))
+      (COND
+        ((EQ (NTHCHARCODE LINE I) 124)
+         (AND (IGREATERP I START)
+              (PROGN
+                (SETQ PART (SUBSTRING LINE START (SUB1 I)))
+                (SETQ FIELDS (CONS (MAG-SLIDES-TRIM PART) FIELDS))))
+         (SETQ START (ADD1 I))))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-SLIDES-TAKE-TABLE
+  [LAMBDA (LINES)
+    (PROG ((ROWS NIL))
+    LP
+      (COND
+        ((AND LINES (MAG-SLIDES-TABLE-LINE-P (CAR LINES)))
+         (SETQ ROWS (CONS (MAG-SLIDES-SPLIT-TABLE-LINE (CAR LINES)) ROWS))
+         (SETQ LINES (CDR LINES))
+         (GO LP)))
+      (RETURN (CONS (DREVERSE ROWS) LINES)))])
+
+(MAG-SLIDES-MAX-COLS
+  [LAMBDA (ROWS)
+    (PROG ((MAX 0))
+    LP
+      (COND
+        ((NULL ROWS)
+         (RETURN MAX)))
+      (SETQ MAX (IMAX MAX (LENGTH (CAR ROWS))))
+      (SETQ ROWS (CDR ROWS))
+      (GO LP))])
+
+(MAG-SLIDES-DRAW-TABLE-GRID
+  [LAMBDA (WINDOW LEFT RIGHT TOP BOTTOM COLWIDTH COLS)
+    (PROG ((I 0) X)
+      (DRAWLINE LEFT TOP RIGHT TOP 1 'PAINT WINDOW)
+      (DRAWLINE LEFT BOTTOM RIGHT BOTTOM 1 'PAINT WINDOW)
+    LP
+      (COND
+        ((IGREATERP I COLS)
+         (RETURN T)))
+      (SETQ X (COND
+                ((EQ I COLS) RIGHT)
+                (T (IPLUS LEFT (ITIMES I COLWIDTH)))))
+      (DRAWLINE X TOP X BOTTOM 1 'PAINT WINDOW)
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-SLIDES-DRAW-TABLE-CELLS
+  [LAMBDA (WINDOW ROW FONT LEFT BOTTOM COLWIDTH COLS)
+    (PROG ((I 0)
+           (HEIGHT (FONTPROP FONT 'HEIGHT))
+           (DESCENT (OR (FONTPROP FONT 'DESCENT) 0))
+           X TEXT BASELINE)
+      (DSPFONT FONT WINDOW)
+      (SETQ BASELINE (IPLUS BOTTOM MAG-SLIDES-TABLE-PAD-Y DESCENT))
+    LP
+      (COND
+        ((IGEQ I COLS)
+         (RETURN T)))
+      (SETQ TEXT (MAG-SLIDES-NTH-ITEM ROW I))
+      (AND TEXT
+           (PROGN
+             (SETQ X (IPLUS LEFT (ITIMES I COLWIDTH) MAG-SLIDES-TABLE-PAD-X))
+             (MOVETO X BASELINE WINDOW)
+             (PRIN1 TEXT WINDOW)))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-SLIDES-DRAW-TABLE
+  [LAMBDA (WINDOW ROWS YTOP FONT)
+    (PROG ((COLS (MAG-SLIDES-MAX-COLS ROWS))
+           (WIDTH (IDIFFERENCE (WINDOWPROP WINDOW 'WIDTH)
+                               (ITIMES 2 MAG-SLIDES-MARGIN-X)))
+           COLWIDTH ROWHEIGHT LEFT RIGHT TOP BOTTOM)
+      (COND
+        ((OR (NULL ROWS) (ILEQ COLS 0) (NULL FONT))
+         (RETURN YTOP)))
+      (SETQ LEFT MAG-SLIDES-MARGIN-X)
+      (SETQ RIGHT (IPLUS LEFT WIDTH))
+      (SETQ COLWIDTH (IQUOTIENT WIDTH COLS))
+      (SETQ ROWHEIGHT (IPLUS (FONTPROP FONT 'HEIGHT)
+                             (ITIMES 2 MAG-SLIDES-TABLE-PAD-Y)))
+    LP
+      (COND
+        ((NULL ROWS)
+         (RETURN (IDIFFERENCE YTOP MAG-SLIDES-TABLE-GAP))))
+      (SETQ TOP YTOP)
+      (SETQ BOTTOM (IDIFFERENCE TOP ROWHEIGHT))
+      (MAG-SLIDES-DRAW-TABLE-GRID WINDOW LEFT RIGHT TOP BOTTOM COLWIDTH COLS)
+      (MAG-SLIDES-DRAW-TABLE-CELLS WINDOW (CAR ROWS) FONT LEFT BOTTOM COLWIDTH COLS)
+      (SETQ YTOP BOTTOM)
+      (SETQ ROWS (CDR ROWS))
+      (GO LP))])
+
+(MAG-SLIDES-ADVANCE-BODY-Y
+  [LAMBDA (YTOP FONT LEADING)
+    (IDIFFERENCE YTOP (IPLUS (FONTPROP FONT 'HEIGHT) (OR LEADING 0)))])
+
+(MAG-SLIDES-DRAW-BULLET-DOT
+  [LAMBDA (WINDOW YTOP FONT)
+    (PROG ((SIZE MAG-SLIDES-BULLET-DOT-SIZE)
+           (HEIGHT (FONTPROP FONT 'HEIGHT))
+           X Y EDGE MID)
+      (SETQ X (IPLUS MAG-SLIDES-MARGIN-X MAG-SLIDES-BULLET-DOT-X))
+      (SETQ Y (IDIFFERENCE YTOP (IQUOTIENT (IPLUS HEIGHT SIZE) 2)))
+      (SETQ EDGE (IMAX 2 (IQUOTIENT SIZE 4)))
+      (SETQ MID (IDIFFERENCE SIZE (ITIMES 2 EDGE)))
+      (BLTSHADE BLACKSHADE WINDOW (IPLUS X EDGE) Y MID EDGE 'REPLACE)
+      (BLTSHADE BLACKSHADE WINDOW X (IPLUS Y EDGE) SIZE MID 'REPLACE)
+      (BLTSHADE BLACKSHADE WINDOW (IPLUS X EDGE) (IPLUS Y EDGE MID) MID EDGE 'REPLACE)
+      T)])
+
+(MAG-SLIDES-DRAW-BULLET-LINE
+  [LAMBDA (WINDOW LINE YTOP FONT)
+    (MAG-SLIDES-DRAW-BULLET-DOT WINDOW YTOP FONT)
+    (MAG-SLIDES-DRAW-TOP WINDOW
+                         (IPLUS MAG-SLIDES-MARGIN-X MAG-SLIDES-BULLET-INDENT)
+                         YTOP
+                         FONT
+                         (MAG-SLIDES-BULLET-TEXT LINE)
+                         MAG-SLIDES-BULLET-LEADING)])
+
+(MAG-SLIDES-DRAW-BODY-LINES
+  [LAMBDA (WINDOW LINES YTOP REVEAL)
+    (PROG ((FONT (MAG-SLIDES-BODY-FONT))
+           (SEEN 0)
+           TABLE LINE)
+    LP
+      (COND
+        ((NULL LINES)
+         (RETURN YTOP)))
+      (SETQ LINE (CAR LINES))
+      (COND
+        ((MAG-SLIDES-TABLE-LINE-P LINE)
+         (SETQ TABLE (MAG-SLIDES-TAKE-TABLE LINES))
+         (SETQ YTOP (MAG-SLIDES-DRAW-TABLE WINDOW (CAR TABLE) YTOP FONT))
+         (SETQ LINES (CDR TABLE)))
+        ((MAG-SLIDES-BULLET-LINE-P LINE)
+         (SETQ SEEN (ADD1 SEEN))
+         (SETQ YTOP
+               (COND
+                 ((ILEQ SEEN REVEAL)
+                  (MAG-SLIDES-DRAW-BULLET-LINE WINDOW LINE YTOP FONT))
+                 (T
+                  (MAG-SLIDES-ADVANCE-BODY-Y YTOP FONT MAG-SLIDES-BULLET-LEADING))))
+         (SETQ LINES (CDR LINES)))
+        (T
+         (SETQ YTOP
+               (MAG-SLIDES-DRAW-TOP WINDOW
+                                    MAG-SLIDES-MARGIN-X
+                                    YTOP
+                                    FONT
+                                    LINE
+                                    MAG-SLIDES-BODY-LEADING))
+         (SETQ LINES (CDR LINES))))
+      (GO LP))])
+
 (MAG-SLIDES-DRAW-TITLE-SLIDE
   [LAMBDA (WINDOW SLIDE INDEX COUNT)
     (PROG ((TITLE-FONT (MAG-SLIDES-TITLE-FONT))
@@ -242,11 +650,11 @@
       (SETQ YTOP (IDIFFERENCE (WINDOWPROP WINDOW 'HEIGHT)
                               (IPLUS MAG-SLIDES-TOP-MARGIN 120)))
       (SETQ YTOP
-            (MAG-SLIDES-DRAW-TOP-CENTER WINDOW
-                                        YTOP
-                                        TITLE-FONT
-                                        (MAG-SLIDES-SLIDE-TITLE SLIDE)
-                                        42))
+            (MAG-SLIDES-DRAW-TOP-CENTER-WORDS WINDOW
+                                              YTOP
+                                              TITLE-FONT
+                                              (MAG-SLIDES-SLIDE-TITLE SLIDE)
+                                              42))
       (AND (MAG-SLIDES-SLIDE-SUBTITLE SLIDE)
            (MAG-SLIDES-DRAW-TOP-CENTER WINDOW
                                        YTOP
@@ -255,84 +663,146 @@
                                        0))
       (MAG-SLIDES-DRAW-FOOTER WINDOW SLIDE INDEX COUNT))])
 
-(MAG-SLIDES-DRAW-BODY-LINES
-  [LAMBDA (WINDOW LINES YTOP)
-    (PROG ((FONT (MAG-SLIDES-BODY-FONT)))
-    LP
-      (COND
-        ((NULL LINES)
-         (RETURN YTOP)))
-      (SETQ YTOP
-            (MAG-SLIDES-DRAW-TOP WINDOW
-                                 MAG-SLIDES-MARGIN-X
-                                 YTOP
-                                 FONT
-                                 (CAR LINES)
-                                 18))
-      (SETQ LINES (CDR LINES))
-      (GO LP))])
-
 (MAG-SLIDES-DRAW-NORMAL-SLIDE
-  [LAMBDA (WINDOW SLIDE INDEX COUNT)
+  [LAMBDA (WINDOW SLIDE INDEX COUNT REVEAL)
     (PROG ((TITLE-FONT (MAG-SLIDES-TITLE-FONT))
            YTOP)
       (SETQ YTOP (IDIFFERENCE (WINDOWPROP WINDOW 'HEIGHT)
                               MAG-SLIDES-TOP-MARGIN))
       (SETQ YTOP
-            (MAG-SLIDES-DRAW-TOP WINDOW
-                                 MAG-SLIDES-MARGIN-X
-                                 YTOP
-                                 TITLE-FONT
-                                 (MAG-SLIDES-SLIDE-TITLE SLIDE)
-                                 MAG-SLIDES-BODY-GAP))
+            (MAG-SLIDES-DRAW-TOP-WORDS WINDOW
+                                       MAG-SLIDES-MARGIN-X
+                                       YTOP
+                                       TITLE-FONT
+                                       (MAG-SLIDES-SLIDE-TITLE SLIDE)
+                                       MAG-SLIDES-BODY-GAP))
       (MAG-SLIDES-DRAW-BODY-LINES WINDOW
                                   (MAG-SLIDES-SLIDE-BODY SLIDE)
-                                  YTOP)
+                                  YTOP
+                                  REVEAL)
+      (MAG-SLIDES-DRAW-FOOTER WINDOW SLIDE INDEX COUNT))])
+
+(MAG-SLIDES-DRAW-IMAGE-FRAME
+  [LAMBDA (WINDOW TOP BOTTOM IMAGE)
+    (PROG ((LEFT MAG-SLIDES-MARGIN-X)
+           (RIGHT (IDIFFERENCE (WINDOWPROP WINDOW 'WIDTH) MAG-SLIDES-MARGIN-X))
+           (FONT (MAG-SLIDES-BODY-FONT))
+           MIDY TEXT)
+      (DRAWLINE LEFT TOP RIGHT TOP 2 'PAINT WINDOW)
+      (DRAWLINE LEFT BOTTOM RIGHT BOTTOM 2 'PAINT WINDOW)
+      (DRAWLINE LEFT TOP LEFT BOTTOM 2 'PAINT WINDOW)
+      (DRAWLINE RIGHT TOP RIGHT BOTTOM 2 'PAINT WINDOW)
+      (SETQ TEXT (CONCAT "image: " (OR IMAGE "not set")))
+      (SETQ MIDY (IQUOTIENT (IPLUS TOP BOTTOM) 2))
+      (DSPFONT FONT WINDOW)
+      (MOVETO (MAG-SLIDES-CENTER-X WINDOW FONT TEXT) MIDY WINDOW)
+      (PRIN1 TEXT WINDOW)
+      T)])
+
+(MAG-SLIDES-DRAW-IMAGE-SLIDE
+  [LAMBDA (WINDOW SLIDE INDEX COUNT REVEAL)
+    (PROG ((TITLE-FONT (MAG-SLIDES-TITLE-FONT))
+           YTOP FRAME-TOP FRAME-BOTTOM)
+      (SETQ YTOP (IDIFFERENCE (WINDOWPROP WINDOW 'HEIGHT)
+                              MAG-SLIDES-TOP-MARGIN))
+      (SETQ YTOP
+            (MAG-SLIDES-DRAW-TOP-WORDS WINDOW
+                                       MAG-SLIDES-MARGIN-X
+                                       YTOP
+                                       TITLE-FONT
+                                       (MAG-SLIDES-SLIDE-TITLE SLIDE)
+                                       MAG-SLIDES-BODY-GAP))
+      (SETQ FRAME-TOP YTOP)
+      (SETQ FRAME-BOTTOM (IPLUS MAG-SLIDES-FOOTER-Y 80))
+      (MAG-SLIDES-DRAW-IMAGE-FRAME WINDOW
+                                   FRAME-TOP
+                                   FRAME-BOTTOM
+                                   (MAG-SLIDES-SLIDE-IMAGE SLIDE))
+      (MAG-SLIDES-DRAW-BODY-LINES WINDOW
+                                  (MAG-SLIDES-SLIDE-BODY SLIDE)
+                                  (IDIFFERENCE FRAME-BOTTOM 35)
+                                  REVEAL)
       (MAG-SLIDES-DRAW-FOOTER WINDOW SLIDE INDEX COUNT))])
 
 (MAG-SLIDES-REFRESH
   [LAMBDA (WINDOW)
     (PROG ((STATE (MAG-SLIDES-STATE WINDOW))
-           SLIDES INDEX COUNT SLIDE)
+           SLIDES INDEX COUNT SLIDE LAYOUT REVEAL)
       (MAG-WINDOW-CLEAR WINDOW)
       (SETQ SLIDES (MAG-SLIDES-STATE-SLIDES STATE))
       (SETQ INDEX (MAG-SLIDES-STATE-INDEX STATE))
+      (SETQ REVEAL (MAG-SLIDES-STATE-REVEAL STATE))
       (SETQ COUNT (LENGTH SLIDES))
       (SETQ SLIDE (MAG-SLIDES-CURRENT-SLIDE WINDOW))
+      (SETQ LAYOUT (AND SLIDE (MAG-SLIDES-EFFECTIVE-LAYOUT SLIDE INDEX)))
       (COND
         ((NULL SLIDE)
          (MAG-WINDOW-DRAW-LINES WINDOW '("No slides loaded")))
-        ((EQ INDEX 1)
+        ((EQ LAYOUT 'TITLE)
          (MAG-SLIDES-DRAW-TITLE-SLIDE WINDOW SLIDE INDEX COUNT))
+        ((EQ LAYOUT 'IMAGE)
+         (MAG-SLIDES-DRAW-IMAGE-SLIDE WINDOW SLIDE INDEX COUNT REVEAL))
         (T
-         (MAG-SLIDES-DRAW-NORMAL-SLIDE WINDOW SLIDE INDEX COUNT)))
+         (MAG-SLIDES-DRAW-NORMAL-SLIDE WINDOW SLIDE INDEX COUNT REVEAL)))
       T)])
 
-(MAG-SLIDES-GOTO
-  [LAMBDA (WINDOW INDEX)
+(MAG-SLIDES-GOTO-WITH-REVEAL
+  [LAMBDA (WINDOW INDEX REVEAL)
     (PROG ((STATE (MAG-SLIDES-STATE WINDOW))
-           SLIDES SOURCE COUNT)
+           SLIDES SOURCE COUNT SLIDE MAXREVEAL)
       (SETQ SLIDES (MAG-SLIDES-STATE-SLIDES STATE))
       (SETQ SOURCE (MAG-SLIDES-STATE-SOURCE STATE))
       (SETQ COUNT (LENGTH SLIDES))
       (SETQ INDEX (IMAX 1 (IMIN COUNT INDEX)))
-      (WINDOWPROP WINDOW 'MAG-SLIDES-STATE (LIST SLIDES INDEX SOURCE))
+      (SETQ SLIDE (MAG-SLIDES-NTH-SLIDE SLIDES INDEX))
+      (SETQ MAXREVEAL (MAG-SLIDES-SLIDE-REVEAL-COUNT SLIDE))
+      (SETQ REVEAL (IMAX 0 (IMIN MAXREVEAL (OR REVEAL 0))))
+      (MAG-SLIDES-SET-STATE WINDOW SLIDES INDEX SOURCE REVEAL)
       (MAG-SLIDES-REFRESH WINDOW))])
+
+(MAG-SLIDES-GOTO
+  [LAMBDA (WINDOW INDEX)
+    (MAG-SLIDES-GOTO-WITH-REVEAL WINDOW INDEX 0)])
 
 (MAG-SLIDES-NEXT
   [LAMBDA (WINDOW)
-    (MAG-SLIDES-GOTO WINDOW (ADD1 (MAG-SLIDES-STATE-INDEX
-                                    (MAG-SLIDES-STATE WINDOW))))])
+    (PROG ((STATE (MAG-SLIDES-STATE WINDOW))
+           SLIDES INDEX SOURCE SLIDE REVEAL MAXREVEAL)
+      (SETQ SLIDES (MAG-SLIDES-STATE-SLIDES STATE))
+      (SETQ INDEX (MAG-SLIDES-STATE-INDEX STATE))
+      (SETQ SOURCE (MAG-SLIDES-STATE-SOURCE STATE))
+      (SETQ SLIDE (MAG-SLIDES-NTH-SLIDE SLIDES INDEX))
+      (SETQ REVEAL (MAG-SLIDES-STATE-REVEAL STATE))
+      (SETQ MAXREVEAL (MAG-SLIDES-SLIDE-REVEAL-COUNT SLIDE))
+      (COND
+        ((ILESSP REVEAL MAXREVEAL)
+         (MAG-SLIDES-SET-STATE WINDOW SLIDES INDEX SOURCE (ADD1 REVEAL))
+         (MAG-SLIDES-REFRESH WINDOW))
+        (T
+         (MAG-SLIDES-GOTO-WITH-REVEAL WINDOW (ADD1 INDEX) 0))))])
 
 (MAG-SLIDES-PREV
   [LAMBDA (WINDOW)
-    (MAG-SLIDES-GOTO WINDOW (SUB1 (MAG-SLIDES-STATE-INDEX
-                                    (MAG-SLIDES-STATE WINDOW))))])
+    (PROG ((STATE (MAG-SLIDES-STATE WINDOW))
+           SLIDES INDEX SOURCE REVEAL PREVSLIDE)
+      (SETQ SLIDES (MAG-SLIDES-STATE-SLIDES STATE))
+      (SETQ INDEX (MAG-SLIDES-STATE-INDEX STATE))
+      (SETQ SOURCE (MAG-SLIDES-STATE-SOURCE STATE))
+      (SETQ REVEAL (MAG-SLIDES-STATE-REVEAL STATE))
+      (COND
+        ((IGREATERP REVEAL 0)
+         (MAG-SLIDES-SET-STATE WINDOW SLIDES INDEX SOURCE (SUB1 REVEAL))
+         (MAG-SLIDES-REFRESH WINDOW))
+        (T
+         (SETQ PREVSLIDE (MAG-SLIDES-NTH-SLIDE SLIDES (SUB1 INDEX)))
+         (MAG-SLIDES-GOTO-WITH-REVEAL WINDOW
+                                      (SUB1 INDEX)
+                                      (MAG-SLIDES-SLIDE-REVEAL-COUNT PREVSLIDE)))))])
 
 (MAG-SLIDES-RELOAD
   [LAMBDA (WINDOW)
     (PROG ((STATE (MAG-SLIDES-STATE WINDOW))
-           SOURCE SLIDES INDEX)
+           SOURCE SLIDES INDEX REVEAL)
       (SETQ SOURCE (MAG-SLIDES-STATE-SOURCE STATE))
       (COND
         ((NULL SOURCE)
@@ -343,8 +813,9 @@
          (PROMPTPRINT (CONCAT "Could not reload " SOURCE))
          (RETURN NIL)))
       (SETQ INDEX (IMIN (MAG-SLIDES-STATE-INDEX STATE) (LENGTH SLIDES)))
-      (WINDOWPROP WINDOW 'MAG-SLIDES-STATE (LIST SLIDES INDEX SOURCE))
-      (MAG-SLIDES-REFRESH WINDOW))])
+      (SETQ REVEAL (MAG-SLIDES-STATE-REVEAL STATE))
+      (MAG-SLIDES-SET-STATE WINDOW SLIDES INDEX SOURCE REVEAL)
+      (MAG-SLIDES-GOTO-WITH-REVEAL WINDOW INDEX REVEAL))])
 
 (MAG-SLIDES-HELP
   [LAMBDA (WINDOW)
@@ -354,10 +825,13 @@
         ""
         "Source format:"
         "  --- separates slides"
+        "  @layout title | body | image"
         "  # title"
-        "  ## subtitle, useful on the title slide"
+        "  ## subtitle or @subtitle text"
         "  @meta footer text in the lower-left corner"
+        "  @image /path/to/file reserves an image slide frame"
         "  - bullet point"
+        "  | cell | cell | draws a simple table"
         ""
         "Fonts:"
         "  Title: TimesRomanD 72"
@@ -365,7 +839,7 @@
         "  Body bullets: TimesRoman 36"
         "  Footer/page number: TimesRoman 18"
         ""
-        "Keys: right/down/space/n next, left/up/backspace/p previous, r reload, q close"))])
+        "Keys: right/down/space/n reveal or next, left/up/backspace/p previous, r reload, q close"))])
 
 (MAG-SLIDES-MENU
   [LAMBDA (WINDOW)
@@ -471,12 +945,12 @@
       (AND MAG-SLIDES-LAST-WINDOW
            (OPENWP MAG-SLIDES-LAST-WINDOW)
            (NLSETQ (CLOSEW MAG-SLIDES-LAST-WINDOW)))
-      (SETQ WINDOW (CREATEW (CREATEREGION 20
-                                           20
-                                           (IDIFFERENCE SCREENWIDTH 40)
-                                           (IDIFFERENCE SCREENHEIGHT 80))
+      (SETQ WINDOW (CREATEW (CREATEREGION 0
+                                           0
+                                           SCREENWIDTH
+                                           SCREENHEIGHT)
                              "Mag Slides"))
-      (WINDOWPROP WINDOW 'MAG-SLIDES-STATE (LIST SLIDES 1 SOURCE))
+      (MAG-SLIDES-SET-STATE WINDOW SLIDES 1 SOURCE 0)
       (WINDOWPROP WINDOW 'MAG-SLIDES-RUNNING T)
       (WINDOWPROP WINDOW 'BUTTONEVENTFN (FUNCTION MAG-SLIDES-BUTTONFN))
       (WINDOWPROP WINDOW 'RIGHTBUTTONFN NIL)
@@ -491,6 +965,7 @@
       (WINDOWPROP WINDOW 'PROCESS INPROC)
       (TTY.PROCESS INPROC)
       (MAG-SLIDES-REFRESH WINDOW)
+      (TOTOPW WINDOW)
       (RETURN WINDOW))])
 
 (MAG-SLIDES-OPEN-FILE
@@ -507,6 +982,44 @@
   [LAMBDA NIL
     (MAG-SLIDES-OPEN (MAG-SLIDES-DEMO-SLIDES) NIL)])
 
+(MAG-SLIDES-FB-COMMAND
+  [LAMBDA (BROWSER KEY ITEM MENU OPTION)
+    (PROG (FILES PATH)
+      (SETQ FILES (AND (GETD 'FB.SELECTEDFILES)
+                       (FB.SELECTEDFILES BROWSER)))
+      (COND
+        ((NULL FILES)
+         (AND (GETD 'FB.PROMPTWPRINT)
+              (FB.PROMPTWPRINT BROWSER "No slide file selected"))
+         (RETURN NIL)))
+      (SETQ PATH (AND (GETD 'FB.FETCHFILENAME)
+                      (FB.FETCHFILENAME (CAR FILES))))
+      (COND
+        (PATH
+         (MAG-SLIDES-OPEN-FILE PATH)
+         (AND (GETD 'FB.PROMPTWPRINT)
+              (FB.PROMPTWPRINT BROWSER "Opened " PATH)))
+        (T
+         (AND (GETD 'FB.PROMPTWPRINT)
+              (FB.PROMPTWPRINT BROWSER "Could not read selected filename")))))])
+
+(MAG-SLIDES-FILEBROWSER-MENU-ITEM
+  [LAMBDA NIL
+    '(|Slides| MAG-SLIDES-FB-COMMAND
+      "Open selected file as a Mag Slides presentation"
+      (SUBITEMS ("Present Selected" MAG-SLIDES-FB-COMMAND
+                 "Open selected file as a Mag Slides presentation")))])
+
+(MAG-SLIDES-INSTALL-FILEBROWSER-MENU
+  [LAMBDA NIL
+    (AND (BOUNDP 'FB.MENU.ITEMS)
+         (NOT (SASSOC '|Slides| FB.MENU.ITEMS))
+         (SETQ FB.MENU.ITEMS
+               (APPEND FB.MENU.ITEMS
+                       (LIST (MAG-SLIDES-FILEBROWSER-MENU-ITEM)))))
+    (AND (BOUNDP 'FB.MENU.ITEMS)
+         (SASSOC '|Slides| FB.MENU.ITEMS))])
+
 (MAG-SLIDES
   [LAMBDA NIL
     (LET ((PATH (MAG-PROMPT-LINE "slides file (blank for demo)"
@@ -518,5 +1031,7 @@
          (MAG-SLIDES-OPEN-FILE PATH))))])
 
 )
+
+(NLSETQ (MAG-SLIDES-INSTALL-FILEBROWSER-MENU))
 
 STOP

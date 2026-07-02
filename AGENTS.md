@@ -16,6 +16,35 @@ This tree has local, uncommitted Medley/Maiko integration work. Do not discard i
 
 Low-level drawing notes live in `docs/mag-low-level-drawing.md`.
 
+## Mag Slides
+
+`greetfiles/MAG-SLIDES` renders plain-text decks from `/home/mag/docs` in a
+Medley window. The default demo/source path is `/home/mag/docs/slides.mag`.
+
+Supported source syntax:
+
+- `---` separates slides.
+- `@layout title`, `@layout body`, and `@layout image` choose slide layout.
+- `# title` sets the slide title.
+- `## subtitle` or `@subtitle text` sets the title-slide subtitle, rendered in
+  `Classic 48`.
+- `@meta text` or `@footer text` sets the lower-left footer.
+- `- text` renders a body bullet in `TimesRoman 36`.
+- Bullet points reveal one at a time. Forward keys reveal the next bullet before
+  advancing; backward keys hide a bullet before moving to the previous slide.
+- `| cell | cell |` rows render a simple table.
+- `@image /path/to/file` reserves the image-slide frame and records the source
+  path for later native import/export work.
+
+`TimesRomanD 72` renders spaces as vertical bars in this image. The slide
+renderer avoids that by drawing title words separately and manually advancing
+between words. Do not simplify title drawing back to a single `PRIN1` of the
+full string.
+
+The docs File Browser installs a `Slides` command through
+`MAG-SLIDES-INSTALL-FILEBROWSER-MENU`; use it on a selected `.mag` deck to
+present that file.
+
 ## Mag terminal and gopher arrows
 
 `greetfiles/MAG-EXTRAS` has two separate arrow decoders:

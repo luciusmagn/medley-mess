@@ -13,6 +13,31 @@ This is a local note for the Medley/Maiko Mag terminal and Gopher work. It docum
 - `greetfiles/MAG-SLIDES`: sent-like Medley presentation window.
 - `greetfiles/MAG-STOCK`: battery who-line, Rooms/Notecards/doc buttons.
 
+## Mag Slides Drawing
+
+`MAG-SLIDES` uses the same window background helpers as the terminal/Gopher UI
+but draws presentation content with larger Medley fonts:
+
+- title text: `TimesRomanD 72`
+- title subtitle: `Classic 48`
+- body bullets and table cells: `TimesRoman 36`
+- footer metadata and page numbers: `TimesRoman 18`
+
+`TimesRomanD 72` has a broken space glyph in this image, rendering spaces as
+vertical bars. Slide titles therefore draw words separately and advance the X
+position manually between words. Do not replace that with one `PRIN1` call for
+title strings.
+
+Body bullet source lines use `- text`, but the parser stores them internally as
+bullet records and the renderer draws a small filled mark rather than printing
+an asterisk. Bullet points reveal incrementally: forward keys reveal one more
+bullet before advancing, and backward keys hide one bullet before moving to the
+previous slide.
+
+The source format is intentionally line-oriented. `---` separates slides,
+`@layout` selects title/body/image rendering, `@image` records the image source
+path, and rows beginning with `|` are grouped into a simple drawn table.
+
 ## Coordinate Model Used By Mag Rows
 
 The Mag row helpers draw from the bottom of a Medley window upward.
