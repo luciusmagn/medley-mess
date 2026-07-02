@@ -737,6 +737,16 @@ static void td_request_user(struct Bridge *b, long long user_id) {
   td_send_json(b, req);
 }
 
+static void td_view_message(struct Bridge *b, long long chat_id, long long message_id) {
+  char req[512];
+  if (!b->live || strcmp(b->auth_state, "ready") != 0 || chat_id == 0 || message_id == 0) return;
+  snprintf(req, sizeof(req),
+           "{\"@type\":\"viewMessages\",\"chat_id\":%lld,"
+           "\"message_ids\":[%lld],\"source\":null,\"force_read\":true}",
+           chat_id, message_id);
+  td_send_json(b, req);
+}
+
 static void send_tdlib_parameters(struct Bridge *b) {
   char data[1024], files[1024], hash[512], key[512], req[4096];
   json_escape(b->data_dir, data, sizeof(data));
@@ -1067,6 +1077,7 @@ static void build_send_message_request(long long chat_id, const char *text, char
 static void response_messages(struct Bridge *b, long long chat_id, long long from_message_id, char *out, size_t cap) {
   const char *page = from_message_id > 0 ? "older" : "latest";
   struct Message *items[MAG_TG_MAX_MESSAGES];
+  struct Chat *chat;
   size_t total = 0;
   size_t end = 0;
   size_t start = 0;
@@ -1092,6 +1103,11 @@ static void response_messages(struct Bridge *b, long long chat_id, long long fro
     oldest_id = items[start]->message_id;
     newest_id = items[end - 1]->message_id;
   }
+  if (from_message_id == 0 && newest_id > 0) {
+    td_view_message(b, chat_id, newest_id);
+    chat = lookup_chat(b, chat_id);
+    if (chat) chat->unread_count = 0;
+  }
   snprintf(out, cap,
            "Mag Telegram messages chat=%lld\n"
            "page=%s cached-total=%zu page-count=%zu oldest-id=%lld newest-id=%lld\n",
@@ -1102,6 +1118,18 @@ static void response_messages(struct Bridge *b, long long chat_id, long long fro
     appendf(out, cap, "%lld | %s: %s\n", m->message_id, sender_label(b, m, label, sizeof(label)), m->text);
   }
   if (count == 0) appendf(out, cap, "No cached text messages for this chat/page yet.\n");
+}
+
+static void command_mark_read(struct Bridge *b, long long chat_id, long long message_id, char *out, size_t cap) {
+  struct Chat *chat = lookup_chat(b, chat_id);
+  if (message_id == 0 && chat) message_id = chat->last_message_id;
+  if (message_id == 0) {
+    snprintf(out, cap, "mark-read failed chat=%lld: no message id\n", chat_id);
+    return;
+  }
+  td_view_message(b, chat_id, message_id);
+  if (chat) chat->unread_count = 0;
+  snprintf(out, cap, "marked read chat=%lld message=%lld\n", chat_id, message_id);
 }
 
 static void command_send(struct Bridge *b, long long chat_id, const char *text, char *out, size_t cap) {
@@ -1221,6 +1249,12 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
     char *end = NULL;
     chat_id = strtoll(arg, &end, 10);
     command_send(b, chat_id, skip_space(end ? end : ""), out, cap);
+  } else if (strcmp(cmd, "mark-read") == 0) {
+    char *end = NULL;
+    long long message_id = 0;
+    chat_id = strtoll(arg, &end, 10);
+    if (end) message_id = strtoll(skip_space(end), NULL, 10);
+    command_mark_read(b, chat_id, message_id, out, cap);
   } else if (strcmp(cmd, "auth-phone") == 0) command_auth(b, "phone", arg, out, cap);
   else if (strcmp(cmd, "auth-code") == 0) command_auth(b, "code", arg, out, cap);
   else if (strcmp(cmd, "auth-password") == 0) command_auth(b, "password", arg, out, cap);
@@ -1457,6 +1491,15 @@ static int self_test(void) {
                    "\"unread_count\":5}");
   handle_request(&b, "chats", out, sizeof(out));
   if (!strstr(out, "4260 [group] Summary Group unread=5 :: Alice Example: latest summary")) return 1;
+  handle_request(&b, "mark-read 4260", out, sizeof(out));
+  if (!strstr(out, "marked read chat=4260 message=9015")) return 1;
+  handle_request(&b, "chats", out, sizeof(out));
+  if (strstr(out, "4260 [group] Summary Group unread=5")) return 1;
+  if (!strstr(out, "4260 [group] Summary Group :: Alice Example: latest summary")) return 1;
+  handle_chat_update(&b,
+                     "{\"@type\":\"updateChatReadInbox\",\"chat_id\":4260,\"unread_count\":3}");
+  handle_request(&b, "chats", out, sizeof(out));
+  if (!strstr(out, "4260 [group] Summary Group unread=3 :: Alice Example: latest summary")) return 1;
   handle_td_update(&b,
                    "{\"@type\":\"updateChatLastMessage\",\"chat_id\":4260,"
                    "\"last_message\":null,\"unread_count\":0}");

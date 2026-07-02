@@ -123,6 +123,7 @@ Supported requests:
 - `messages CHAT_ID [FROM_MESSAGE_ID]`
 - `older CHAT_ID FROM_MESSAGE_ID`
 - `send CHAT_ID TEXT`
+- `mark-read CHAT_ID [MESSAGE_ID]`
 - `auth-phone PHONE`
 - `auth-code CODE`
 - `auth-password PASSWORD`
@@ -171,6 +172,8 @@ Implemented now:
   supergroups, channels, and secret chats
 - compact chat previews from TDLib unread counts and last-message updates,
   rendered as `unread=N :: sender: text` in chat listings
+- `messages CHAT_ID` and `mark-read CHAT_ID [MESSAGE_ID]` use TDLib
+  `viewMessages` to mark displayed text as viewed/read in live mode
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
   purpose-built JSON extractor
