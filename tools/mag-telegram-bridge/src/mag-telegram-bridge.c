@@ -19,6 +19,7 @@
 #define MAG_TG_RESPONSE_PATH "/tmp/mag-telegram-response"
 #define MAG_TG_PID_PATH "/tmp/mag-telegram-bridge.pid"
 #define MAG_TG_DEFAULT_CONFIG_REL ".config/mag-telegram/config"
+#define MAG_TG_DEFAULT_GRAMMERS_COMMAND "/home/mag/.local/bin/mag-telegram-grammers"
 #define MAG_TG_MAX_TEXT 4096
 #define MAG_TG_MAX_LINE 1024
 #define MAG_TG_MAX_CHATS 256
@@ -66,12 +67,14 @@ struct Bridge {
   bool live;
   bool stop;
   char backend[32];
+  char requested_backend[32];
   char auth_state[96];
   char last_error[512];
   char data_dir[512];
   char files_dir[512];
   char config_path[512];
   char tdlib_library[512];
+  char grammers_command[512];
   char api_id[64];
   char api_hash[256];
   char encryption_key[256];
@@ -632,7 +635,11 @@ static bool ensure_dir(const char *path) {
 
 static void apply_config_value(struct Bridge *b, const char *key, const char *value) {
   if (!key || !value) return;
-  if (strcmp(key, "api_id") == 0 || strcmp(key, "MAG_TELEGRAM_API_ID") == 0) {
+  if (strcmp(key, "backend") == 0 || strcmp(key, "MAG_TELEGRAM_BACKEND") == 0) {
+    copy_str(b->requested_backend, sizeof(b->requested_backend), value);
+  } else if (strcmp(key, "grammers_command") == 0 || strcmp(key, "MAG_TELEGRAM_GRAMMERS_COMMAND") == 0) {
+    copy_str(b->grammers_command, sizeof(b->grammers_command), value);
+  } else if (strcmp(key, "api_id") == 0 || strcmp(key, "MAG_TELEGRAM_API_ID") == 0) {
     copy_str(b->api_id, sizeof(b->api_id), value);
   } else if (strcmp(key, "api_hash") == 0 || strcmp(key, "MAG_TELEGRAM_API_HASH") == 0) {
     copy_str(b->api_hash, sizeof(b->api_hash), value);
@@ -678,6 +685,10 @@ static void read_config_file(struct Bridge *b) {
 
 static void apply_env_overrides(struct Bridge *b) {
   const char *value;
+  if ((value = getenv("MAG_TELEGRAM_BACKEND")) && value[0]) copy_str(b->requested_backend, sizeof(b->requested_backend), value);
+  if ((value = getenv("MAG_TELEGRAM_GRAMMERS_COMMAND")) && value[0]) {
+    copy_str(b->grammers_command, sizeof(b->grammers_command), value);
+  }
   if ((value = getenv("MAG_TELEGRAM_API_ID")) && value[0]) copy_str(b->api_id, sizeof(b->api_id), value);
   if ((value = getenv("MAG_TELEGRAM_API_HASH")) && value[0]) copy_str(b->api_hash, sizeof(b->api_hash), value);
   if ((value = getenv("MAG_TELEGRAM_ENCRYPTION_KEY")) && value[0]) {
@@ -697,6 +708,102 @@ static void load_runtime_config(struct Bridge *b) {
   apply_env_overrides(b);
   if (b->encryption_key[0] == 0) copy_str(b->encryption_key, sizeof(b->encryption_key), "mag-telegram-local");
   if (b->data_dir[0] == 0) snprintf(b->data_dir, sizeof(b->data_dir), "%s/.local/share/mag-telegram/tdlib", home);
+  if (b->grammers_command[0] == 0) copy_str(b->grammers_command, sizeof(b->grammers_command), MAG_TG_DEFAULT_GRAMMERS_COMMAND);
+}
+
+static bool shell_quote(const char *src, char *dst, size_t cap) {
+  size_t used = 0;
+  if (cap < 3) return false;
+  dst[used++] = '\'';
+  if (!src) src = "";
+  for (; *src; src++) {
+    if (*src == '\'') {
+      if (used + 4 >= cap) return false;
+      dst[used++] = '\'';
+      dst[used++] = '\\';
+      dst[used++] = '\'';
+      dst[used++] = '\'';
+    } else {
+      if (used + 1 >= cap) return false;
+      dst[used++] = *src;
+    }
+  }
+  if (used + 2 > cap) return false;
+  dst[used++] = '\'';
+  dst[used] = 0;
+  return true;
+}
+
+static bool run_command_capture(const char *cmdline, char *out, size_t cap) {
+  FILE *pipe;
+  size_t used = 0;
+  int status;
+  if (cap == 0) return false;
+  out[0] = 0;
+  pipe = popen(cmdline, "r");
+  if (!pipe) return false;
+  while (used + 1 < cap) {
+    size_t n = fread(out + used, 1, cap - used - 1, pipe);
+    if (n > 0) used += n;
+    if (n == 0) {
+      if (feof(pipe)) break;
+      if (ferror(pipe)) break;
+    }
+  }
+  out[used] = 0;
+  status = pclose(pipe);
+  return status == 0;
+}
+
+static bool grammers_request_text(struct Bridge *b, const char *request, char *out, size_t cap) {
+  char path_template[] = "/tmp/mag-telegram-grammers-request-XXXXXX";
+  char quoted_cmd[1024];
+  char quoted_path[1024];
+  char cmdline[2304];
+  FILE *f;
+  int fd;
+  bool ok;
+  if (out && cap > 0) out[0] = 0;
+  if (b->grammers_command[0] == 0) copy_str(b->grammers_command, sizeof(b->grammers_command), MAG_TG_DEFAULT_GRAMMERS_COMMAND);
+  if (access(b->grammers_command, X_OK) != 0) {
+    copy_str(b->last_error, sizeof(b->last_error), "grammers command is not executable: ");
+    appendf(b->last_error, sizeof(b->last_error), "%s", b->grammers_command);
+    return false;
+  }
+  fd = mkstemp(path_template);
+  if (fd < 0) {
+    snprintf(b->last_error, sizeof(b->last_error), "mkstemp failed: %s", strerror(errno));
+    return false;
+  }
+  f = fdopen(fd, "wb");
+  if (!f) {
+    close(fd);
+    unlink(path_template);
+    snprintf(b->last_error, sizeof(b->last_error), "fdopen failed: %s", strerror(errno));
+    return false;
+  }
+  if (request && request[0]) fputs(request, f);
+  fputc('\n', f);
+  if (fclose(f) != 0) {
+    unlink(path_template);
+    snprintf(b->last_error, sizeof(b->last_error), "failed writing grammers request: %s", strerror(errno));
+    return false;
+  }
+  if (!shell_quote(b->grammers_command, quoted_cmd, sizeof(quoted_cmd)) ||
+      !shell_quote(path_template, quoted_path, sizeof(quoted_path))) {
+    unlink(path_template);
+    snprintf(b->last_error, sizeof(b->last_error), "command path is too long for grammers request");
+    return false;
+  }
+  snprintf(cmdline, sizeof(cmdline), "%s --request-file %s", quoted_cmd, quoted_path);
+  ok = run_command_capture(cmdline, out, cap);
+  unlink(path_template);
+  if (!ok) {
+    snprintf(b->last_error, sizeof(b->last_error), "grammers request failed");
+    return false;
+  }
+  b->last_error[0] = 0;
+  return true;
 }
 
 static bool check_tdlib_library(struct Bridge *b) {
@@ -813,6 +920,20 @@ static void send_tdlib_parameters(struct Bridge *b) {
            "\"application_version\":\"0.1\"}",
            data, files, key, b->api_id, hash);
   td_send_json(b, req);
+}
+
+static bool init_grammers(struct Bridge *b) {
+  char out[8192];
+  load_runtime_config(b);
+  if (!grammers_request_text(b, "online-status", out, sizeof(out))) return false;
+  if (!strstr(out, "authorized=yes")) {
+    copy_str(b->last_error, sizeof(b->last_error), "grammers session is not authorized");
+    return false;
+  }
+  b->live = false;
+  copy_str(b->backend, sizeof(b->backend), "grammers");
+  copy_str(b->auth_state, sizeof(b->auth_state), "ready");
+  return true;
 }
 
 static bool init_live(struct Bridge *b) {
@@ -1055,10 +1176,33 @@ static void response_doctor(char *out, size_t cap) {
   bool tdlib_ok;
   memset(&b, 0, sizeof(b));
   load_runtime_config(&b);
+  if (strcmp(b.requested_backend, "grammers") == 0) {
+    char status[8192];
+    bool grammers_ok = grammers_request_text(&b, "online-status", status, sizeof(status));
+    snprintf(out, cap,
+             "Mag Telegram doctor\n"
+             "config=%s\n"
+             "backend=grammers\n"
+             "grammers-command=%s\n"
+             "grammers-load=%s\n"
+             "api-id=%s\n"
+             "api-hash=%s\n"
+             "status=%s\n"
+             "detail=%s\n",
+             b.config_path[0] ? b.config_path : "unset",
+             b.grammers_command[0] ? b.grammers_command : MAG_TG_DEFAULT_GRAMMERS_COMMAND,
+             grammers_ok ? "ok" : "fail",
+             b.api_id[0] ? "set" : "missing",
+             b.api_hash[0] ? "set" : "missing",
+             (grammers_ok && strstr(status, "authorized=yes")) ? "authorized" : "not-ready",
+             grammers_ok ? "grammers backend reachable" : (b.last_error[0] ? b.last_error : "grammers backend failed"));
+    return;
+  }
   has_credentials = b.api_id[0] != 0 && b.api_hash[0] != 0;
   tdlib_ok = check_tdlib_library(&b);
   snprintf(out, cap,
            "Mag Telegram doctor\n"
+           "backend=tdlib\n"
            "config=%s\n"
            "api-id=%s\n"
            "api-hash=%s\n"
@@ -1311,6 +1455,17 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
   }
   cmd[i] = 0;
   arg = skip_space(request + i);
+  if (strcmp(b->backend, "grammers") == 0 && strcmp(cmd, "quit") != 0) {
+    if (strcmp(cmd, "raw") == 0) {
+      snprintf(out, cap, "raw unavailable in grammers mode\n");
+      return;
+    }
+    if (!grammers_request_text(b, request, out, cap)) {
+      snprintf(out, cap, "grammers request failed: %s\n",
+               b->last_error[0] ? b->last_error : "unknown error");
+    }
+    return;
+  }
   if (strcmp(cmd, "status") == 0) response_status(b, out, cap);
   else if (strcmp(cmd, "doctor") == 0) response_doctor(out, cap);
   else if (strcmp(cmd, "auth-status") == 0) response_auth_status(b, out, cap);
@@ -1391,7 +1546,10 @@ static int run_daemon(bool force_mock) {
   signal(SIGTERM, on_signal);
   unlink(MAG_TG_REQUEST_PATH);
   unlink(MAG_TG_RESPONSE_PATH);
-  if (!force_mock && init_live(&b)) {
+  load_runtime_config(&b);
+  if (!force_mock && strcmp(b.requested_backend, "grammers") == 0 && init_grammers(&b)) {
+    /* grammers mode initialized */
+  } else if (!force_mock && strcmp(b.requested_backend, "grammers") != 0 && init_live(&b)) {
     /* live mode initialized */
   } else {
     init_mock(&b);
@@ -1419,7 +1577,7 @@ static int request_daemon_text(const char *text) {
     fprintf(stderr, "failed to write %s: %s\n", MAG_TG_REQUEST_PATH, strerror(errno));
     return 2;
   }
-  for (int i = 0; i < 50; i++) {
+  for (int i = 0; i < 250; i++) {
     struct stat st;
     if (stat(MAG_TG_RESPONSE_PATH, &st) == 0 && st.st_size > 0) {
       response = read_file(MAG_TG_RESPONSE_PATH);
@@ -1462,7 +1620,7 @@ static int doctor_command(void) {
   char out[8192];
   response_doctor(out, sizeof(out));
   fputs(out, stdout);
-  return strstr(out, "status=ready-for-auth") ? 0 : 1;
+  return (strstr(out, "status=ready-for-auth") || strstr(out, "status=authorized")) ? 0 : 1;
 }
 
 static int self_test(void) {

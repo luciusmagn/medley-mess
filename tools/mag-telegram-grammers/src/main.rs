@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
+use grammers_client::message::Message;
 use grammers_client::{Client, SenderPool};
 use grammers_session::storages::SqliteSession;
 use grammers_session::types::{DcOption, PeerId, PeerInfo, PeerKind, UpdatesState};
@@ -42,6 +43,14 @@ struct RawSessionData {
 struct OnlineOptions {
     import_if_missing: bool,
     timeout: Duration,
+}
+
+#[derive(Debug, Clone)]
+struct DialogRow {
+    id: i64,
+    kind: &'static str,
+    name: String,
+    preview: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -452,10 +461,10 @@ async fn prepare_sqlite_session(
     Ok(Arc::new(session))
 }
 
-async fn with_client<F, Fut>(config: &Config, options: OnlineOptions, f: F) -> Result<()>
+async fn with_client<T, F, Fut>(config: &Config, options: OnlineOptions, f: F) -> Result<T>
 where
     F: FnOnce(Client, Arc<SqliteSession>) -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
+    Fut: std::future::Future<Output = Result<T>>,
 {
     let session = prepare_sqlite_session(config, options).await?;
     let SenderPool { runner, handle, .. } = SenderPool::new(Arc::clone(&session), config.api_id);
@@ -465,6 +474,7 @@ where
     let result =
         tokio::time::timeout(options.timeout, f(client.clone(), Arc::clone(&session))).await;
     drop(client);
+    runner_task.abort();
     let _ = runner_task.await;
 
     match result {
@@ -486,6 +496,194 @@ async fn online_status(config: &Config, options: OnlineOptions) -> Result<()> {
         Ok(())
     })
     .await
+}
+
+async fn print_bridge_status(config: &Config, options: OnlineOptions) -> Result<()> {
+    with_client(config, options, |client, _session| async move {
+        let authorized = client.is_authorized().await?;
+        let mut chat_count = 0usize;
+        if authorized {
+            let mut dialogs = client.iter_dialogs();
+            chat_count = dialogs.total().await.unwrap_or(0);
+        }
+        println!("Mag Telegram bridge");
+        println!("backend=grammers");
+        println!("auth={}", if authorized { "ready" } else { "wait-session" });
+        println!(
+            "auth-action={}",
+            if authorized { "none" } else { "configure" }
+        );
+        println!(
+            "auth-hint={}",
+            if authorized {
+                "Authorized through grammers session."
+            } else {
+                "Import or refresh the grammers session."
+            }
+        );
+        println!("live={}", yesno(authorized));
+        println!("chats={chat_count}");
+        println!("messages=ondemand");
+        println!("config={}", config.config_path.display());
+        println!("data-dir={}", config.sqlite_session.display());
+        println!("tdlib-library=not-used");
+        println!("last-error=none");
+        Ok(())
+    })
+    .await
+}
+
+async fn print_auth_status(config: &Config, options: OnlineOptions) -> Result<()> {
+    with_client(config, options, |client, _session| async move {
+        let authorized = client.is_authorized().await?;
+        println!("Mag Telegram auth");
+        println!(
+            "state={}",
+            if authorized { "ready" } else { "wait-session" }
+        );
+        println!("action={}", if authorized { "none" } else { "configure" });
+        println!(
+            "hint={}",
+            if authorized {
+                "Authorized through grammers session."
+            } else {
+                "Import or refresh the grammers session."
+            }
+        );
+        println!("last-error=none");
+        Ok(())
+    })
+    .await
+}
+
+async fn collect_dialog_rows(
+    config: &Config,
+    limit: usize,
+    show_names: bool,
+    options: OnlineOptions,
+) -> Result<(usize, Vec<DialogRow>)> {
+    with_client(config, options, move |client, _session| async move {
+        if !client.is_authorized().await? {
+            bail!("session is not authorized");
+        }
+        let mut dialogs = client.iter_dialogs();
+        let total = dialogs.total().await?;
+        let mut rows = Vec::new();
+        while rows.len() < limit {
+            let Some(dialog) = dialogs.next().await? else {
+                break;
+            };
+            let peer = dialog.peer();
+            let id = peer.id().bot_api_dialog_id().unwrap_or(0);
+            let preview = dialog.last_message.as_ref().map(|message| {
+                let sender = sender_label_for_message(message, show_names);
+                let body = message_body_for_display(message, show_names, 220);
+                format!("{sender}: {body}")
+            });
+            rows.push(DialogRow {
+                id,
+                kind: peer_kind_name(peer.id().kind()),
+                name: display_name(peer.name(), show_names),
+                preview,
+            });
+        }
+        Ok((total, rows))
+    })
+    .await
+}
+
+fn dialog_line(row: &DialogRow) -> String {
+    let mut line = format!("{} [{}] {}", row.id, row.kind, row.name);
+    if let Some(preview) = &row.preview {
+        if !preview.is_empty() {
+            line.push_str(" :: ");
+            line.push_str(preview);
+        }
+    }
+    line
+}
+
+async fn print_chats_bridge(
+    config: &Config,
+    limit: usize,
+    show_names: bool,
+    options: OnlineOptions,
+) -> Result<()> {
+    let (total, rows) = collect_dialog_rows(config, limit, show_names, options).await?;
+    println!("Mag Telegram chats ({total})");
+    for row in &rows {
+        println!("{}", dialog_line(row));
+    }
+    Ok(())
+}
+
+async fn print_chats_view(
+    config: &Config,
+    selected: isize,
+    top: isize,
+    visible: usize,
+    show_names: bool,
+    options: OnlineOptions,
+) -> Result<()> {
+    let visible = visible.max(1);
+    let initial_selected = selected.max(0) as usize;
+    let initial_top = top.max(0) as usize;
+    let needed = initial_top
+        .saturating_add(visible)
+        .max(initial_selected.saturating_add(1));
+    let (total, rows) = collect_dialog_rows(config, needed, show_names, options).await?;
+    let count = total;
+    let selected = if count > 0 {
+        initial_selected.min(count - 1)
+    } else {
+        0
+    };
+    let mut top = initial_top;
+    if count == 0 {
+        top = 0;
+    } else if selected < top {
+        top = selected;
+    } else if selected >= top.saturating_add(visible) {
+        top = selected.saturating_sub(visible - 1);
+    }
+    if top.saturating_add(visible) > count {
+        top = count.saturating_sub(visible);
+    }
+    let end = top.saturating_add(visible).min(rows.len()).min(count);
+
+    println!("Mag Telegram chats ({count})");
+    println!("selected={selected} top={top} count={count} visible={visible}");
+    println!("arrows: select, Enter/right: open, left: dashboard, r: reload, s: start, q: close");
+    println!();
+    if count == 0 {
+        println!("No chats cached yet. Start/auth the bridge, then refresh.");
+        return Ok(());
+    }
+    for index in top..end {
+        let prefix = if index == selected { "> " } else { "  " };
+        println!("{prefix}{}", dialog_line(&rows[index]));
+    }
+    Ok(())
+}
+
+async fn print_chat_at(
+    config: &Config,
+    selected: isize,
+    show_names: bool,
+    options: OnlineOptions,
+) -> Result<()> {
+    let index = selected.max(0) as usize;
+    let (total, rows) =
+        collect_dialog_rows(config, index.saturating_add(1), show_names, options).await?;
+    if total == 0 || index >= rows.len() {
+        println!("chat-id=0");
+        println!("status=no-chats");
+        return Ok(());
+    }
+    println!("chat-id={}", rows[index].id);
+    println!("index={index}");
+    println!("line={}", dialog_line(&rows[index]));
+    Ok(())
 }
 
 async fn print_chats(
@@ -518,6 +716,66 @@ async fn print_chats(
                 display_name(peer.name(), show_names)
             );
             index += 1;
+        }
+        Ok(())
+    })
+    .await
+}
+
+async fn print_messages_page(
+    config: &Config,
+    peer_dialog_id: i64,
+    from_message_id: i64,
+    limit: usize,
+    show_names: bool,
+    options: OnlineOptions,
+) -> Result<()> {
+    with_client(config, options, move |client, session| async move {
+        if !client.is_authorized().await? {
+            bail!("session is not authorized");
+        }
+        let peer_id = peer_id_from_dialog_id(peer_dialog_id)?;
+        let peer_ref = session
+            .peer_ref(peer_id)
+            .await?
+            .ok_or_else(|| anyhow!("peer not found in session cache: {peer_dialog_id}"))?;
+        let mut messages = client.iter_messages(peer_ref).limit(limit.max(1));
+        if from_message_id > 0 {
+            messages = messages.offset_id(message_id_i32(from_message_id));
+        }
+        let mut rows: Vec<(i32, String, String)> = Vec::new();
+        while let Some(message) = messages.next().await? {
+            rows.push((
+                message.id(),
+                sender_label_for_message(&message, show_names),
+                message_body_for_display(&message, show_names, 512),
+            ));
+        }
+        rows.reverse();
+        let oldest_id = rows.first().map(|row| row.0).unwrap_or(0);
+        let newest_id = rows.last().map(|row| row.0).unwrap_or(0);
+        if from_message_id == 0 {
+            let _ = client.mark_as_read(peer_ref).await;
+        }
+
+        println!("Mag Telegram messages chat={peer_dialog_id}");
+        println!(
+            "page={} cached-total={} page-count={} oldest-id={} newest-id={}",
+            if from_message_id > 0 {
+                "older"
+            } else {
+                "latest"
+            },
+            rows.len(),
+            rows.len(),
+            oldest_id,
+            newest_id
+        );
+        for (id, sender, body) in &rows {
+            println!("{id} | {sender}: {body}");
+        }
+        if rows.is_empty() {
+            println!("No cached text messages for this chat/page yet.");
         }
         Ok(())
     })
@@ -562,6 +820,28 @@ async fn print_messages(
     .await
 }
 
+async fn mark_read(
+    config: &Config,
+    peer_dialog_id: i64,
+    message_id: i64,
+    options: OnlineOptions,
+) -> Result<()> {
+    with_client(config, options, move |client, session| async move {
+        if !client.is_authorized().await? {
+            bail!("session is not authorized");
+        }
+        let peer_id = peer_id_from_dialog_id(peer_dialog_id)?;
+        let peer_ref = session
+            .peer_ref(peer_id)
+            .await?
+            .ok_or_else(|| anyhow!("peer not found in session cache: {peer_dialog_id}"))?;
+        client.mark_as_read(peer_ref).await?;
+        println!("marked read chat={peer_dialog_id} message={message_id}");
+        Ok(())
+    })
+    .await
+}
+
 async fn send_message(
     config: &Config,
     peer_dialog_id: i64,
@@ -597,17 +877,54 @@ fn handle_request_text(config: &Config, request: &str) -> Result<()> {
     let arg = parts.next().unwrap_or_default().trim();
 
     match command {
-        "status" | "doctor" => print_doctor(config),
+        "status" => with_runtime(print_bridge_status(config, OnlineOptions::default())),
+        "doctor" => print_doctor(config),
         "session-info" => print_session_info(&config.source_session),
         "import-session" => {
             let imported = import_session(config, false)?;
             println!("imported={}", yesno(imported));
             Ok(())
         }
-        "auth-status" | "online-status" => {
-            with_runtime(online_status(config, OnlineOptions::default()))
+        "auth-status" => with_runtime(print_auth_status(config, OnlineOptions::default())),
+        "online-status" => with_runtime(online_status(config, OnlineOptions::default())),
+        "chats" => with_runtime(print_chats_bridge(
+            config,
+            60,
+            true,
+            OnlineOptions::default(),
+        )),
+        "chats-view" => {
+            let mut bits = arg.split_whitespace();
+            let selected = bits
+                .next()
+                .and_then(|s| s.parse::<isize>().ok())
+                .unwrap_or(0);
+            let top = bits
+                .next()
+                .and_then(|s| s.parse::<isize>().ok())
+                .unwrap_or(0);
+            let visible = bits
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(20);
+            with_runtime(print_chats_view(
+                config,
+                selected,
+                top,
+                visible,
+                true,
+                OnlineOptions::default(),
+            ))
         }
-        "chats" => with_runtime(print_chats(config, 30, true, OnlineOptions::default())),
+        "chat-at" => {
+            let selected = arg.parse::<isize>().unwrap_or(0);
+            with_runtime(print_chat_at(
+                config,
+                selected,
+                true,
+                OnlineOptions::default(),
+            ))
+        }
         "messages" => {
             let mut bits = arg.split_whitespace();
             let peer = bits
@@ -615,13 +932,40 @@ fn handle_request_text(config: &Config, request: &str) -> Result<()> {
                 .ok_or_else(|| anyhow!("messages needs peer dialog id"))?
                 .parse::<i64>()
                 .context("messages peer must be an integer")?;
+            let from_message_id = bits.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
             let limit = bits
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(30);
-            with_runtime(print_messages(
+            with_runtime(print_messages_page(
                 config,
                 peer,
+                from_message_id,
+                limit,
+                true,
+                OnlineOptions::default(),
+            ))
+        }
+        "older" => {
+            let mut bits = arg.split_whitespace();
+            let peer = bits
+                .next()
+                .ok_or_else(|| anyhow!("older needs peer dialog id"))?
+                .parse::<i64>()
+                .context("older peer must be an integer")?;
+            let from_message_id = bits
+                .next()
+                .ok_or_else(|| anyhow!("older needs from message id"))?
+                .parse::<i64>()
+                .context("older from message id must be an integer")?;
+            let limit = bits
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(30);
+            with_runtime(print_messages_page(
+                config,
+                peer,
+                from_message_id,
                 limit,
                 true,
                 OnlineOptions::default(),
@@ -639,6 +983,29 @@ fn handle_request_text(config: &Config, request: &str) -> Result<()> {
                 bail!("send needs message text");
             }
             with_runtime(send_message(config, peer, text, OnlineOptions::default()))
+        }
+        "mark-read" => {
+            let mut bits = arg.split_whitespace();
+            let peer = bits
+                .next()
+                .ok_or_else(|| anyhow!("mark-read needs peer dialog id"))?
+                .parse::<i64>()
+                .context("mark-read peer must be an integer")?;
+            let message_id = bits.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+            with_runtime(mark_read(
+                config,
+                peer,
+                message_id,
+                OnlineOptions::default(),
+            ))
+        }
+        "auth-phone" | "auth-code" | "auth-password" | "auth-register" => {
+            println!("Mag Telegram auth");
+            println!("state=ready");
+            println!("action=none");
+            println!("hint=Already authorized through grammers session.");
+            println!("last-error=none");
+            Ok(())
         }
         "" => {
             println!("empty request");
@@ -676,6 +1043,44 @@ fn display_dialog_id(id: PeerId) -> String {
     id.bot_api_dialog_id()
         .map(|value| value.to_string())
         .unwrap_or_else(|| "?".to_string())
+}
+
+fn sender_label_for_message(message: &Message, show_names: bool) -> String {
+    if message.outgoing() {
+        return "me".to_string();
+    }
+    if let Some(peer) = message.sender() {
+        return display_name(peer.name(), show_names);
+    }
+    if let Some(id) = message
+        .sender_id()
+        .and_then(|peer_id| peer_id.bot_api_dialog_id())
+    {
+        return id.to_string();
+    }
+    "system".to_string()
+}
+
+fn message_body_for_display(message: &Message, show_names: bool, max_chars: usize) -> String {
+    if !show_names {
+        return "(redacted)".to_string();
+    }
+    let text = message.text();
+    if text.trim().is_empty() {
+        "[non-text message]".to_string()
+    } else {
+        sanitize_line(text, max_chars)
+    }
+}
+
+fn message_id_i32(id: i64) -> i32 {
+    if id <= 0 {
+        0
+    } else if id > i32::MAX as i64 {
+        i32::MAX
+    } else {
+        id as i32
+    }
 }
 
 fn display_name(name: Option<&str>, show_names: bool) -> String {

@@ -113,16 +113,19 @@ credentials copied from SHODAN. The API id/hash are usable by the current TDLib
 bridge config, but the session file itself is not a TDLib database and cannot
 be imported by this C/TDLib backend.
 
-`tools/mag-telegram-grammers` is the Rust/grammers backend scaffold for that
-session. It converts the source JSON session into
+`tools/mag-telegram-grammers` is the Rust/grammers backend for that session.
+It converts the source JSON session into
 `~/.local/share/mag-telegram/grammers/session.sqlite` and has been verified to
 report `authorized=yes`, list dialogs, and fetch redacted message ids through
 the existing session. Do not let two clients write the same source session file
 concurrently; the Rust tool writes its own backend-owned SQLite copy instead.
 
-The Medley UI still talks to this C bridge. The next integration step is making
-this bridge delegate to `mag-telegram-grammers` or promoting the Rust tool into
-a persistent daemon with the same request/response protocol.
+The Medley UI still talks to this C bridge. Set `backend=grammers` and
+`grammers_command=/home/mag/.local/bin/mag-telegram-grammers` in
+`~/.config/mag-telegram/config` to make the bridge delegate normal requests to
+the Rust backend while keeping the same `/tmp/mag-telegram-request` protocol.
+The Rust helper uses a bounded 20s Telegram request timeout and aborts its
+runner task before exiting so a slow MTProto request cannot wedge the bridge.
 
 ## Protocol Files
 
@@ -191,10 +194,14 @@ Implemented now:
 - exact `--request-file` CLI path for file-originated text requests
 - persistent config file at `~/.config/mag-telegram/config`, with environment
   variables still available as overrides
-- secret-safe `doctor` diagnostics for config, credential presence, and TDLib
-  library/symbol loading
+- `backend=grammers` config and environment selection, with
+  `grammers_command` override for the Rust helper
+- secret-safe `doctor` diagnostics for config, credential presence, TDLib
+  library/symbol loading, and grammers backend reachability
 - direct Medley request-file path for normal UI requests; shell use is limited
   to fallback daemon startup on older Maiko binaries
+- grammers delegation for `status`, `auth-status`, `chats`,
+  `chats-view`, `chat-at`, `messages`, `older`, `send`, and `mark-read`
 - dynamic TDLib loading and authorization-state command emission for
   phone/code/password/registration flows
 - TDLib main chat-list ordering from chat position updates
@@ -219,6 +226,8 @@ Implemented now:
 - send text message request construction with complete `formattedText`
 - Medley dashboard, chat list selection, cached message viewing, text send, and
   basic auth prompts
+- Medley-side request wait increased to 25s so grammers' bounded network
+  timeout does not trigger false daemon restart attempts
 
 Still intentionally missing:
 
@@ -226,4 +235,6 @@ Still intentionally missing:
 - richer message viewport behavior beyond page-at-a-time backscroll
 - contact search and channel joining
 - media rendering, reactions, edits, read receipts
+- a persistent grammers daemon; the current bridge spawns the Rust helper per
+  request, which is simple and GC-safe but slower
 - a permanent service definition
