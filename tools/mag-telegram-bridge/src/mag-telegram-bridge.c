@@ -340,6 +340,16 @@ static void add_message(struct Bridge *b, long long chat_id, long long message_i
   copy_str(m->text, sizeof(m->text), text && text[0] ? text : "[non-text message]");
 }
 
+static int message_ptr_compare_asc(const void *ap, const void *bp) {
+  const struct Message *a = *(const struct Message * const *)ap;
+  const struct Message *b = *(const struct Message * const *)bp;
+  if (a->message_id < b->message_id) return -1;
+  if (a->message_id > b->message_id) return 1;
+  if (a->sender_id < b->sender_id) return -1;
+  if (a->sender_id > b->sender_id) return 1;
+  return 0;
+}
+
 static void init_mock(struct Bridge *b) {
   struct Chat *c;
   copy_str(b->backend, sizeof(b->backend), "mock");
@@ -407,14 +417,14 @@ static void td_send_json(struct Bridge *b, const char *json) {
   if (b->live && b->td.send && b->td.client) b->td.send(b->td.client, json);
 }
 
-static void td_request_chat_history(struct Bridge *b, long long chat_id) {
+static void td_request_chat_history(struct Bridge *b, long long chat_id, long long from_message_id) {
   char req[512];
   if (!b->live || strcmp(b->auth_state, "ready") != 0) return;
   snprintf(req, sizeof(req),
            "{\"@type\":\"getChatHistory\",\"chat_id\":%lld,"
-           "\"from_message_id\":0,\"offset\":0,\"limit\":%d,"
+           "\"from_message_id\":%lld,\"offset\":0,\"limit\":%d,"
            "\"only_local\":false,\"@extra\":\"mag-history:%lld\"}",
-           chat_id, MAG_TG_HISTORY_LIMIT, chat_id);
+           chat_id, from_message_id, MAG_TG_HISTORY_LIMIT, chat_id);
   td_send_json(b, req);
 }
 
@@ -588,20 +598,44 @@ static void response_chats(struct Bridge *b, char *out, size_t cap) {
   }
 }
 
-static void response_messages(struct Bridge *b, long long chat_id, char *out, size_t cap) {
+static void response_messages(struct Bridge *b, long long chat_id, long long from_message_id, char *out, size_t cap) {
+  const char *page = from_message_id > 0 ? "older" : "latest";
+  struct Message *items[MAG_TG_MAX_MESSAGES];
+  size_t total = 0;
+  size_t end = 0;
+  size_t start = 0;
   size_t count = 0;
+  long long oldest_id = 0;
+  long long newest_id = 0;
   if (b->live && strcmp(b->auth_state, "ready") == 0) {
-    td_request_chat_history(b, chat_id);
+    td_request_chat_history(b, chat_id, from_message_id);
     poll_tdlib_for(b, MAG_TG_HISTORY_WAIT_MS);
   }
-  snprintf(out, cap, "Mag Telegram messages chat=%lld\n", chat_id);
   for (size_t i = 0; i < b->message_count; i++) {
-    struct Message *m = &b->messages[i];
-    if (m->chat_id != chat_id) continue;
-    appendf(out, cap, "%s%lld: %s\n", m->outgoing ? "me " : "", m->sender_id, m->text);
-    count++;
+    if (b->messages[i].chat_id == chat_id) items[total++] = &b->messages[i];
   }
-  if (count == 0) appendf(out, cap, "No cached text messages for this chat yet.\n");
+  if (total > 1) qsort(items, total, sizeof(items[0]), message_ptr_compare_asc);
+  if (from_message_id > 0) {
+    while (end < total && items[end]->message_id <= from_message_id) end++;
+  } else {
+    end = total;
+  }
+  if (end > MAG_TG_HISTORY_LIMIT) start = end - MAG_TG_HISTORY_LIMIT;
+  count = end > start ? end - start : 0;
+  if (count > 0) {
+    oldest_id = items[start]->message_id;
+    newest_id = items[end - 1]->message_id;
+  }
+  snprintf(out, cap,
+           "Mag Telegram messages chat=%lld\n"
+           "page=%s cached-total=%zu page-count=%zu oldest-id=%lld newest-id=%lld\n",
+           chat_id, page, total, count, oldest_id, newest_id);
+  for (size_t i = start; i < end; i++) {
+    struct Message *m = items[i];
+    if (m->outgoing) appendf(out, cap, "%lld | me: %s\n", m->message_id, m->text);
+    else appendf(out, cap, "%lld | %lld: %s\n", m->message_id, m->sender_id, m->text);
+  }
+  if (count == 0) appendf(out, cap, "No cached text messages for this chat/page yet.\n");
 }
 
 static void command_send(struct Bridge *b, long long chat_id, const char *text, char *out, size_t cap) {
@@ -661,8 +695,17 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
   if (strcmp(cmd, "status") == 0) response_status(b, out, cap);
   else if (strcmp(cmd, "chats") == 0) response_chats(b, out, cap);
   else if (strcmp(cmd, "messages") == 0) {
-    chat_id = strtoll(arg, NULL, 10);
-    response_messages(b, chat_id, out, cap);
+    char *end = NULL;
+    long long from_message_id = 0;
+    chat_id = strtoll(arg, &end, 10);
+    if (end) from_message_id = strtoll(skip_space(end), NULL, 10);
+    response_messages(b, chat_id, from_message_id, out, cap);
+  } else if (strcmp(cmd, "older") == 0) {
+    char *end = NULL;
+    long long from_message_id = 0;
+    chat_id = strtoll(arg, &end, 10);
+    if (end) from_message_id = strtoll(skip_space(end), NULL, 10);
+    response_messages(b, chat_id, from_message_id, out, cap);
   } else if (strcmp(cmd, "send") == 0) {
     char *end = NULL;
     chat_id = strtoll(arg, &end, 10);
@@ -792,15 +835,24 @@ static int self_test(void) {
   handle_request(&b, "messages 1001", out, sizeof(out));
   if (!strstr(out, "hello")) return 1;
   handle_td_update(&b,
-                   "{\"@type\":\"messages\",\"total_count\":1,\"messages\":[{"
+                   "{\"@type\":\"messages\",\"total_count\":2,\"messages\":[{"
                    "\"@type\":\"message\",\"id\":9001,\"chat_id\":4242,"
                    "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":777},"
                    "\"is_outgoing\":false,"
                    "\"content\":{\"@type\":\"messageText\","
                    "\"text\":{\"@type\":\"formattedText\",\"text\":\"history hello\",\"entities\":[]}}"
+                   "},{"
+                   "\"@type\":\"message\",\"id\":9000,\"chat_id\":4242,"
+                   "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":778},"
+                   "\"is_outgoing\":false,"
+                   "\"content\":{\"@type\":\"messageText\","
+                   "\"text\":{\"@type\":\"formattedText\",\"text\":\"older hello\",\"entities\":[]}}"
                    "}]}");
   handle_request(&b, "messages 4242", out, sizeof(out));
   if (!strstr(out, "777: history hello")) return 1;
+  if (!strstr(out, "oldest-id=9000")) return 1;
+  handle_request(&b, "older 4242 9001", out, sizeof(out));
+  if (!strstr(out, "778: older hello")) return 1;
   puts("mag-telegram-bridge self-test ok");
   return 0;
 }

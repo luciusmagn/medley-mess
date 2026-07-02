@@ -93,7 +93,8 @@ Supported requests:
 
 - `status`
 - `chats`
-- `messages CHAT_ID`
+- `messages CHAT_ID [FROM_MESSAGE_ID]`
+- `older CHAT_ID FROM_MESSAGE_ID`
 - `send CHAT_ID TEXT`
 - `auth-phone PHONE`
 - `auth-code CODE`
@@ -113,6 +114,7 @@ Keys:
 - `Enter` / `Right`: open selected chat messages
 - `Left`: return to chats/dashboard
 - `s`: start bridge on dashboard/chats; send a text message in message view
+- `o`: load the next older message page in message view
 - `p`: submit phone number for TDLib auth
 - `v`: submit login verification code
 - `w`: submit 2FA password
@@ -131,6 +133,8 @@ Implemented now:
   `updateMessageSendSucceeded`, and `messages` history responses using a small
   purpose-built JSON extractor
 - recent TDLib chat-history fetch on `messages CHAT_ID`
+- older-page chat-history fetch through `older CHAT_ID FROM_MESSAGE_ID`, using
+  bridge-returned `oldest-id` metadata
 - send text message request construction
 - Medley dashboard, chat list selection, cached message viewing, text send, and
   basic auth prompts
@@ -138,7 +142,7 @@ Implemented now:
 Still intentionally missing:
 
 - robust JSON parser for all TDLib entities
-- message pagination/backscroll beyond the first recent-history page
+- richer message viewport behavior beyond page-at-a-time backscroll
 - contact search and channel joining
 - media rendering, reactions, edits, read receipts
 - a permanent service definition

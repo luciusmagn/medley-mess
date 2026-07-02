@@ -114,6 +114,34 @@
       (SETQ I (ADD1 I))
       (GO LP))])
 
+(MAG-TELEGRAM-META-VALUE
+  [LAMBDA (TEXT KEY)
+    (PROG ((NEEDLE (CONCAT KEY "="))
+           POS START END LEN CH)
+      (SETQ POS (AND TEXT (STRPOS NEEDLE TEXT)))
+      (COND
+        ((NULL POS)
+         (RETURN NIL)))
+      (SETQ START (IPLUS POS (NCHARS NEEDLE)))
+      (SETQ END START)
+      (SETQ LEN (NCHARS TEXT))
+    LP
+      (COND
+        ((IGREATERP END LEN)
+         (RETURN (COND
+                   ((ILEQ START LEN)
+                    (SUBSTRING TEXT START LEN))
+                   (T "")))))
+      (SETQ CH (NTHCHARCODE TEXT END))
+      (COND
+        ((OR (EQ CH 32) (EQ CH 9) (EQ CH 10) (EQ CH 13))
+         (RETURN (COND
+                   ((ILESSP START END)
+                    (SUBSTRING TEXT START (SUB1 END)))
+                   (T "")))))
+      (SETQ END (ADD1 END))
+      (GO LP))])
+
 (MAG-TELEGRAM-VISIBLE-CHAT-ROWS
   [LAMBDA (WINDOW)
     (IMAX 1
@@ -399,21 +427,50 @@
                     (LENGTH CHATS)))
       (MAG-TELEGRAM-DRAW-CHATS WINDOW))])
 
-(MAG-TELEGRAM-SHOW-MESSAGES
-  [LAMBDA (WINDOW CHAT-ID CHAT-LINE)
+(MAG-TELEGRAM-SHOW-MESSAGES-FROM
+  [LAMBDA (WINDOW CHAT-ID CHAT-LINE FROM-ID)
     (COND
       ((AND WINDOW CHAT-ID)
-       (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE 'MESSAGES)
-       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID CHAT-ID)
-       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE CHAT-LINE)
-       (MAG-TELEGRAM-DRAW-TEXT
-         WINDOW
-         (CONCAT "Mag Telegram messages" (MAG-TELEGRAM-LF)
-                 "chat: " (OR CHAT-LINE CHAT-ID) (MAG-TELEGRAM-LF)
-                 "keys: s=send, left/c=chats, r=refresh, q=close"
-                 (MAG-TELEGRAM-LF2)
-                 (MAG-TELEGRAM-BRIDGE (CONCAT "messages " CHAT-ID)))))
+       (PROG ((REQUEST (COND
+                         ((AND FROM-ID (NOT (STREQUAL FROM-ID "0")))
+                          (CONCAT "older " CHAT-ID " " FROM-ID))
+                         (T (CONCAT "messages " CHAT-ID))))
+              TEXT)
+         (SETQ TEXT (MAG-TELEGRAM-BRIDGE REQUEST))
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE 'MESSAGES)
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID CHAT-ID)
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE CHAT-LINE)
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-FROM-ID FROM-ID)
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-OLDEST-ID
+                     (MAG-TELEGRAM-META-VALUE TEXT "oldest-id"))
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-NEWEST-ID
+                     (MAG-TELEGRAM-META-VALUE TEXT "newest-id"))
+         (MAG-TELEGRAM-DRAW-TEXT
+           WINDOW
+           (CONCAT "Mag Telegram messages" (MAG-TELEGRAM-LF)
+                   "chat: " (OR CHAT-LINE CHAT-ID) (MAG-TELEGRAM-LF)
+                   "keys: s=send, o=older, left/c=chats, r=refresh, q=close"
+                   (MAG-TELEGRAM-LF2)
+                   TEXT))))
       (T NIL))])
+
+(MAG-TELEGRAM-SHOW-MESSAGES
+  [LAMBDA (WINDOW CHAT-ID CHAT-LINE)
+    (MAG-TELEGRAM-SHOW-MESSAGES-FROM WINDOW CHAT-ID CHAT-LINE NIL)])
+
+(MAG-TELEGRAM-SHOW-OLDER-MESSAGES
+  [LAMBDA (WINDOW)
+    (PROG ((CHAT-ID (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID))
+           (CHAT-LINE (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE))
+           (OLDEST-ID (WINDOWPROP WINDOW 'MAG-TELEGRAM-OLDEST-ID)))
+      (COND
+        ((AND CHAT-ID OLDEST-ID (NOT (STREQUAL OLDEST-ID "0")))
+         (MAG-TELEGRAM-SHOW-MESSAGES-FROM WINDOW CHAT-ID CHAT-LINE OLDEST-ID))
+        (T
+         (MAG-TELEGRAM-DRAW-TEXT
+           WINDOW
+           (CONCAT "No older message cursor for this page."
+                   (MAG-TELEGRAM-LF))))))])
 
 (MAG-TELEGRAM-OPEN-SELECTED-CHAT
   [LAMBDA (WINDOW)
@@ -471,10 +528,11 @@
     (AND WINDOW
          (SELECTQ (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE)
            (CHATS (MAG-TELEGRAM-SHOW-CHATS WINDOW))
-           (MESSAGES (MAG-TELEGRAM-SHOW-MESSAGES
+           (MESSAGES (MAG-TELEGRAM-SHOW-MESSAGES-FROM
                        WINDOW
                        (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID)
-                       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE)))
+                       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE)
+                       (WINDOWPROP WINDOW 'MAG-TELEGRAM-FROM-ID)))
            (MAG-TELEGRAM-SHOW-DASHBOARD WINDOW)))])
 
 (MAG-TELEGRAM-ACTIVE-WINDOW
@@ -531,6 +589,9 @@
                (MAG-TELEGRAM-REFRESH WINDOW))))
            (99
             (MAG-TELEGRAM-SHOW-CHATS WINDOW))
+           (111
+            (AND (EQ MODE 'MESSAGES)
+                 (MAG-TELEGRAM-SHOW-OLDER-MESSAGES WINDOW)))
            (112
             (MAG-TELEGRAM-AUTH-PROMPT "phone" "telegram phone")
             (MAG-TELEGRAM-REFRESH WINDOW))
