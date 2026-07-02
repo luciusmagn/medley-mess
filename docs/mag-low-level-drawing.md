@@ -125,6 +125,10 @@ that window.
   bytes: up `ESC [ A`, down `ESC [ B`, right `ESC [ C`, left `ESC [ D`.
   Do not rotate Lisp's raw-key decoder to compensate for libghostty encoder
   behavior.
+- Maiko command 59 decodes raw Medley key codes into the same terminal key-id
+  convention used by command 25. `MAG-VTERM-SPECIAL-KEYID` should use it when
+  available and keep its Lisp table only as a compatibility fallback for old
+  binaries.
 - Physical X arrow keys should enter Mag raw `\GETKEY` windows as keypad-style
   codes: `82` up, `69` down, `87` right, `84` left.  The Lisp decoder also
   accepts dedicated `129..132` codes for direct/synthetic compatibility, but
@@ -185,6 +189,9 @@ that window.
 - `UNIX-HANDLECOMM 58` exports Maiko's in-memory `DisplayRegion68k` screen to
   `/tmp/medley-mag-screenshot.ppm` as black on Acme off-white and returns a
   compact status report. It does not depend on X focus.
+- `UNIX-HANDLECOMM 59` maps raw Medley key codes such as `57344` and high-byte
+  fallback keypad codes such as `338` to canonical Mag terminal key ids. This
+  keeps Mag Shell and Gopher on the same Maiko-owned decoder.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell

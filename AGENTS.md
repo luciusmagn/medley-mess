@@ -203,10 +203,23 @@ CSI bytes instead of routing them through libghostty's key encoder. If Mag
 Shell arrows are swapped while `keys-test` is correct, inspect that direct CSI
 fast path before changing any Lisp decoder table.
 
+Maiko command 59 is the canonical raw Medley key-code decoder for Mag terminal
+navigation keys. `MAG-VTERM-SPECIAL-KEYID` should ask command 59 when the
+running binary reports `unix-handlecomm-max >= 59` and use the Lisp table only
+as an old-binary fallback. Gopher delegates to `MAG-VTERM-SPECIAL-KEYID`.
+Do not add another Lisp-side arrow table.
+
 `MAG-VTERM-SEND-KEY` must not contain a second raw arrow table. It should map
 raw Medley key codes through `MAG-VTERM-SPECIAL-KEYID` and then write through
 command 25 or `MAG-VTERM-WRITE-KEYID-FALLBACK`. Reintroducing inline
 `57344`/`57345`/`57346`/`57347` CSI writes makes future rotations easy.
+
+X keyboard events should enter through Maiko's exported `maiko_handle_X_key`
+path in `xwinman.c`. That path contains the Czech-compatible `XLookupString`
+translation, fixed physical arrow mapping to keypad-style Medley key codes
+(`82` up, `69` down, `87` right, `84` left), shift synthesis/neutralization,
+`kb_trans`, and `DoRing`. Do not restore old `lisp_Xkeyboard` or other
+parallel X-key translators.
 
 When debugging, test Mag Shell first with Fish autosuggestions and Codex
 selection UIs. Right arrow should accept a Fish autosuggestion; left arrow
