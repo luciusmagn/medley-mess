@@ -227,6 +227,10 @@ For live evidence, use the Medley RPC bridge:
   to the host-side bridge file protocol. Use it for parameterized Telegram
   operations such as `auth-phone`, `auth-code`, `messages`, `send`, and
   `mark-read`; do not add Lisp or shell-quoted one-off paths for those.
+- `/home/mag/shodan-telegram-session` contains API credentials plus a grammers
+  JSON MTProto session. The credentials are usable by the current TDLib bridge,
+  but the session file is not a TDLib database. A future grammers/Rust backend
+  should copy that session into its own state directory before writing it.
 - `close-gopher` closes the remembered active Mag Gopher window. Use it to
   clean up windows opened by `open-gopher`, `gopher-test-page`, or
   `gopher-self-test` during diagnostics.

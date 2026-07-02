@@ -106,6 +106,17 @@ The bridge stores TDLib database files below
 explicit `libtdjson.so` path if it is not discoverable by the dynamic linker.
 Set `MAG_TELEGRAM_CONFIG` to use a non-default config file.
 
+## SHODAN MTProto Session
+
+`~/shodan-telegram-session` contains a grammers JSON MTProto session plus API
+credentials copied from SHODAN. The API id/hash are usable by the current TDLib
+bridge config, but the session file itself is not a TDLib database and cannot
+be imported by this C/TDLib backend.
+
+A future grammers/Rust backend can use a copy of that session to avoid a fresh
+phone/code login. Do not let two clients write the same session file
+concurrently; copy it into a backend-owned state directory before using it.
+
 ## Protocol Files
 
 The daemon reads `/tmp/mag-telegram-request` and writes
