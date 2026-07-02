@@ -29,6 +29,7 @@
 	         (GETD 'MAG-CODEX)
 		         (GETD 'MAG-RUN)
 		         (GETD 'MAG-GOPHER)
+		         (GETD 'MAG-TELEGRAM)
 		         (GETD 'MAG-DEBUG-SHOW)
 		         (GETD 'MAG-DEBUG-KEY-PROBE)
 		         (GETD 'MAG-DEBUG-RPC-START)
@@ -176,6 +177,11 @@
     (MAG-DISPATCH-ASYNC 'MAG-GOPHER 'MAG-BOOT-GOPHER)
     "opening Mag Gopher"])
 
+(MAG-BOOT-TELEGRAM
+  [LAMBDA NIL
+    (MAG-DISPATCH-ASYNC 'MAG-TELEGRAM 'MAG-BOOT-TELEGRAM)
+    "opening Mag Telegram"])
+
 (MAG-BOOT-DEBUG
   [LAMBDA NIL
     (MAG-DISPATCH-ASYNC 'MAG-DEBUG-SHOW 'MAG-BOOT-DEBUG)
@@ -223,6 +229,9 @@
     [OR (SASSOC "Mag Gopher" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Gopher" '(MAG-BOOT-GOPHER)
                                                       "Open the gopher client rendered in a Medley window"))]
+    [OR (SASSOC "Mag Telegram" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Telegram" '(MAG-BOOT-TELEGRAM)
+                                                        "Open the Telegram client rendered in Medley windows"))]
     [OR (SASSOC "Mag Debug" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Debug" '(MAG-BOOT-DEBUG)
                                                      "Show Maiko/Medley Mag debug status"))]
