@@ -169,6 +169,8 @@ Implemented now:
 - TDLib main chat-list ordering from chat position updates
 - C-side chat kind classification for private chats, basic groups,
   supergroups, channels, and secret chats
+- compact chat previews from TDLib unread counts and last-message updates,
+  rendered as `unread=N :: sender: text` in chat listings
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
   purpose-built JSON extractor

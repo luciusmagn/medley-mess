@@ -42,6 +42,11 @@ struct Chat {
   char title[256];
   char kind[48];
   long long order;
+  long long unread_count;
+  long long last_message_id;
+  long long last_sender_id;
+  bool last_outgoing;
+  char last_text[384];
 };
 
 struct Message {
@@ -80,6 +85,8 @@ struct Bridge {
 };
 
 static volatile sig_atomic_t g_stop = 0;
+
+static void td_request_user(struct Bridge *b, long long user_id);
 
 static void on_signal(int signo) {
   (void)signo;
@@ -354,6 +361,24 @@ static const char *json_object_end(const char *p) {
   return NULL;
 }
 
+static bool json_find_object_after_key(const char *json, const char *key, const char **start, const char **end) {
+  char needle[128];
+  const char *p;
+  const char *e;
+  snprintf(needle, sizeof(needle), "\"%s\"", key);
+  p = strstr(json, needle);
+  if (!p) return false;
+  p = strchr(p + strlen(needle), ':');
+  if (!p) return false;
+  p = skip_space(p + 1);
+  if (*p != '{') return false;
+  e = json_object_end(p);
+  if (!e) return false;
+  *start = p;
+  *end = e;
+  return true;
+}
+
 static const char *chat_kind_from_json(const char *json) {
   bool is_channel = false;
   if (strstr(json, "chatTypePrivate")) return "private";
@@ -402,6 +427,19 @@ static void set_user_name(struct Bridge *b, long long id, const char *name) {
   copy_str(user->name, sizeof(user->name), name && name[0] ? name : "unknown");
 }
 
+static const char *sender_label_id(struct Bridge *b, long long sender_id, bool outgoing, char *buf, size_t cap) {
+  struct User *user;
+  struct Chat *chat;
+  if (outgoing) return "me";
+  if (sender_id == 0) return "system";
+  user = find_user(b, sender_id, false);
+  if (user && user->name[0]) return user->name;
+  chat = lookup_chat(b, sender_id);
+  if (chat && chat->title[0]) return chat->title;
+  snprintf(buf, cap, "%lld", sender_id);
+  return buf;
+}
+
 static bool message_text_from_json(const char *json, char *text, size_t cap) {
   char caption[512];
   if (strstr(json, "messageText") &&
@@ -415,6 +453,54 @@ static bool message_text_from_json(const char *json, char *text, size_t cap) {
   }
   copy_str(text, cap, "[non-text message]");
   return false;
+}
+
+static bool message_fields_from_json(struct Bridge *b, const char *json, long long *chat_id,
+                                     long long *message_id, long long *sender_id,
+                                     bool *outgoing, char *text, size_t text_cap) {
+  if (!json_extract_i64(json, "chat_id", chat_id)) return false;
+  if (!json_extract_i64(json, "id", message_id)) *message_id = (long long)time(NULL);
+  if (!json_extract_i64_after(json, "messageSenderUser", "user_id", sender_id)) {
+    json_extract_i64_after(json, "messageSenderChat", "chat_id", sender_id);
+  }
+  *outgoing = strstr(json, "\"is_outgoing\":true") != NULL;
+  if (*sender_id != 0 && strstr(json, "messageSenderUser")) td_request_user(b, *sender_id);
+  message_text_from_json(json, text, text_cap);
+  return true;
+}
+
+static void set_chat_summary(struct Chat *chat, long long message_id, long long sender_id,
+                             bool outgoing, const char *text) {
+  size_t len;
+  if (!chat || !text || !text[0]) return;
+  if (message_id > 0 && chat->last_message_id > 0 && message_id < chat->last_message_id) return;
+  chat->last_message_id = message_id;
+  chat->last_sender_id = sender_id;
+  chat->last_outgoing = outgoing;
+  len = strlen(text);
+  if (len >= sizeof(chat->last_text)) len = sizeof(chat->last_text) - 1;
+  memcpy(chat->last_text, text, len);
+  chat->last_text[len] = 0;
+}
+
+static void clear_chat_summary(struct Chat *chat) {
+  if (!chat) return;
+  chat->last_message_id = 0;
+  chat->last_sender_id = 0;
+  chat->last_outgoing = false;
+  chat->last_text[0] = 0;
+}
+
+static bool update_chat_summary_from_message_json(struct Bridge *b, const char *json) {
+  long long chat_id = 0, message_id = 0, sender_id = 0;
+  bool outgoing = false;
+  char text[512];
+  struct Chat *chat;
+  if (!message_fields_from_json(b, json, &chat_id, &message_id, &sender_id, &outgoing, text, sizeof(text))) return false;
+  chat = find_chat(b, chat_id);
+  if (!chat) return false;
+  set_chat_summary(chat, message_id, sender_id, outgoing, text);
+  return true;
 }
 
 static void add_message(struct Bridge *b, long long chat_id, long long message_id, long long sender_id,
@@ -480,8 +566,11 @@ static void init_mock(struct Bridge *b) {
   set_user_name(b, 42, "Mock Group Friend");
   set_user_name(b, 77, "Mock Channel Admin");
   add_message(b, 1001, 1, 0, false, "Mock bridge is running. Install tdlib and set API credentials for live Telegram.");
+  set_chat_summary(lookup_chat(b, 1001), 1, 0, false, "Mock bridge is running. Install tdlib and set API credentials for live Telegram.");
   add_message(b, 1002, 1, 42, false, "This is group text; no images/reactions are needed for the first Medley client.");
+  set_chat_summary(lookup_chat(b, 1002), 1, 42, false, "This is group text; no images/reactions are needed for the first Medley client.");
   add_message(b, 1003, 1, 77, false, "Channel post text will render through the same message path.");
+  set_chat_summary(lookup_chat(b, 1003), 1, 77, false, "Channel post text will render through the same message path.");
 }
 
 static bool ensure_dir(const char *path) {
@@ -737,12 +826,14 @@ static void handle_error_response(struct Bridge *b, const char *json) {
 static void handle_chat_update(struct Bridge *b, const char *json) {
   long long id = 0;
   long long order = 0;
+  long long unread = 0;
   char title[256];
   struct Chat *chat;
   if (!strstr(json, "updateNewChat") &&
       !strstr(json, "updateChatTitle") &&
       !strstr(json, "updateChatPosition") &&
       !strstr(json, "updateChatLastMessage") &&
+      !strstr(json, "updateChatReadInbox") &&
       !strstr(json, "updateChatDraftMessage")) {
     return;
   }
@@ -754,7 +845,22 @@ static void handle_chat_update(struct Bridge *b, const char *json) {
       json_extract_i64(json, "order", &order)) {
     chat->order = order;
   }
+  if (json_extract_i64(json, "unread_count", &unread)) chat->unread_count = unread;
   if (chat->kind[0] == 0) copy_str(chat->kind, sizeof(chat->kind), chat_kind_from_json(json));
+  if (strstr(json, "last_message")) {
+    const char *start = NULL;
+    const char *end = NULL;
+    if (strstr(json, "\"last_message\":null")) {
+      clear_chat_summary(chat);
+    } else if (json_find_object_after_key(json, "last_message", &start, &end) &&
+        start && end && end > start && (size_t)(end - start) < 8192) {
+      char message[8192];
+      size_t len = (size_t)(end - start);
+      memcpy(message, start, len);
+      message[len] = 0;
+      update_chat_summary_from_message_json(b, message);
+    }
+  }
 }
 
 static void handle_user_update(struct Bridge *b, const char *json) {
@@ -779,14 +885,8 @@ static void handle_user_update(struct Bridge *b, const char *json) {
 static void cache_message_object(struct Bridge *b, const char *json) {
   long long chat_id = 0, id = 0, sender_id = 0;
   char text[512];
-  bool outgoing = strstr(json, "\"is_outgoing\":true") != NULL;
-  if (!json_extract_i64(json, "chat_id", &chat_id)) return;
-  if (!json_extract_i64(json, "id", &id)) id = (long long)time(NULL);
-  if (!json_extract_i64_after(json, "messageSenderUser", "user_id", &sender_id)) {
-    json_extract_i64_after(json, "messageSenderChat", "chat_id", &sender_id);
-  }
-  if (sender_id != 0 && strstr(json, "messageSenderUser")) td_request_user(b, sender_id);
-  message_text_from_json(json, text, sizeof(text));
+  bool outgoing = false;
+  if (!message_fields_from_json(b, json, &chat_id, &id, &sender_id, &outgoing, text, sizeof(text))) return;
   add_message(b, chat_id, id, sender_id, outgoing, text);
 }
 
@@ -794,7 +894,9 @@ static void handle_message_update(struct Bridge *b, const char *json) {
   const char *message;
   if (!strstr(json, "updateNewMessage") && !strstr(json, "updateMessageSendSucceeded")) return;
   message = strstr(json, "\"@type\":\"message\"");
-  cache_message_object(b, message ? message : json);
+  if (!message) message = json;
+  cache_message_object(b, message);
+  update_chat_summary_from_message_json(b, message);
 }
 
 static void handle_messages_response(struct Bridge *b, const char *json) {
@@ -934,22 +1036,22 @@ static void response_chats(struct Bridge *b, char *out, size_t cap) {
   if (b->chat_count > 1) qsort(items, b->chat_count, sizeof(items[0]), chat_ptr_compare_desc);
   for (size_t i = 0; i < b->chat_count; i++) {
     struct Chat *chat = items[i];
-    appendf(out, cap, "%lld [%s] %s\n", chat->id,
+    char label[256];
+    appendf(out, cap, "%lld [%s] %s", chat->id,
             chat->kind[0] ? chat->kind : "chat",
             chat->title[0] ? chat->title : "(untitled)");
+    if (chat->unread_count > 0) appendf(out, cap, " unread=%lld", chat->unread_count);
+    if (chat->last_text[0]) {
+      appendf(out, cap, " :: %s: %s",
+              sender_label_id(b, chat->last_sender_id, chat->last_outgoing, label, sizeof(label)),
+              chat->last_text);
+    }
+    appendf(out, cap, "\n");
   }
 }
 
 static const char *sender_label(struct Bridge *b, struct Message *m, char *buf, size_t cap) {
-  struct User *user;
-  struct Chat *chat;
-  if (m->outgoing) return "me";
-  user = find_user(b, m->sender_id, false);
-  if (user && user->name[0]) return user->name;
-  chat = lookup_chat(b, m->sender_id);
-  if (chat && chat->title[0]) return chat->title;
-  snprintf(buf, cap, "%lld", m->sender_id);
-  return buf;
+  return sender_label_id(b, m->sender_id, m->outgoing, buf, cap);
 }
 
 static void build_send_message_request(long long chat_id, const char *text, char *req, size_t cap) {
@@ -1009,7 +1111,9 @@ static void command_send(struct Bridge *b, long long chat_id, const char *text, 
     td_send_json(b, req);
     snprintf(out, cap, "sent text request chat=%lld\n", chat_id);
   } else {
-    add_message(b, chat_id, (long long)time(NULL), 0, true, text);
+    long long message_id = (long long)time(NULL);
+    add_message(b, chat_id, message_id, 0, true, text);
+    set_chat_summary(find_chat(b, chat_id), message_id, 0, true, text);
     snprintf(out, cap, "mock sent chat=%lld\n", chat_id);
   }
 }
@@ -1339,6 +1443,27 @@ static int self_test(void) {
                    "{\"@type\":\"updateUser\",\"user\":{\"@type\":\"user\",\"id\":778,"
                    "\"first_name\":\"Bob\",\"last_name\":\"Older\",\"username\":\"bob\"}}");
   handle_td_update(&b,
+                   "{\"@type\":\"updateNewChat\",\"chat\":{\"@type\":\"chat\",\"id\":4260,"
+                   "\"title\":\"Summary Group\",\"type\":{\"@type\":\"chatTypeBasicGroup\"},"
+                   "\"positions\":[{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"50\"}]}}");
+  handle_td_update(&b,
+                   "{\"@type\":\"updateChatLastMessage\",\"chat_id\":4260,"
+                   "\"last_message\":{\"@type\":\"message\",\"id\":9015,\"chat_id\":4260,"
+                   "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":777},"
+                   "\"is_outgoing\":false,"
+                   "\"content\":{\"@type\":\"messageText\","
+                   "\"text\":{\"@type\":\"formattedText\",\"text\":\"latest summary\",\"entities\":[]}}},"
+                   "\"positions\":[{\"@type\":\"chatPosition\",\"list\":{\"@type\":\"chatListMain\"},\"order\":\"60\"}],"
+                   "\"unread_count\":5}");
+  handle_request(&b, "chats", out, sizeof(out));
+  if (!strstr(out, "4260 [group] Summary Group unread=5 :: Alice Example: latest summary")) return 1;
+  handle_td_update(&b,
+                   "{\"@type\":\"updateChatLastMessage\",\"chat_id\":4260,"
+                   "\"last_message\":null,\"unread_count\":0}");
+  handle_request(&b, "chats", out, sizeof(out));
+  if (strstr(out, "4260 [group] Summary Group unread=5")) return 1;
+  if (strstr(out, "latest summary")) return 1;
+  handle_td_update(&b,
                    "{\"@type\":\"messages\",\"total_count\":2,\"messages\":[{"
                    "\"@type\":\"message\",\"id\":9001,\"chat_id\":4242,"
                    "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":777},"
@@ -1366,6 +1491,8 @@ static int self_test(void) {
                    "\"caption\":{\"@type\":\"formattedText\",\"text\":\"caption hello\",\"entities\":[]}}}}");
   handle_request(&b, "messages 4242", out, sizeof(out));
   if (!strstr(out, "Alice Example: [caption] caption hello")) return 1;
+  handle_request(&b, "chats", out, sizeof(out));
+  if (!strstr(out, "4242 [chat] (untitled) :: Alice Example: [caption] caption hello")) return 1;
   puts("mag-telegram-bridge self-test ok");
   return 0;
 }
