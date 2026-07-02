@@ -19,6 +19,20 @@
 
 (DEFINEQ
 
+(NU\TOTOPWDS
+  [LAMBDA (DS NOTOTOPFNFLG)
+    (PROG (WINDOW)
+      (RETURN
+        (AND (FMEMB (DSPDESTINATION NIL DS)
+                    \SCREENBITMAPS)
+             (COND
+               (NOTOTOPFNFLG
+                (TOTOPW (WFROMDS DS)
+                        NOTOTOPFNFLG))
+               ((AND (SETQ WINDOW (WFROMDS DS T))
+                     (WINDOWPROP WINDOW 'RAISEONACCESS))
+                (TOTOPW WINDOW NOTOTOPFNFLG))))))])
+
 (MAG-UNIX-HANDLECOMM1
   [LAMBDA (A)
     (CL:FUNCALL
@@ -328,5 +342,7 @@
                    (CHARCODE (EOL ESCAPE LF TAB)))])
 
 )
+
+(MOVD 'NU\TOTOPWDS '\TOTOPWDS)
 
 STOP

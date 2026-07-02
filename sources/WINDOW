@@ -1862,15 +1862,16 @@ Middle button down moves closest corner.")
                           (CREATEW NIL NIL NIL T])
 
 (NU\TOTOPWDS
-  [LAMBDA (DS NOTOTOPFNFLG)                              (* ; "Edited 17-Aug-88 19:37 by jds")
-                                                             (* ; 
-                                                  "Moves the window of displaystream DS to the top")
-    (AND (FMEMB (DSPDESTINATION NIL DS)
-                \SCREENBITMAPS)
-         (TOTOPW (WFROMDS DS)
-                NOTOTOPFNFLG])
-
-(\COERCETODS
+  [LAMBDA (DS NOTOTOPFNFLG)
+    (PROG (W)
+          (AND (FMEMB (DSPDESTINATION NIL DS)
+                      \SCREENBITMAPS)
+               (OR NOTOTOPFNFLG
+                   (AND (SETQ W (WFROMDS DS T))
+                        (WINDOWPROP W 'RAISEONACCESS)))
+               (TOTOPW (OR W (WFROMDS DS))
+                      NOTOTOPFNFLG)))])
+                                                                    (\COERCETODS
   [LAMBDA (X)                                            (* rrb "23-OCT-81 13:29")
 
     (* ;; "Called from \SFInsureDisplayStream macro.  Compiles open in system code, closed call in user code, and equivalent to \ILLEGAL.ARG if no window package.")

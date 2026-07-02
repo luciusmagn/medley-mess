@@ -82,6 +82,22 @@ glyph descenders by about a pixel; text should use the padded baseline.
 - `CLEARW window`: clear an entire window. Avoid this for selection moves; prefer row-level redraw.
 - `DSPCREATE` and `BITMAPCREATE`: create off-screen drawing targets for cached redraws.
 
+## Draw-Time Window Raising
+
+Display-stream drawing used to call `\INSURETOPWDS`, which in turn called
+`\TOTOPWDS` for screen-backed streams and raised the destination window as a
+side effect of ordinary refresh.  That made background Telegram, Mag Shell, and
+Gopher refreshes steal focus.
+
+`NU\TOTOPWDS` now treats draw-time calls as opt-in.  When `NOTOTOPFNFLG` is
+non-NIL, structural callers such as close/open/top management still move the
+window to top without running top fns.  When `NOTOTOPFNFLG` is NIL, drawing
+only raises the destination window if the window has `RAISEONACCESS` set.
+
+Do not restore implicit raise-on-refresh.  If a window really needs old
+draw-time topping semantics, set `(WINDOWPROP window 'RAISEONACCESS T)` for
+that window.
+
 ## Performance Rules
 
 - Avoid full-window `CLEARW`/repaint on small state changes. Gopher selection movement should redraw old/new rows when the viewport does not change.
