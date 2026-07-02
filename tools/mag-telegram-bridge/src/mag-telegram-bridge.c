@@ -1,0 +1,686 @@
+#define _POSIX_C_SOURCE 200809L
+
+#include <ctype.h>
+#include <dlfcn.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
+#define MAG_TG_REQUEST_PATH "/tmp/mag-telegram-request"
+#define MAG_TG_RESPONSE_PATH "/tmp/mag-telegram-response"
+#define MAG_TG_PID_PATH "/tmp/mag-telegram-bridge.pid"
+#define MAG_TG_MAX_TEXT 4096
+#define MAG_TG_MAX_CHATS 256
+#define MAG_TG_MAX_MESSAGES 1024
+
+struct TdApi {
+  void *handle;
+  void *client;
+  void *(*create)(void);
+  void (*send)(void *, const char *);
+  const char *(*receive)(void *, double);
+  const char *(*execute)(void *, const char *);
+  void (*destroy)(void *);
+};
+
+struct Chat {
+  long long id;
+  char title[256];
+  char kind[48];
+  long long order;
+};
+
+struct Message {
+  long long chat_id;
+  long long message_id;
+  long long sender_id;
+  bool outgoing;
+  char text[512];
+};
+
+struct Bridge {
+  bool live;
+  bool stop;
+  char backend[32];
+  char auth_state[96];
+  char last_error[512];
+  char data_dir[512];
+  char files_dir[512];
+  char api_id[64];
+  char api_hash[256];
+  char encryption_key[256];
+  struct TdApi td;
+  struct Chat chats[MAG_TG_MAX_CHATS];
+  size_t chat_count;
+  struct Message messages[MAG_TG_MAX_MESSAGES];
+  size_t message_count;
+};
+
+static volatile sig_atomic_t g_stop = 0;
+
+static void on_signal(int signo) {
+  (void)signo;
+  g_stop = 1;
+}
+
+static const char *env_or(const char *name, const char *fallback) {
+  const char *value = getenv(name);
+  return (value && value[0]) ? value : fallback;
+}
+
+static void copy_str(char *dst, size_t cap, const char *src) {
+  if (cap == 0) return;
+  if (!src) src = "";
+  snprintf(dst, cap, "%s", src);
+}
+
+static void appendf(char *dst, size_t cap, const char *fmt, ...) {
+  size_t len;
+  va_list ap;
+  if (cap == 0) return;
+  len = strlen(dst);
+  if (len >= cap - 1) return;
+  va_start(ap, fmt);
+  vsnprintf(dst + len, cap - len, fmt, ap);
+  va_end(ap);
+}
+
+static char *read_file(const char *path) {
+  FILE *f = fopen(path, "rb");
+  long len;
+  char *buf;
+  if (!f) return NULL;
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return NULL;
+  }
+  len = ftell(f);
+  if (len < 0) {
+    fclose(f);
+    return NULL;
+  }
+  rewind(f);
+  buf = calloc((size_t)len + 1, 1);
+  if (!buf) {
+    fclose(f);
+    return NULL;
+  }
+  if (len > 0 && fread(buf, 1, (size_t)len, f) != (size_t)len) {
+    free(buf);
+    fclose(f);
+    return NULL;
+  }
+  fclose(f);
+  return buf;
+}
+
+static bool write_file_atomic(const char *path, const char *text) {
+  char tmp[512];
+  FILE *f;
+  snprintf(tmp, sizeof(tmp), "%s.%ld.tmp", path, (long)getpid());
+  f = fopen(tmp, "wb");
+  if (!f) return false;
+  if (text && fputs(text, f) == EOF) {
+    fclose(f);
+    unlink(tmp);
+    return false;
+  }
+  if (fclose(f) != 0) {
+    unlink(tmp);
+    return false;
+  }
+  return rename(tmp, path) == 0;
+}
+
+static bool process_alive(long pid) {
+  if (pid <= 0) return false;
+  if (kill((pid_t)pid, 0) == 0) return true;
+  return errno == EPERM;
+}
+
+static bool daemon_already_running(void) {
+  char *text = read_file(MAG_TG_PID_PATH);
+  long pid;
+  if (!text) return false;
+  pid = strtol(text, NULL, 10);
+  free(text);
+  if (process_alive(pid)) return true;
+  unlink(MAG_TG_PID_PATH);
+  return false;
+}
+
+static void write_pid_file(void) {
+  char text[64];
+  snprintf(text, sizeof(text), "%ld\n", (long)getpid());
+  write_file_atomic(MAG_TG_PID_PATH, text);
+}
+
+static void trim_right(char *s) {
+  size_t n;
+  if (!s) return;
+  n = strlen(s);
+  while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t')) {
+    s[--n] = 0;
+  }
+}
+
+static const char *skip_space(const char *p) {
+  while (*p && isspace((unsigned char)*p)) p++;
+  return p;
+}
+
+static void sleep_ms(long ms) {
+  struct timespec req;
+  req.tv_sec = ms / 1000;
+  req.tv_nsec = (ms % 1000) * 1000000L;
+  while (nanosleep(&req, &req) != 0 && errno == EINTR) {
+  }
+}
+
+static void json_escape(const char *src, char *dst, size_t cap) {
+  size_t used = 0;
+  if (cap == 0) return;
+  dst[0] = 0;
+  if (!src) return;
+  for (; *src && used + 1 < cap; src++) {
+    unsigned char ch = (unsigned char)*src;
+    const char *rep = NULL;
+    char hex[7];
+    if (ch == '"') rep = "\\\"";
+    else if (ch == '\\') rep = "\\\\";
+    else if (ch == '\n') rep = "\\n";
+    else if (ch == '\r') rep = "\\r";
+    else if (ch == '\t') rep = "\\t";
+    else if (ch < 32) {
+      snprintf(hex, sizeof(hex), "\\u%04x", ch);
+      rep = hex;
+    }
+    if (rep) {
+      size_t rlen = strlen(rep);
+      if (used + rlen >= cap) break;
+      memcpy(dst + used, rep, rlen);
+      used += rlen;
+    } else {
+      dst[used++] = (char)ch;
+    }
+  }
+  dst[used] = 0;
+}
+
+static bool json_extract_string(const char *json, const char *key, char *out, size_t cap) {
+  char needle[128];
+  const char *p;
+  size_t n = 0;
+  snprintf(needle, sizeof(needle), "\"%s\"", key);
+  p = strstr(json, needle);
+  if (!p) return false;
+  p = strchr(p + strlen(needle), ':');
+  if (!p) return false;
+  p = skip_space(p + 1);
+  if (*p != '"') return false;
+  p++;
+  while (*p && *p != '"' && n + 1 < cap) {
+    if (*p == '\\' && p[1]) {
+      p++;
+      switch (*p) {
+        case 'n': out[n++] = '\n'; break;
+        case 'r': out[n++] = '\r'; break;
+        case 't': out[n++] = '\t'; break;
+        case '"': out[n++] = '"'; break;
+        case '\\': out[n++] = '\\'; break;
+        default: out[n++] = *p; break;
+      }
+    } else {
+      out[n++] = *p;
+    }
+    p++;
+  }
+  out[n] = 0;
+  return true;
+}
+
+static bool json_extract_i64(const char *json, const char *key, long long *out) {
+  char needle[128];
+  const char *p;
+  char *end = NULL;
+  snprintf(needle, sizeof(needle), "\"%s\"", key);
+  p = strstr(json, needle);
+  if (!p) return false;
+  p = strchr(p + strlen(needle), ':');
+  if (!p) return false;
+  p = skip_space(p + 1);
+  errno = 0;
+  *out = strtoll(p, &end, 10);
+  return errno == 0 && end && end != p;
+}
+
+static const char *chat_kind_from_json(const char *json) {
+  if (strstr(json, "chatTypePrivate")) return "private";
+  if (strstr(json, "chatTypeBasicGroup")) return "group";
+  if (strstr(json, "chatTypeSupergroup")) return "supergroup/channel";
+  if (strstr(json, "chatTypeSecret")) return "secret";
+  return "chat";
+}
+
+static struct Chat *find_chat(struct Bridge *b, long long id) {
+  for (size_t i = 0; i < b->chat_count; i++) {
+    if (b->chats[i].id == id) return &b->chats[i];
+  }
+  if (b->chat_count >= MAG_TG_MAX_CHATS) return NULL;
+  b->chats[b->chat_count].id = id;
+  b->chats[b->chat_count].title[0] = 0;
+  b->chats[b->chat_count].kind[0] = 0;
+  b->chats[b->chat_count].order = 0;
+  return &b->chats[b->chat_count++];
+}
+
+static void add_message(struct Bridge *b, long long chat_id, long long message_id, long long sender_id,
+                        bool outgoing, const char *text) {
+  struct Message *m;
+  if (b->message_count >= MAG_TG_MAX_MESSAGES) {
+    memmove(&b->messages[0], &b->messages[1], sizeof(b->messages[0]) * (MAG_TG_MAX_MESSAGES - 1));
+    b->message_count = MAG_TG_MAX_MESSAGES - 1;
+  }
+  m = &b->messages[b->message_count++];
+  m->chat_id = chat_id;
+  m->message_id = message_id;
+  m->sender_id = sender_id;
+  m->outgoing = outgoing;
+  copy_str(m->text, sizeof(m->text), text && text[0] ? text : "[non-text message]");
+}
+
+static void init_mock(struct Bridge *b) {
+  struct Chat *c;
+  copy_str(b->backend, sizeof(b->backend), "mock");
+  copy_str(b->auth_state, sizeof(b->auth_state), "mock-ready");
+  c = find_chat(b, 1001);
+  copy_str(c->title, sizeof(c->title), "Saved Messages");
+  copy_str(c->kind, sizeof(c->kind), "private");
+  c = find_chat(b, 1002);
+  copy_str(c->title, sizeof(c->title), "Lisp Notes Group");
+  copy_str(c->kind, sizeof(c->kind), "group");
+  c = find_chat(b, 1003);
+  copy_str(c->title, sizeof(c->title), "Systems Channel");
+  copy_str(c->kind, sizeof(c->kind), "channel");
+  add_message(b, 1001, 1, 0, false, "Mock bridge is running. Install tdlib and set API credentials for live Telegram.");
+  add_message(b, 1002, 1, 42, false, "This is group text; no images/reactions are needed for the first Medley client.");
+  add_message(b, 1003, 1, 77, false, "Channel post text will render through the same message path.");
+}
+
+static bool ensure_dir(const char *path) {
+  char tmp[512];
+  size_t len;
+  copy_str(tmp, sizeof(tmp), path);
+  len = strlen(tmp);
+  if (len == 0) return false;
+  for (char *p = tmp + 1; *p; p++) {
+    if (*p == '/') {
+      *p = 0;
+      mkdir(tmp, 0700);
+      *p = '/';
+    }
+  }
+  return mkdir(tmp, 0700) == 0 || errno == EEXIST;
+}
+
+static bool load_tdlib(struct Bridge *b) {
+  const char *lib = getenv("MAG_TELEGRAM_TDLIB_LIBRARY");
+  if (!lib || !lib[0]) lib = "libtdjson.so";
+  b->td.handle = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+  if (!b->td.handle) {
+    snprintf(b->last_error, sizeof(b->last_error), "dlopen failed for %s: %s", lib, dlerror());
+    return false;
+  }
+  b->td.create = dlsym(b->td.handle, "td_json_client_create");
+  b->td.send = dlsym(b->td.handle, "td_json_client_send");
+  b->td.receive = dlsym(b->td.handle, "td_json_client_receive");
+  b->td.execute = dlsym(b->td.handle, "td_json_client_execute");
+  b->td.destroy = dlsym(b->td.handle, "td_json_client_destroy");
+  if (!b->td.create || !b->td.send || !b->td.receive || !b->td.destroy) {
+    snprintf(b->last_error, sizeof(b->last_error), "libtdjson is missing required JSON client symbols");
+    dlclose(b->td.handle);
+    memset(&b->td, 0, sizeof(b->td));
+    return false;
+  }
+  b->td.client = b->td.create();
+  if (!b->td.client) {
+    snprintf(b->last_error, sizeof(b->last_error), "td_json_client_create returned NULL");
+    dlclose(b->td.handle);
+    memset(&b->td, 0, sizeof(b->td));
+    return false;
+  }
+  return true;
+}
+
+static void td_send_json(struct Bridge *b, const char *json) {
+  if (b->live && b->td.send && b->td.client) b->td.send(b->td.client, json);
+}
+
+static void send_tdlib_parameters(struct Bridge *b) {
+  char data[1024], files[1024], hash[512], key[512], req[4096];
+  json_escape(b->data_dir, data, sizeof(data));
+  json_escape(b->files_dir, files, sizeof(files));
+  json_escape(b->api_hash, hash, sizeof(hash));
+  json_escape(b->encryption_key, key, sizeof(key));
+  snprintf(req, sizeof(req),
+           "{\"@type\":\"setTdlibParameters\","
+           "\"use_test_dc\":false,"
+           "\"database_directory\":\"%s\","
+           "\"files_directory\":\"%s\","
+           "\"database_encryption_key\":\"%s\","
+           "\"use_file_database\":false,"
+           "\"use_chat_info_database\":true,"
+           "\"use_message_database\":true,"
+           "\"use_secret_chats\":false,"
+           "\"api_id\":%s,"
+           "\"api_hash\":\"%s\","
+           "\"system_language_code\":\"en\","
+           "\"device_model\":\"Medley Interlisp\","
+           "\"system_version\":\"Guix\","
+           "\"application_version\":\"0.1\"}",
+           data, files, key, b->api_id, hash);
+  td_send_json(b, req);
+}
+
+static bool init_live(struct Bridge *b) {
+  const char *home = env_or("HOME", "/tmp");
+  const char *base = getenv("MAG_TELEGRAM_DATA_DIR");
+  copy_str(b->api_id, sizeof(b->api_id), getenv("MAG_TELEGRAM_API_ID"));
+  copy_str(b->api_hash, sizeof(b->api_hash), getenv("MAG_TELEGRAM_API_HASH"));
+  copy_str(b->encryption_key, sizeof(b->encryption_key), env_or("MAG_TELEGRAM_ENCRYPTION_KEY", "mag-telegram-local"));
+  if (b->api_id[0] == 0 || b->api_hash[0] == 0) {
+    copy_str(b->last_error, sizeof(b->last_error), "MAG_TELEGRAM_API_ID and MAG_TELEGRAM_API_HASH are not set");
+    return false;
+  }
+  if (base && base[0]) snprintf(b->data_dir, sizeof(b->data_dir), "%s/tdlib", base);
+  else snprintf(b->data_dir, sizeof(b->data_dir), "%s/.local/share/mag-telegram/tdlib", home);
+  copy_str(b->files_dir, sizeof(b->files_dir), b->data_dir);
+  appendf(b->files_dir, sizeof(b->files_dir), "/files");
+  ensure_dir(b->files_dir);
+  if (!load_tdlib(b)) return false;
+  b->live = true;
+  copy_str(b->backend, sizeof(b->backend), "tdlib");
+  copy_str(b->auth_state, sizeof(b->auth_state), "starting");
+  if (b->td.execute) b->td.execute(b->td.client, "{\"@type\":\"setLogVerbosityLevel\",\"new_verbosity_level\":1}");
+  td_send_json(b, "{\"@type\":\"getOption\",\"name\":\"version\",\"@extra\":\"version\"}");
+  return true;
+}
+
+static void handle_auth_update(struct Bridge *b, const char *json) {
+  if (strstr(json, "authorizationStateWaitTdlibParameters")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-tdlib-parameters");
+    send_tdlib_parameters(b);
+  } else if (strstr(json, "authorizationStateWaitPhoneNumber")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-phone");
+  } else if (strstr(json, "authorizationStateWaitCode")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-code");
+  } else if (strstr(json, "authorizationStateWaitPassword")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-password");
+  } else if (strstr(json, "authorizationStateReady")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "ready");
+    td_send_json(b, "{\"@type\":\"loadChats\",\"chat_list\":{\"@type\":\"chatListMain\"},\"limit\":100}");
+  } else if (strstr(json, "authorizationStateClosing")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "closing");
+  } else if (strstr(json, "authorizationStateClosed")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "closed");
+    b->stop = true;
+  }
+}
+
+static void handle_chat_update(struct Bridge *b, const char *json) {
+  long long id = 0;
+  char title[256];
+  struct Chat *chat;
+  if (!strstr(json, "updateNewChat") && !strstr(json, "updateChatTitle")) return;
+  if (!json_extract_i64(json, "id", &id)) return;
+  chat = find_chat(b, id);
+  if (!chat) return;
+  if (json_extract_string(json, "title", title, sizeof(title))) copy_str(chat->title, sizeof(chat->title), title);
+  if (chat->kind[0] == 0) copy_str(chat->kind, sizeof(chat->kind), chat_kind_from_json(json));
+}
+
+static void handle_message_update(struct Bridge *b, const char *json) {
+  long long chat_id = 0, id = 0, sender_id = 0;
+  char text[512];
+  bool outgoing = strstr(json, "\"is_outgoing\":true") != NULL;
+  if (!strstr(json, "updateNewMessage") && !strstr(json, "updateMessageSendSucceeded")) return;
+  if (!json_extract_i64(json, "chat_id", &chat_id)) return;
+  if (!json_extract_i64(json, "id", &id)) id = (long long)time(NULL);
+  json_extract_i64(json, "user_id", &sender_id);
+  if (!strstr(json, "messageText") || !json_extract_string(json, "text", text, sizeof(text))) {
+    copy_str(text, sizeof(text), "[non-text message]");
+  }
+  add_message(b, chat_id, id, sender_id, outgoing, text);
+}
+
+static void handle_td_update(struct Bridge *b, const char *json) {
+  if (!json) return;
+  if (strstr(json, "updateAuthorizationState")) handle_auth_update(b, json);
+  handle_chat_update(b, json);
+  handle_message_update(b, json);
+}
+
+static void poll_tdlib(struct Bridge *b) {
+  const char *result;
+  if (!b->live || !b->td.receive) return;
+  result = b->td.receive(b->td.client, 0.05);
+  if (result) handle_td_update(b, result);
+}
+
+static void response_status(struct Bridge *b, char *out, size_t cap) {
+  snprintf(out, cap,
+           "Mag Telegram bridge\nbackend=%s\nauth=%s\nlive=%s\nchats=%zu\nmessages=%zu\ndata-dir=%s\nlast-error=%s\n",
+           b->backend, b->auth_state, b->live ? "yes" : "no", b->chat_count,
+           b->message_count, b->data_dir[0] ? b->data_dir : "unset",
+           b->last_error[0] ? b->last_error : "none");
+}
+
+static void response_chats(struct Bridge *b, char *out, size_t cap) {
+  snprintf(out, cap, "Mag Telegram chats (%zu)\n", b->chat_count);
+  for (size_t i = 0; i < b->chat_count; i++) {
+    appendf(out, cap, "%lld [%s] %s\n", b->chats[i].id,
+            b->chats[i].kind[0] ? b->chats[i].kind : "chat",
+            b->chats[i].title[0] ? b->chats[i].title : "(untitled)");
+  }
+}
+
+static void response_messages(struct Bridge *b, long long chat_id, char *out, size_t cap) {
+  size_t count = 0;
+  snprintf(out, cap, "Mag Telegram messages chat=%lld\n", chat_id);
+  for (size_t i = 0; i < b->message_count; i++) {
+    struct Message *m = &b->messages[i];
+    if (m->chat_id != chat_id) continue;
+    appendf(out, cap, "%s%lld: %s\n", m->outgoing ? "me " : "", m->sender_id, m->text);
+    count++;
+  }
+  if (count == 0) appendf(out, cap, "No cached text messages for this chat yet.\n");
+}
+
+static void command_send(struct Bridge *b, long long chat_id, const char *text, char *out, size_t cap) {
+  char escaped[MAG_TG_MAX_TEXT];
+  char req[MAG_TG_MAX_TEXT + 1024];
+  json_escape(text, escaped, sizeof(escaped));
+  if (b->live) {
+    snprintf(req, sizeof(req),
+             "{\"@type\":\"sendMessage\",\"chat_id\":%lld,"
+             "\"input_message_content\":{\"@type\":\"inputMessageText\","
+             "\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\"}}}",
+             chat_id, escaped);
+    td_send_json(b, req);
+    snprintf(out, cap, "sent text request chat=%lld\n", chat_id);
+  } else {
+    add_message(b, chat_id, (long long)time(NULL), 0, true, text);
+    snprintf(out, cap, "mock sent chat=%lld\n", chat_id);
+  }
+}
+
+static void command_auth(struct Bridge *b, const char *type, const char *value, char *out, size_t cap) {
+  char escaped[MAG_TG_MAX_TEXT];
+  char req[MAG_TG_MAX_TEXT + 256];
+  json_escape(value, escaped, sizeof(escaped));
+  if (!b->live) {
+    snprintf(out, cap, "auth command recorded in mock mode: %s\n", type);
+    return;
+  }
+  if (strcmp(type, "phone") == 0) {
+    snprintf(req, sizeof(req), "{\"@type\":\"setAuthenticationPhoneNumber\",\"phone_number\":\"%s\"}", escaped);
+  } else if (strcmp(type, "code") == 0) {
+    snprintf(req, sizeof(req), "{\"@type\":\"checkAuthenticationCode\",\"code\":\"%s\"}", escaped);
+  } else {
+    snprintf(req, sizeof(req), "{\"@type\":\"checkAuthenticationPassword\",\"password\":\"%s\"}", escaped);
+  }
+  td_send_json(b, req);
+  snprintf(out, cap, "sent auth-%s\n", type);
+}
+
+static void handle_request(struct Bridge *b, const char *request, char *out, size_t cap) {
+  char cmd[64];
+  const char *arg;
+  long long chat_id = 0;
+  out[0] = 0;
+  if (!request || !request[0]) {
+    snprintf(out, cap, "empty request\n");
+    return;
+  }
+  while (*request && isspace((unsigned char)*request)) request++;
+  size_t i = 0;
+  while (request[i] && !isspace((unsigned char)request[i]) && i + 1 < sizeof(cmd)) {
+    cmd[i] = request[i];
+    i++;
+  }
+  cmd[i] = 0;
+  arg = skip_space(request + i);
+  if (strcmp(cmd, "status") == 0) response_status(b, out, cap);
+  else if (strcmp(cmd, "chats") == 0) response_chats(b, out, cap);
+  else if (strcmp(cmd, "messages") == 0) {
+    chat_id = strtoll(arg, NULL, 10);
+    response_messages(b, chat_id, out, cap);
+  } else if (strcmp(cmd, "send") == 0) {
+    char *end = NULL;
+    chat_id = strtoll(arg, &end, 10);
+    command_send(b, chat_id, skip_space(end ? end : ""), out, cap);
+  } else if (strcmp(cmd, "auth-phone") == 0) command_auth(b, "phone", arg, out, cap);
+  else if (strcmp(cmd, "auth-code") == 0) command_auth(b, "code", arg, out, cap);
+  else if (strcmp(cmd, "auth-password") == 0) command_auth(b, "password", arg, out, cap);
+  else if (strcmp(cmd, "raw") == 0) {
+    if (b->live) {
+      td_send_json(b, arg);
+      snprintf(out, cap, "sent raw TDLib request\n");
+    } else snprintf(out, cap, "raw unavailable in mock mode\n");
+  } else if (strcmp(cmd, "quit") == 0) {
+    b->stop = true;
+    snprintf(out, cap, "stopping mag-telegram-bridge\n");
+  } else {
+    snprintf(out, cap, "unknown request: %s\n", cmd);
+  }
+}
+
+static void maybe_handle_request_file(struct Bridge *b) {
+  char *request;
+  char response[8192];
+  struct stat st;
+  if (stat(MAG_TG_REQUEST_PATH, &st) != 0 || st.st_size <= 0) return;
+  request = read_file(MAG_TG_REQUEST_PATH);
+  unlink(MAG_TG_REQUEST_PATH);
+  if (!request) return;
+  trim_right(request);
+  handle_request(b, request, response, sizeof(response));
+  write_file_atomic(MAG_TG_RESPONSE_PATH, response);
+  free(request);
+}
+
+static int run_daemon(bool force_mock) {
+  struct Bridge b;
+  memset(&b, 0, sizeof(b));
+  if (daemon_already_running()) {
+    fprintf(stderr, "mag-telegram-bridge daemon already running\n");
+    return 0;
+  }
+  write_pid_file();
+  copy_str(b.backend, sizeof(b.backend), "mock");
+  copy_str(b.auth_state, sizeof(b.auth_state), "starting");
+  signal(SIGINT, on_signal);
+  signal(SIGTERM, on_signal);
+  unlink(MAG_TG_REQUEST_PATH);
+  unlink(MAG_TG_RESPONSE_PATH);
+  if (!force_mock && init_live(&b)) {
+    /* live mode initialized */
+  } else {
+    init_mock(&b);
+  }
+  fprintf(stderr, "mag-telegram-bridge daemon backend=%s auth=%s error=%s\n",
+          b.backend, b.auth_state, b.last_error[0] ? b.last_error : "none");
+  while (!g_stop && !b.stop) {
+    poll_tdlib(&b);
+    maybe_handle_request_file(&b);
+    sleep_ms(100);
+  }
+  if (b.live) td_send_json(&b, "{\"@type\":\"close\"}");
+  if (b.td.destroy && b.td.client) b.td.destroy(b.td.client);
+  if (b.td.handle) dlclose(b.td.handle);
+  unlink(MAG_TG_PID_PATH);
+  return 0;
+}
+
+static int request_daemon(int argc, char **argv) {
+  char request[MAG_TG_MAX_TEXT];
+  char *response;
+  request[0] = 0;
+  for (int i = 1; i < argc; i++) {
+    if (i > 1) appendf(request, sizeof(request), " ");
+    appendf(request, sizeof(request), "%s", argv[i]);
+  }
+  if (request[0] == 0) copy_str(request, sizeof(request), "status");
+  unlink(MAG_TG_RESPONSE_PATH);
+  if (!write_file_atomic(MAG_TG_REQUEST_PATH, request)) {
+    fprintf(stderr, "failed to write %s: %s\n", MAG_TG_REQUEST_PATH, strerror(errno));
+    return 2;
+  }
+  for (int i = 0; i < 15; i++) {
+    struct stat st;
+    if (stat(MAG_TG_RESPONSE_PATH, &st) == 0 && st.st_size > 0) {
+      response = read_file(MAG_TG_RESPONSE_PATH);
+      if (response) {
+        fputs(response, stdout);
+        free(response);
+        return 0;
+      }
+    }
+    sleep_ms(100);
+  }
+  fprintf(stderr, "mag-telegram-bridge daemon did not respond; start it with: mag-telegram-bridge --daemon\n");
+  return 1;
+}
+
+static int self_test(void) {
+  struct Bridge b;
+  char out[8192];
+  memset(&b, 0, sizeof(b));
+  init_mock(&b);
+  handle_request(&b, "status", out, sizeof(out));
+  if (!strstr(out, "backend=mock")) return 1;
+  handle_request(&b, "chats", out, sizeof(out));
+  if (!strstr(out, "Saved Messages")) return 1;
+  handle_request(&b, "send 1001 hello", out, sizeof(out));
+  if (!strstr(out, "mock sent")) return 1;
+  handle_request(&b, "messages 1001", out, sizeof(out));
+  if (!strstr(out, "hello")) return 1;
+  puts("mag-telegram-bridge self-test ok");
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  if (argc >= 2 && strcmp(argv[1], "--daemon") == 0) return run_daemon(false);
+  if (argc >= 2 && strcmp(argv[1], "--mock-daemon") == 0) return run_daemon(true);
+  if (argc >= 2 && strcmp(argv[1], "--self-test") == 0) return self_test();
+  return request_daemon(argc, argv);
+}

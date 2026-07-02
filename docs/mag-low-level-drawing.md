@@ -9,6 +9,7 @@ This is a local note for the Medley/Maiko Mag terminal and Gopher work. It docum
 - `greetfiles/MAG-VTERM`: Mag Shell/Codex terminal orchestration and Ghostty-backed render copyout.
 - `greetfiles/MAG-DEBUG`: wrappers for Maiko debug status reporting.
 - `greetfiles/MAG-GOPHER`: Medley-rendered Gopher UI.
+- `greetfiles/MAG-TELEGRAM`: text-only Medley UI for the host-side Telegram bridge.
 - `greetfiles/MAG-STOCK`: battery who-line, Rooms/Notecards/doc buttons.
 
 ## Coordinate Model Used By Mag Rows
@@ -55,6 +56,12 @@ glyph descenders by about a pixel; text should use the padded baseline.
   command 48 when available and falls back to the Lisp implementation on older
   Maiko binaries.
 - Keep slow Lisp loops out of hot terminal paths. Prefer Maiko/C for terminal parse/render state, dirty row tracking, row copyout, cursor drawing, and key encoding.
+- Do not call raw interpreted `(SUBRCALL UNIX-HANDLECOMM ...)` in MAG hot
+  paths. Interpreted `SUBRCALL` macroexpands through runtime `CL:COMPILE` and
+  `GENSYM`; repeated calls intern retained `A####` atoms and can overflow
+  `HTCOLL`, disabling GC while Vmem still looks low. Use the cached fixed-arity
+  wrappers `MAG-UNIX-HANDLECOMM1` through `MAG-UNIX-HANDLECOMM8` from
+  `MAG-COMMON`.
 - Maiko command 25 sends unmodified terminal arrow key ids 1-4 as direct CSI
   bytes: up `ESC [ A`, down `ESC [ B`, right `ESC [ C`, left `ESC [ D`.
   Do not rotate Lisp's raw-key decoder to compensate for libghostty encoder
@@ -93,17 +100,25 @@ glyph descenders by about a pixel; text should use the padded baseline.
   high-water/free/live collision-link counts, `HTBIGCOUNT` occupancy,
   GC-disabled state, and reclaim countdown/min values.
 - `UNIX-HANDLECOMM 51` reports whether `/tmp/medley-mag-request` exists without
-  taking a Lisp VM page buffer. The RPC loop must use this before command 39 so
-  idle polling does not repeatedly pass a VMEMPAGEP into native code.
+  taking a Lisp VM page buffer. It is useful for diagnostics, but it does not
+  by itself prevent GC table pressure if invoked through interpreted raw
+  `SUBRCALL`; call it through `MAG-UNIX-HANDLECOMM1` if needed.
 - `UNIX-HANDLECOMM 52` reports whether a Mag shell/process descriptor is
   readable without consuming bytes. Mag Shell uses it before drain attempts so
   idle typeout loops avoid unnecessary Lisp/native buffer traffic.
 - `UNIX-HANDLECOMM 53` drains PTY bytes directly into Ghostty's terminal state
   without copying those raw bytes through a Lisp VMEMPAGEP.
 - `UNIX-HANDLECOMM 54` copies a Ghostty-rendered row as simple ASCII display
-  bytes. This is the current highest stable Mag Shell render path; do not add a
-  direct `newbltchar` command unless it is proven not to punt into Lisp from an
+  bytes. This is the current highest stable Mag Shell render path.
+- `UNIX-HANDLECOMM 55` writes `/tmp/medley-mag-response` directly from a Lisp
+  string using native file I/O. The RPC loop should prefer this over
+  `MAG-WRITE-UTF8-TEXT-FILE` so every control-plane response does not allocate
+  Medley file streams. Do not reuse command 55 for direct `newbltchar` drawing;
+  that experiment crashed because `newbltchar` can punt into Lisp from an
   invalid subr stack frame.
+- `UNIX-HANDLECOMM 56` drains multiple PTY chunks directly into Ghostty in one
+  native call. Lisp gates it with `MAG-GHOSTTY-DRAIN-MANY-ENABLED`; disabling
+  that flag falls back to command 53 and is useful for GC-pressure A/B tests.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -141,6 +156,12 @@ Current native commands:
   `GCDISABLED`, and reclaim countdown/min values.
 - `51`: report whether `/tmp/medley-mag-request` exists without taking a Lisp
   VM page buffer.
+- `52`: report whether a Mag shell/process descriptor is readable.
+- `53`: drain PTY bytes directly into Ghostty without a Lisp VM page copy.
+- `54`: copy a Ghostty-rendered row as simple ASCII display bytes.
+- `55`: write `/tmp/medley-mag-response` through native file I/O.
+- `56`: drain many PTY chunks directly into Ghostty without Lisp/native
+  round-trips.
 
 Current Lisp wrappers:
 
@@ -157,6 +178,7 @@ Current safe request commands:
 - `performance-report`
 - `status-report`
 - `process-status`
+- `shell-root-report`
 - `native-jobs`
 - `gc-report`
 - `goal-status`
@@ -171,6 +193,9 @@ Current safe request commands:
 - `close-shell`
 - `restart-rpc`
 - `open-gopher`
+- `open-telegram`
+- `telegram-status`
+- `telegram-chats`
 - `close-gopher`
 - `shell-self-test`
 - `shell-key-probe`
@@ -204,6 +229,32 @@ drains the remembered active Mag Shell channel through command 9 and refreshes
 once if bytes arrived. If this reports bytes while `MAG-VTERM-TYPEOUT` counters
 stay flat, the bug is in Lisp process scheduling/typeout orchestration rather
 than the PTY/Ghostty native path.
+
+For GC root tracing, use `scripts/mag-gc-scan-live.py <ldex-pid> --top N` to
+pick sample pointer values from HTCOLL, then
+`scripts/mag-gc-refscan.py <ldex-pid> <ptr>...` to scan the mapped Lisp address
+space for raw referrers. This is read-only. Treat unboxed array/data matches as
+noisy until the chain reaches an obvious Lisp root.
+
+## Telegram Bridge
+
+`tools/mag-telegram-bridge` is the host-side foundation for a text-only
+Telegram client. It keeps TDLib, authentication state, local Telegram storage,
+and JSON update processing outside Interlisp. The Medley module
+`greetfiles/MAG-TELEGRAM` renders compact text returned by the bridge and
+offers a small dashboard window.
+
+The bridge intentionally loads `libtdjson.so` with `dlopen` so it can build even
+before Guix `tdlib` is installed. Without TDLib or `MAG_TELEGRAM_API_ID` /
+`MAG_TELEGRAM_API_HASH`, it runs in mock mode. Live mode should use Telegram's
+TDLib JSON interface and keep session data under
+`~/.local/share/mag-telegram/tdlib` unless `MAG_TELEGRAM_DATA_DIR` overrides it.
+
+Medley-facing commands:
+
+- `MAG-TELEGRAM` opens the dashboard.
+- `open-telegram` opens it through the safe debug RPC path.
+- `telegram-status` and `telegram-chats` return compact bridge output.
 
 Do not make `MAG-DEBUG-RPC-LOOP` automatically call terminal pump helpers.
 The RPC loop must stay control-plane only. A reproduced GC-table pressure test

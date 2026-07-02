@@ -146,6 +146,14 @@ class Mem:
     def i32(self, addr):
         return struct.unpack("<i", self.read(addr, 4))[0]
 
+    def lisp_u16(self, addr):
+        # Maiko's BYTESWAP GETWORD macro reads 16-bit Lisp words at addr ^ 2.
+        return self.u16(addr ^ 2)
+
+    def lisp_byte(self, addr):
+        # Maiko's BYTESWAP GETBYTE macro reads logical bytes at addr ^ 3.
+        return self.read(addr ^ 3, 1)[0]
+
 
 def small_value(value):
     tag = value & 0x0FFF0000
@@ -201,7 +209,7 @@ def scan_gc(mem, ptrs):
         if ptr == 0 or ptr > 0x0FFFFFFF:
             return None
         try:
-            return mem.u16(mdst + ((ptr >> 9) * 2)) & 0x7FF
+            return mem.lisp_u16(mdst + ((ptr >> 9) * 2)) & 0x7FF
         except OSError:
             return None
 
@@ -360,22 +368,31 @@ def native_from_laddr(world, laddr):
 
 
 def read_atom_name(mem, world, atom_ptr):
-    try:
-        atom_addr = native_from_laddr(world, atom_ptr)
-        pname_cell = mem.u32(atom_addr)
+    def pname_from_cell_laddr(cell_laddr):
+        pname_cell = mem.u32(native_from_laddr(world, cell_laddr))
         pname_base = pname_cell & 0x0FFFFFFF
         if pname_base == 0:
-            return "<no-pname>"
+            return None
         pname_addr = native_from_laddr(world, pname_base)
-        length = mem.read(pname_addr, 1)[0]
+        length = mem.lisp_byte(pname_addr)
         if length > 200:
-            length = 200
-        raw = mem.read(pname_addr + 1, length)
+            return None
+        raw = bytes(mem.lisp_byte(pname_addr + i) for i in range(1, length + 1))
+        text = raw.decode("latin-1", "replace")
+        return "".join(ch if 32 <= ord(ch) < 127 else f"\\x{ord(ch):02x}" for ch in text)
+
+    try:
+        if atom_ptr == 0:
+            return "NIL"
+        if atom_ptr == 0o114:
+            return "T"
+        if (atom_ptr & 0x0FFF0000) == 0:
+            # Old litatom index. In BIGBIGVM AtomSpace starts at 0x2c0000,
+            # and each atom occupies five 32-bit cells, i.e. ten DLwords.
+            return pname_from_cell_laddr(0x2C0000 + (atom_ptr * 10)) or "<no-pname>"
+        return pname_from_cell_laddr(atom_ptr) or "<no-pname>"
     except (OSError, IndexError, struct.error):
         return "<unreadable>"
-    text = raw.decode("latin-1", "replace")
-    text = "".join(ch if 32 <= ord(ch) < 127 else f"\\x{ord(ch):02x}" for ch in text)
-    return text
 
 
 def print_atom_name_samples(mem, ptrs, scan, limit):

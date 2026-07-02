@@ -10,6 +10,7 @@ This tree has local, uncommitted Medley/Maiko integration work. Do not discard i
 - `greetfiles/MAG-VTERM`: Mag Shell/Codex terminal orchestration and Ghostty-backed rendering.
 - `greetfiles/MAG-DEBUG`: Maiko/Medley debug status wrappers.
 - `greetfiles/MAG-GOPHER`: Medley-rendered Gopher browser.
+- `greetfiles/MAG-TELEGRAM`: Medley UI for the host-side Telegram bridge.
 - `greetfiles/MAG-STOCK`: battery who-line and stock Rooms/Notecards/documentation buttons.
 
 Low-level drawing notes live in `docs/mag-low-level-drawing.md`.
@@ -78,14 +79,35 @@ tables overflowing and `disablegc1` marking all type entries `NOREF`; the live
 image is not recoverable in-place. The immediate action is to save TEdit work
 and restart Medley.
 
-Current mitigation: `MAG-NOGREET` lowers `RECLAIMMIN` to `500` at startup, and
-Mag Shell's Ghostty-backed typeout loop waits `50ms` after a rendered batch
-instead of `20ms`. Do not respond to this failure by only increasing
-`MAG_MEDLEY_MEMORY_MB`; the current `RELEASE=351` build is already the 256 MB
-layout, and the overflowing structure is separate from the main VM heap.
-After restarting into a Maiko binary with command 50, use `gc-report` to inspect
-`HTCOLL` collision-link high-water/free/live counts, `HTBIGCOUNT` occupancy,
-the GC-disabled flag, and reclaim countdown/min values.
+Do not respond to this failure by only increasing `MAG_MEDLEY_MEMORY_MB`; the
+current `RELEASE=351` build is already the 256 MB layout, and the overflowing
+structure is separate from the main VM heap. After restarting into a Maiko
+binary with command 50, use `gc-report` to inspect `HTCOLL`
+collision-link high-water/free/live counts, `HTBIGCOUNT` occupancy, the
+GC-disabled flag, and reclaim countdown/min values.
+
+Current diagnosis as of 2026-07-02:
+
+- Plain apps.sysout launched without `MAG-NOGREET` stayed stable over repeated
+  samples: `hi-links=2624`, with live links only bouncing normally.
+- Normal `MAG-NOGREET` startup through the real typeahead path leaked generated
+  `A####` atoms when the RPC poller called interpreted `SUBRCALL
+  UNIX-HANDLECOMM` in its idle loop, even with no Mag Shell window active.
+- Reference tracing showed the retained type-45 chunks were pname storage for
+  interned `GENSYM` atoms, retained through the atom/package hash tables, so
+  `RECLAIM` cannot recover them.
+- Root cause: interpreted `SUBRCALL` is a macro that expands to a runtime
+  `CL:COMPILE` of a throwaway lambda using generated argument names. Every hot
+  interpreted call can intern more `A####` symbols.
+- Fix: live MAG greetfiles must not call raw `(SUBRCALL UNIX-HANDLECOMM ...)`
+  from interpreted hot paths. Use `MAG-UNIX-HANDLECOMM1` through
+  `MAG-UNIX-HANDLECOMM8` from `MAG-COMMON`; they compile direct opcode wrappers
+  once per arity and reuse them.
+- Verified after the wrapper conversion: full `MAG-NOGREET` startup plus RPC
+  `ping` stayed at `A#=0` through samples 0-5; `shell-load-test` stayed at
+  `A#=0` through samples 0-12 while Mag Shell rendered output.
+- Use `scripts/mag-gc-scan-live.py` to measure generated atom counts and
+  `scripts/mag-gc-refscan.py <ldex-pid> <ptr>...` for raw referrer tracing.
 
 Do not put automatic Mag Shell draining/rendering in `MAG-DEBUG-RPC-LOOP`.
 That loop is control-plane only. A reproduced failure showed that polling
@@ -93,6 +115,11 @@ That loop is control-plane only. A reproduced failure showed that polling
 raise `HTCOLL` high-water from 2624 to 8136 after three open/render/close
 cycles. With the RPC pump removed, the same cleaned build stayed at
 `hi-links=2624` for all three cycles. `shell-pump-once` is diagnostic only.
+
+RPC responses should use Maiko command 55 when available. It writes
+`/tmp/medley-mag-response` with native file I/O and avoids allocating a Medley
+file stream for every control-plane reply. Falling back to
+`MAG-WRITE-UTF8-TEXT-FILE` is only for older binaries.
 
 Gopher should delegate key decoding to `MAG-VTERM-SPECIAL-KEYID`. It should
 also avoid `TTYDISPLAYSTREAM` in `MAG-GOPHER-TYPEIN`; the working Mag
@@ -163,6 +190,9 @@ For live evidence, use the Medley RPC bridge:
 - `process-status` returns a bounded process snapshot for the RPC poller,
   active Mag Shell window, active Mag Gopher window, and known Mag worker
   names. It does not run arbitrary eval or list every process.
+- `shell-root-report` reports bounded Mag Shell root evidence: last active
+  shell window, `\LastInWindow`, open Mag vterm windows, and live Mag shell
+  processes.
 - `eval-status` reports whether the native typeahead eval bridge is available.
   `medley_eval` is exposed at the MCP layer, not as a raw `medley_request`
   command; it writes a typeahead file and then sends an internal `eval <id>`
@@ -181,6 +211,10 @@ For live evidence, use the Medley RPC bridge:
   see whether Gopher is receiving a different translated stream than Mag Shell.
 - `open-gopher` opens a normal Mag Gopher window through the same async path as
   the UI button.
+- `open-telegram` opens the text-only Mag Telegram dashboard backed by
+  `tools/mag-telegram-bridge`.
+- `telegram-status` and `telegram-chats` proxy compact bridge status/chat
+  listings for diagnostics without exposing raw TDLib JSON.
 - `close-gopher` closes the remembered active Mag Gopher window. Use it to
   clean up windows opened by `open-gopher`, `gopher-test-page`, or
   `gopher-self-test` during diagnostics.

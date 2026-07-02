@@ -20,8 +20,7 @@
 
 (MAG-LOAD-EXTRAS
   [LAMBDA NIL
-    (OR (MAG-EXTRAS-LOADED-P)
-        (LOAD (MAG-EXTRAS-PATH) T))
+    (LOAD (MAG-EXTRAS-PATH) T)
     (MAG-EXTRAS-LOADED-P)])
 
 (MAG-EXTRAS-LOADED-P
@@ -191,7 +190,7 @@
                      "rpc-function="
                      (COND ((GETD 'MAG-DEBUG-RPC-START) "yes") (T "no"))
                      "\nmax-command="
-                     (SUBRCALL UNIX-HANDLECOMM 8)
+                     (MAG-UNIX-HANDLECOMM1 8)
                      "\n"))))
     (AND (GETD 'MAG-DEBUG-RPC-START)
          (NLSETQ (MAG-DEBUG-RPC-START)))

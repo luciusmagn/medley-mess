@@ -5,13 +5,133 @@
 (FILESLOAD COLOR)
 (RPAQQ MAG-WINDOW-BASELINE-PAD 1)
 (RPAQQ MAG-ACME-BACKGROUND-COLOR-SLOT 250)
+(RPAQ? MAG-ACME-BACKGROUND-RGB-CACHE NIL)
+(RPAQ? MAG-WINDOW-BACKGROUND-CACHE NIL)
 (RPAQ? MAG-CHAT-AUTO-PLACE NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM1-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM2-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM3-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM4-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM5-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM6-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM7-FN NIL)
+(RPAQ? MAG-UNIX-HANDLECOMM8-FN NIL)
 
 (DEFINEQ
 
+(MAG-UNIX-HANDLECOMM1
+  [LAMBDA (A)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM1-FN
+          (SETQ MAG-UNIX-HANDLECOMM1-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A)
+                               ((OPCODES SUBRCALL 117 1) A)))))
+      A)])
+
+(MAG-UNIX-HANDLECOMM2
+  [LAMBDA (A B)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM2-FN
+          (SETQ MAG-UNIX-HANDLECOMM2-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B)
+                               ((OPCODES SUBRCALL 117 2) A B)))))
+      A
+      B)])
+
+(MAG-UNIX-HANDLECOMM3
+  [LAMBDA (A B C)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM3-FN
+          (SETQ MAG-UNIX-HANDLECOMM3-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B C)
+                               ((OPCODES SUBRCALL 117 3) A B C)))))
+      A
+      B
+      C)])
+
+(MAG-UNIX-HANDLECOMM4
+  [LAMBDA (A B C D)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM4-FN
+          (SETQ MAG-UNIX-HANDLECOMM4-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B C D)
+                               ((OPCODES SUBRCALL 117 4) A B C D)))))
+      A
+      B
+      C
+      D)])
+
+(MAG-UNIX-HANDLECOMM5
+  [LAMBDA (A B C D E)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM5-FN
+          (SETQ MAG-UNIX-HANDLECOMM5-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B C D E)
+                               ((OPCODES SUBRCALL 117 5) A B C D E)))))
+      A
+      B
+      C
+      D
+      E)])
+
+(MAG-UNIX-HANDLECOMM6
+  [LAMBDA (A B C D E F)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM6-FN
+          (SETQ MAG-UNIX-HANDLECOMM6-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B C D E F)
+                               ((OPCODES SUBRCALL 117 6) A B C D E F)))))
+      A
+      B
+      C
+      D
+      E
+      F)])
+
+(MAG-UNIX-HANDLECOMM7
+  [LAMBDA (A B C D E F G)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM7-FN
+          (SETQ MAG-UNIX-HANDLECOMM7-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B C D E F G)
+                               ((OPCODES SUBRCALL 117 7) A B C D E F G)))))
+      A
+      B
+      C
+      D
+      E
+      F
+      G)])
+
+(MAG-UNIX-HANDLECOMM8
+  [LAMBDA (A B C D E F G H)
+    (CL:FUNCALL
+      (OR MAG-UNIX-HANDLECOMM8-FN
+          (SETQ MAG-UNIX-HANDLECOMM8-FN
+                (CL:COMPILE NIL
+                            '(LAMBDA (A B C D E F G H)
+                               ((OPCODES SUBRCALL 117 8) A B C D E F G H)))))
+      A
+      B
+      C
+      D
+      E
+      F
+      G
+      H)])
+
 (MAG-ACME-BACKGROUND-RGB
   [LAMBDA NIL
-    (create RGB RED _ 255 GREEN _ 255 BLUE _ 232)])
+    (OR MAG-ACME-BACKGROUND-RGB-CACHE
+        (SETQ MAG-ACME-BACKGROUND-RGB-CACHE
+              (create RGB RED _ 255 GREEN _ 255 BLUE _ 232)))])
 
 (MAG-WINDOW-COLOR-BITS
   [LAMBDA NIL
@@ -47,14 +167,16 @@
     (COND
       ((MAG-WINDOW-MONO-P)
        WHITESHADE)
+      (MAG-WINDOW-BACKGROUND-CACHE)
       (T
-       (OR (CAR
-             (NLSETQ
-               (COLORNUMBERP (MAG-ACME-BACKGROUND-RGB)
-                             (MAG-WINDOW-COLOR-BITS)
-                             T)))
-           (MAG-INSTALL-ACME-BACKGROUND-COLOR)
-           WHITESHADE)))])
+       (SETQ MAG-WINDOW-BACKGROUND-CACHE
+             (OR (CAR
+                   (NLSETQ
+                     (COLORNUMBERP (MAG-ACME-BACKGROUND-RGB)
+                                   (MAG-WINDOW-COLOR-BITS)
+                                   T)))
+                 (MAG-INSTALL-ACME-BACKGROUND-COLOR)
+                 WHITESHADE))))])
 
 (MAG-WINDOW-BACKGROUND-REPORT
   [LAMBDA NIL

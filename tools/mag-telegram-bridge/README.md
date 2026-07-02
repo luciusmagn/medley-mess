@@ -1,0 +1,110 @@
+# mag-telegram-bridge
+
+`mag-telegram-bridge` is the host-side foundation for a text-only Telegram
+client in Medley. It keeps Telegram protocol and TDLib state outside Interlisp
+and exposes a tiny local command protocol that Medley can render.
+
+The intended live backend is Telegram TDLib through `libtdjson.so`. The bridge
+loads TDLib dynamically with `dlopen`, so it still builds on machines where the
+Guix `tdlib` package is not installed yet. Without TDLib or credentials it runs
+in mock mode, which is useful for proving the Medley UI and request protocol.
+
+Authoritative TDLib references:
+
+- https://core.telegram.org/tdlib/getting-started
+- https://core.telegram.org/tdlib/docs/td__json__client_8h.html
+- https://core.telegram.org/api/obtaining_api_id
+
+## Build and Install
+
+```sh
+./install.sh
+```
+
+This installs `~/.local/bin/mag-telegram-bridge`.
+
+## Run
+
+Start the daemon:
+
+```sh
+mag-telegram-bridge --daemon
+```
+
+Query it from another process:
+
+```sh
+mag-telegram-bridge status
+mag-telegram-bridge chats
+mag-telegram-bridge messages 1001
+mag-telegram-bridge send 1001 'hello from Medley'
+```
+
+Stop it:
+
+```sh
+mag-telegram-bridge quit
+```
+
+## Live TDLib Mode
+
+Install TDLib and provide Telegram application credentials. On this machine Guix
+currently advertises package `tdlib`.
+
+```sh
+guix install tdlib
+export MAG_TELEGRAM_API_ID=123456
+export MAG_TELEGRAM_API_HASH=your-api-hash
+export MAG_TELEGRAM_ENCRYPTION_KEY='local database key'
+mag-telegram-bridge --daemon
+```
+
+Authorization is driven through bridge commands:
+
+```sh
+mag-telegram-bridge auth-phone +420...
+mag-telegram-bridge auth-code 12345
+mag-telegram-bridge auth-password '2fa-password'
+```
+
+The bridge stores TDLib database files below
+`~/.local/share/mag-telegram/tdlib` by default. Override with
+`MAG_TELEGRAM_DATA_DIR` if needed. Set `MAG_TELEGRAM_TDLIB_LIBRARY` to an
+explicit `libtdjson.so` path if it is not discoverable by the dynamic linker.
+
+## Protocol Files
+
+The daemon reads `/tmp/mag-telegram-request` and writes
+`/tmp/mag-telegram-response`. This mirrors the existing Medley debug bridge and
+keeps the first Medley UI simple. The protocol is intentionally text-oriented:
+Medley should render compact lines, not raw TDLib JSON.
+
+Supported requests:
+
+- `status`
+- `chats`
+- `messages CHAT_ID`
+- `send CHAT_ID TEXT`
+- `auth-phone PHONE`
+- `auth-code CODE`
+- `auth-password PASSWORD`
+- `raw JSON`
+- `quit`
+
+## Current Scope
+
+Implemented now:
+
+- mock backend with private/group/channel sample data
+- daemon request/response protocol
+- dynamic TDLib loading and basic authorization-state command emission
+- live update cache for `updateNewChat` and text `updateNewMessage` using a
+  small purpose-built JSON extractor
+- send text message request construction
+
+Still intentionally missing:
+
+- robust JSON parser for all TDLib entities
+- contact search and channel joining
+- media rendering, reactions, edits, read receipts
+- a permanent service definition

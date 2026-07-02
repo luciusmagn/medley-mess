@@ -23,9 +23,13 @@
 (MAG-DEBUG-MAXCOMMAND
   [LAMBDA NIL
     (MAG-DEBUG-ENSURE-UNIXCOMM)
-    (OR MAG-DEBUG-MAXCOMMAND-VALUE
-        (SETQ MAG-DEBUG-MAXCOMMAND-VALUE
-              (OR (SUBRCALL UNIX-HANDLECOMM 8) 0)))])
+    (COND
+      (MAG-DEBUG-MAXCOMMAND-VALUE)
+      (T
+       (SETQ MAG-DEBUG-MAXCOMMAND-VALUE
+             (COND
+               ((MAG-UNIX-HANDLECOMM1 8))
+               (T 0)))))])
 
 (MAG-DEBUG-BUFFER
   [LAMBDA NIL
@@ -47,7 +51,7 @@
       ((MAG-DEBUG-AVAILABLEP)
        (LET ((BUFFER (MAG-DEBUG-BUFFER))
              LEN)
-         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 38 BUFFER))
+         (SETQ LEN (MAG-UNIX-HANDLECOMM2 38 BUFFER))
          (COND
            ((AND LEN (IGREATERP LEN 0))
             (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
@@ -64,7 +68,7 @@
       ((MAG-DEBUG-CONFIG-AVAILABLEP)
        (LET ((BUFFER (MAG-DEBUG-BUFFER))
              LEN)
-         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 41 BUFFER))
+         (SETQ LEN (MAG-UNIX-HANDLECOMM2 41 BUFFER))
          (COND
            ((AND LEN (IGREATERP LEN 0))
             (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
@@ -81,7 +85,7 @@
       ((MAG-DEBUG-JOBS-AVAILABLEP)
        (LET ((BUFFER (MAG-DEBUG-BUFFER))
              LEN)
-         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 46 BUFFER))
+         (SETQ LEN (MAG-UNIX-HANDLECOMM2 46 BUFFER))
          (COND
            ((AND LEN (IGREATERP LEN 0))
             (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
@@ -98,7 +102,7 @@
       ((MAG-DEBUG-GC-AVAILABLEP)
        (LET ((BUFFER (MAG-DEBUG-BUFFER))
              LEN)
-         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 50 BUFFER))
+         (SETQ LEN (MAG-UNIX-HANDLECOMM2 50 BUFFER))
          (COND
            ((AND LEN (IGREATERP LEN 0))
             (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
@@ -171,7 +175,7 @@
   [LAMBDA NIL
     (COND
       ((IGEQ (MAG-DEBUG-MAXCOMMAND) 51)
-       (SUBRCALL UNIX-HANDLECOMM 51))
+       (MAG-UNIX-HANDLECOMM1 51))
       (T T))])
 
 (MAG-DEBUG-RPC-TRIM-RIGHT
@@ -208,17 +212,21 @@
 
 (MAG-DEBUG-RPC-READ
   [LAMBDA NIL
-    (COND
-      ((AND (MAG-DEBUG-RPC-AVAILABLEP)
-            (MAG-DEBUG-RPC-REQUEST-P))
-       (LET ((BUFFER (MAG-DEBUG-RPC-BUFFER))
-             LEN)
-         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 39 BUFFER))
-         (AND LEN
-              (IGREATERP LEN 0)
-              (MAG-DEBUG-RPC-TRIM-RIGHT
-                (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN)))))
-      (T NIL))])
+    (PROG (BUFFER LEN)
+      (COND
+        ((NOT (MAG-DEBUG-RPC-AVAILABLEP))
+         (RETURN NIL)))
+      (SETQ BUFFER (MAG-DEBUG-RPC-BUFFER))
+      (SETQ LEN (MAG-UNIX-HANDLECOMM2 39 BUFFER))
+      (COND
+        ((NULL LEN)
+         (RETURN NIL)))
+      (COND
+        ((NOT (IGREATERP LEN 0))
+         (RETURN NIL)))
+      (RETURN
+        (MAG-DEBUG-RPC-TRIM-RIGHT
+          (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))))])
 
 (MAG-DEBUG-RPC-BATTERY
   [LAMBDA NIL
@@ -321,13 +329,13 @@
 
 (MAG-DEBUG-EVAL-QUEUE-EXEC
   [LAMBDA (TARGET ID)
-    (PROG ((MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
+    (PROG ((MAXCOMMAND (OR (MAG-UNIX-HANDLECOMM1 8) 0))
            INJECTED)
       (COND
         ((ILESSP MAXCOMMAND 49)
          (RETURN NIL)))
       (TTY.PROCESS TARGET)
-      (SETQ INJECTED (SUBRCALL UNIX-HANDLECOMM 49))
+      (SETQ INJECTED (MAG-UNIX-HANDLECOMM1 49))
       (RETURN (AND INJECTED (IGREATERP INJECTED 0))))])
 
 (MAG-DEBUG-RPC-EVAL-START
@@ -351,7 +359,7 @@
 
 (MAG-DEBUG-RPC-EVAL-STATUS
   [LAMBDA NIL
-    (LET ((MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0)))
+    (LET ((MAXCOMMAND (OR (MAG-UNIX-HANDLECOMM1 8) 0)))
       (CONCAT "eval-status="
               (COND
                 ((IGEQ MAXCOMMAND 49) "available")
@@ -373,7 +381,7 @@
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (BUFFER (NCREATE 'VMEMPAGEP))
-           (MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
+           (MAXCOMMAND (OR (MAG-UNIX-HANDLECOMM1 8) 0))
            CHAN LEN READS CHANGED JOBLEN)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag shell self-test")
       (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "unix-handlecomm-max=" MAXCOMMAND))
@@ -389,7 +397,7 @@
          (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
       (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "slot=" CHAN))
       (COND
-        ((SUBRCALL UNIX-HANDLECOMM 17 CHAN 24 80)
+        ((MAG-UNIX-HANDLECOMM4 17 CHAN 24 80)
          (MAG-DEBUG-RPC-WRITE-LINE OUT "ok resize=24x80"))
         (T
          (MAG-DEBUG-RPC-WRITE-LINE OUT "FAIL resize=24x80")))
@@ -398,7 +406,7 @@
       (COND
         ((IGEQ READS 40)
          (GO AFTERREAD)))
-      (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+      (SETQ LEN (MAG-UNIX-HANDLECOMM3 9 CHAN BUFFER))
       (COND
         ((AND LEN (SMALLP LEN) (IGREATERP LEN 0))
          (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "read-bytes=" LEN))
@@ -411,7 +419,7 @@
         ((OR (NULL LEN) (NOT (SMALLP LEN)) (ILEQ LEN 0))
          (MAG-DEBUG-RPC-WRITE-LINE OUT
            (CONCAT "read-bytes=0 attempts=" READS))))
-      (SETQ CHANGED (SUBRCALL UNIX-HANDLECOMM 37 CHAN BUFFER))
+      (SETQ CHANGED (MAG-UNIX-HANDLECOMM3 37 CHAN BUFFER))
       (MAG-DEBUG-RPC-WRITE-LINE
         OUT
         (CONCAT "changed-rows="
@@ -419,22 +427,74 @@
                   ((AND CHANGED (SMALLP CHANGED)) CHANGED)
                   (CHANGED "non-small")
                   (T "none"))))
-      (SETQ JOBLEN (SUBRCALL UNIX-HANDLECOMM 40 CHAN BUFFER))
+      (SETQ JOBLEN (MAG-UNIX-HANDLECOMM3 40 CHAN BUFFER))
       (COND
         ((AND JOBLEN (SMALLP JOBLEN) (IGREATERP JOBLEN 0))
          (MAG-DEBUG-RPC-WRITE-LINE OUT "job-report:")
          (MAG-STRING-OUTPUT (MAG-GHOSTTY-BUFFER-STRING BUFFER JOBLEN) OUT))
         (T
          (MAG-DEBUG-RPC-WRITE-LINE OUT "job-report unavailable")))
-      (SUBRCALL UNIX-HANDLECOMM 3 CHAN 0)
+      (MAG-UNIX-HANDLECOMM3 3 CHAN 0)
       (MAG-DEBUG-RPC-WRITE-LINE OUT "status=ok")
       (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
+(MAG-DEBUG-RPC-SHELL-FORK-CLOSE-ONE
+  [LAMBDA (BUFFER DRAINP)
+    (PROG ((MAXCOMMAND (OR (MAG-UNIX-HANDLECOMM1 8) 0))
+           CHAN LEN READS)
+      (MAG-VTERM-ENSURE)
+      (SETQ CHAN (FORK-SHELL "xterm-256color" NIL))
+      (COND
+        ((NULL CHAN)
+         (RETURN NIL)))
+      (MAG-UNIX-HANDLECOMM4 17 CHAN 24 80)
+      (COND
+        (DRAINP
+         (SETQ READS 0)
+       DRAIN
+         (COND
+           ((IGEQ READS 40)
+            (GO CLOSE)))
+         (SETQ LEN
+               (COND
+                 ((IGEQ MAXCOMMAND 53)
+                  (MAG-UNIX-HANDLECOMM2 53 CHAN))
+                 (T
+                  (MAG-UNIX-HANDLECOMM3 9 CHAN BUFFER))))
+         (COND
+           ((AND (SMALLP LEN) (IGREATERP LEN 0))
+            (GO CLOSE))
+           ((EQ LEN T)
+            (SETQ READS (ADD1 READS))
+            (BLOCK 100)
+            (GO DRAIN))
+           (T
+            (GO CLOSE)))))
+    CLOSE
+      (MAG-UNIX-HANDLECOMM3 3 CHAN 0)
+      (RETURN T))])
+
+(MAG-DEBUG-RPC-SHELL-FORK-CLOSE-BATCH
+  [LAMBDA (DRAINP)
+    (PROG ((BUFFER (NCREATE 'VMEMPAGEP))
+           (I 0)
+           (OK 0))
+    LOOP
+      (COND
+        ((IGEQ I 20)
+         (RETURN (CONCAT "shell-fork-close-batch drain="
+                         (COND (DRAINP "yes") (T "no"))
+                         " ok=" OK))))
+      (AND (MAG-DEBUG-RPC-SHELL-FORK-CLOSE-ONE BUFFER DRAINP)
+           (SETQ OK (ADD1 OK)))
+      (SETQ I (ADD1 I))
+      (GO LOOP))])
 
 (MAG-DEBUG-RPC-SHELL-KEY-PROBE
   [LAMBDA NIL
     (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
            (BUFFER (NCREATE 'VMEMPAGEP))
-           (MAXCOMMAND (OR (SUBRCALL UNIX-HANDLECOMM 8) 0))
+           (MAXCOMMAND (OR (MAG-UNIX-HANDLECOMM1 8) 0))
            (COMMAND "sh -c 'stty raw -echo; dd bs=1 count=12 2>/dev/null | od -An -tx1 -v'")
            (EXPECTED "1b 5b 41 1b 5b 42 1b 5b 43 1b 5b 44")
            (ALL "")
@@ -454,7 +514,7 @@
       (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "slot=" CHAN))
       (BLOCK 300)
       (for KEYID in '(1 2 3 4) do
-        (SETQ WROTE (SUBRCALL UNIX-HANDLECOMM 25 CHAN KEYID 0 0))
+        (SETQ WROTE (MAG-UNIX-HANDLECOMM5 25 CHAN KEYID 0 0))
         (MAG-DEBUG-RPC-WRITE-LINE
           OUT
           (CONCAT "sent key-id=" KEYID " wrote=" (OR WROTE "nil"))))
@@ -463,7 +523,7 @@
       (COND
         ((IGEQ READS 60)
          (GO DONE)))
-      (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
+      (SETQ LEN (MAG-UNIX-HANDLECOMM3 9 CHAN BUFFER))
       (COND
         ((AND LEN (SMALLP LEN) (IGREATERP LEN 0))
          (SETQ TEXT (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
@@ -475,7 +535,7 @@
       (BLOCK)
       (GO READLP)
     DONE
-      (SUBRCALL UNIX-HANDLECOMM 3 CHAN 0)
+      (MAG-UNIX-HANDLECOMM3 3 CHAN 0)
       (MAG-DEBUG-RPC-WRITE-LINE OUT (CONCAT "raw-output=" ALL))
       (SETQ FAIL
             (MAG-DEBUG-RPC-CHECK
@@ -610,7 +670,7 @@
         (T
          (LET ((BUFFER (MAG-DEBUG-BUFFER))
                LEN)
-           (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 44 BUFFER))
+           (SETQ LEN (MAG-UNIX-HANDLECOMM2 44 BUFFER))
            (COND
              ((AND LEN (IGREATERP LEN 0))
               (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
@@ -694,7 +754,11 @@
          (CONCAT LABEL
                  " present=yes alive=yes name=" (OR (PROCESS.NAME PROC) "nil")
                  " tty=" (MAG-DEBUG-RPC-YESNO (TTY.PROCESSP PROC))
-                 " window=" (MAG-DEBUG-RPC-YESNO (PROCESSPROP PROC 'WINDOW)))))
+                 " window=" (MAG-DEBUG-RPC-YESNO (PROCESSPROP PROC 'WINDOW))
+                 " status=" (MAG-DEBUG-EVAL-VALUE-STRING
+                              (CAR (NLSETQ (PROCESS-STATUS PROC))))
+                 " finished=" (MAG-DEBUG-EVAL-VALUE-STRING
+                                (CAR (NLSETQ (PROCESS.FINISHEDP PROC)))))))
       (T
        (MAG-DEBUG-RPC-WRITE-LINE
          OUT
@@ -778,6 +842,63 @@
                     MAG-DEBUG-KEY-PROBE)
            do (MAG-DEBUG-RPC-NAMED-PROCESS-LINE OUT NAME))
       (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
+(MAG-DEBUG-RPC-SHELL-ROOT-REPORT
+  [LAMBDA NIL
+    (PROG ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (WINDOW (AND (BOUNDP 'MAG-VTERM-LAST-WINDOW) MAG-VTERM-LAST-WINDOW))
+           (OPENCOUNT 0)
+           (MAGOPENCOUNT 0)
+           (PROCCOUNT 0)
+           (MAGPROCCOUNT 0)
+           NAME)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "Mag shell roots")
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (CONCAT "last-window present=" (MAG-DEBUG-RPC-YESNO WINDOW)
+                " open=" (MAG-DEBUG-RPC-YESNO (AND WINDOW (OPENWP WINDOW)))
+                " state=" (MAG-DEBUG-RPC-YESNO (AND WINDOW
+                                                     (WINDOWPROP WINDOW 'MAG-VTERM-STATE)))
+                " channel=" (OR (AND WINDOW (WINDOWPROP WINDOW 'MAG-VTERM-CHANNEL))
+                                "nil")
+                " process=" (MAG-DEBUG-RPC-YESNO (AND WINDOW
+                                                       (WINDOWPROP WINDOW 'PROCESS)))))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (CONCAT "last-in-window present=" (MAG-DEBUG-RPC-YESNO \LastInWindow)
+                " equals-last-window=" (MAG-DEBUG-RPC-YESNO
+                                         (AND WINDOW \LastInWindow
+                                              (EQ WINDOW \LastInWindow)))
+                " mag-state=" (MAG-DEBUG-RPC-YESNO
+                                (AND \LastInWindow
+                                     (WINDOWPROP \LastInWindow 'MAG-VTERM-STATE)))))
+      (for W in (OPENWINDOWS T) do
+        (SETQ OPENCOUNT (ADD1 OPENCOUNT))
+        (AND (WINDOWPROP W 'MAG-VTERM-STATE)
+             (SETQ MAGOPENCOUNT (ADD1 MAGOPENCOUNT))))
+      (for P in \PROCESSES do
+        (SETQ PROCCOUNT (ADD1 PROCCOUNT))
+        (SETQ NAME (PROCESS.NAME P))
+        (AND (MEMB NAME '(MAG-VTERM-TYPEIN MAG-VTERM-TYPEOUT
+                          MAG-RPC-SHELL MAG-RPC-SHELL-LOAD))
+             (PROGN
+               (SETQ MAGPROCCOUNT (ADD1 MAGPROCCOUNT))
+               (MAG-DEBUG-RPC-PROCESS-LINE OUT
+                                           (CONCAT "process." NAME)
+                                           P))))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (CONCAT "open-windows=" OPENCOUNT
+                " open-mag-vterm-windows=" MAGOPENCOUNT
+                " processes=" PROCCOUNT
+                " mag-processes=" MAGPROCCOUNT))
+      (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))])
+
+(MAG-DEBUG-RPC-PPROC
+  [LAMBDA NIL
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
+      (CAR (NLSETQ (PPROC NIL OUT)))
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
 
 (MAG-DEBUG-RPC-PERFORMANCE-REPORT
   [LAMBDA NIL
@@ -1142,6 +1263,10 @@
        (MAG-DEBUG-RPC-STATUS-REPORT))
       ((STREQUAL COMMAND "process-status")
        (MAG-DEBUG-RPC-PROCESS-STATUS))
+      ((STREQUAL COMMAND "shell-root-report")
+       (MAG-DEBUG-RPC-SHELL-ROOT-REPORT))
+      ((STREQUAL COMMAND "process-pproc")
+       (MAG-DEBUG-RPC-PPROC))
       ((STREQUAL COMMAND "native-jobs")
        (MAG-DEBUG-JOBS-REPORT))
 	      ((STREQUAL COMMAND "gc-report")
@@ -1179,6 +1304,10 @@
          (T "MAG-VTERM-RPC-CLOSE-ACTIVE is not loaded")))
       ((STREQUAL COMMAND "shell-self-test")
        (MAG-DEBUG-RPC-SHELL-SELF-TEST))
+      ((STREQUAL COMMAND "shell-fork-close-batch")
+       (MAG-DEBUG-RPC-SHELL-FORK-CLOSE-BATCH NIL))
+      ((STREQUAL COMMAND "shell-fork-drain-close-batch")
+       (MAG-DEBUG-RPC-SHELL-FORK-CLOSE-BATCH T))
       ((STREQUAL COMMAND "shell-key-probe")
        (MAG-DEBUG-RPC-SHELL-KEY-PROBE))
       ((STREQUAL COMMAND "shell-state")
@@ -1186,6 +1315,11 @@
          ((GETD 'MAG-VTERM-STATE-REPORT)
           (MAG-VTERM-STATE-REPORT))
          (T "MAG-VTERM-STATE-REPORT is not loaded")))
+      ((STREQUAL COMMAND "shell-wake-typeout")
+       (COND
+         ((GETD 'MAG-VTERM-RPC-WAKE-TYPEOUT)
+          (MAG-VTERM-RPC-WAKE-TYPEOUT))
+         (T "MAG-VTERM-RPC-WAKE-TYPEOUT is not loaded")))
 	      ((STREQUAL COMMAND "shell-drain-once")
 	       (COND
 	         ((GETD 'MAG-VTERM-RPC-DRAIN-ONCE)
@@ -1240,6 +1374,21 @@
                        'NAME 'MAG-RPC-GOPHER)
           "opening Mag Gopher")
          (T "MAG-GOPHER is not loaded")))
+      ((STREQUAL COMMAND "open-telegram")
+       (COND
+         ((GETD 'MAG-TELEGRAM-RPC-OPEN)
+          (MAG-TELEGRAM-RPC-OPEN))
+         (T "MAG-TELEGRAM-RPC-OPEN is not loaded")))
+      ((STREQUAL COMMAND "telegram-status")
+       (COND
+         ((GETD 'MAG-TELEGRAM-RPC-STATUS)
+          (MAG-TELEGRAM-RPC-STATUS))
+         (T "MAG-TELEGRAM-RPC-STATUS is not loaded")))
+      ((STREQUAL COMMAND "telegram-chats")
+       (COND
+         ((GETD 'MAG-TELEGRAM-RPC-CHATS)
+          (MAG-TELEGRAM-RPC-CHATS))
+         (T "MAG-TELEGRAM-RPC-CHATS is not loaded")))
       ((STREQUAL COMMAND "close-gopher")
        (COND
          ((GETD 'MAG-GOPHER-RPC-CLOSE-ACTIVE)
@@ -1325,22 +1474,27 @@
 
 (MAG-DEBUG-RPC-WRITE-RESPONSE
   [LAMBDA (TEXT)
-    (MAG-WRITE-UTF8-TEXT-FILE "/tmp/medley-mag-response"
-                              (OR TEXT ""))])
+    (LET ((RESPONSE (OR TEXT "")))
+      (COND
+        ((IGEQ (MAG-DEBUG-MAXCOMMAND) 55)
+         (MAG-UNIX-HANDLECOMM2 55 RESPONSE))
+        (T
+         (MAG-WRITE-UTF8-TEXT-FILE "/tmp/medley-mag-response"
+                                   RESPONSE))))])
 
-	(MAG-DEBUG-RPC-LOOP
-	  [LAMBDA NIL
-	    (PROG (COMMAND RESPONSE)
-	    LP
-	      (SETQ COMMAND (MAG-DEBUG-RPC-READ))
+		(MAG-DEBUG-RPC-LOOP
+		  [LAMBDA NIL
+		    (PROG (COMMAND RESPONSE)
+		    LP
+		      (SETQ COMMAND (MAG-DEBUG-RPC-READ))
 	      (COND
 	        (COMMAND
-         (SETQ RESPONSE
-               (CAR (NLSETQ (MAG-DEBUG-RPC-DISPATCH COMMAND))))
-         (MAG-DEBUG-RPC-WRITE-RESPONSE
-           (OR RESPONSE (CONCAT "request failed: " COMMAND)))))
-      (BLOCK 100)
-      (GO LP))])
+	         (SETQ RESPONSE
+	               (CAR (NLSETQ (MAG-DEBUG-RPC-DISPATCH COMMAND))))
+	         (MAG-DEBUG-RPC-WRITE-RESPONSE
+	           (OR RESPONSE (CONCAT "request failed: " COMMAND)))))
+	      (DISMISS 100)
+	      (GO LP))])
 
 (MAG-DEBUG-RPC-START
   [LAMBDA NIL
