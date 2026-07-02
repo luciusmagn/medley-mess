@@ -1,11 +1,22 @@
-(DEFINE-FILE-INFO  PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
+(DEFINE-FILE-INFO PACKAGE "INTERLISP" READTABLE "INTERLISP" BASE 10)
 
 (FILESLOAD RECORD)
 (FILESLOAD CHATDECLS)
 (RPAQQ MAG-TELEGRAM-BRIDGE-COMMAND "/home/mag/.local/bin/mag-telegram-bridge")
+(RPAQQ MAG-TELEGRAM-DAEMON-REQUEST-PATH "/tmp/mag-telegram-request")
+(RPAQQ MAG-TELEGRAM-DAEMON-RESPONSE-PATH "/tmp/mag-telegram-response")
+(RPAQQ MAG-TELEGRAM-RESPONSE-WAIT-TRIES 30)
 (RPAQ? MAG-TELEGRAM-LAST-WINDOW NIL)
 
 (DEFINEQ
+
+(MAG-TELEGRAM-LF
+  [LAMBDA NIL
+    (CONCATCODES '(10))])
+
+(MAG-TELEGRAM-LF2
+  [LAMBDA NIL
+    (CONCAT (MAG-TELEGRAM-LF) (MAG-TELEGRAM-LF))])
 
 (MAG-TELEGRAM-SPLIT-LINES
   [LAMBDA (TEXT)
@@ -37,24 +48,250 @@
       (SETQ I (ADD1 I))
       (GO LP))])
 
+(MAG-TELEGRAM-CHAT-LINE-P
+  [LAMBDA (LINE)
+    (AND LINE
+         (IGREATERP (NCHARS LINE) 0)
+         (LET ((CH (NTHCHARCODE LINE 1)))
+           (OR (EQ CH 45)
+               (AND (IGEQ CH 48) (ILEQ CH 57)))))])
+
+(MAG-TELEGRAM-CHAT-LINES-FROM-TEXT
+  [LAMBDA (TEXT)
+    (PROG ((LINES (MAG-TELEGRAM-SPLIT-LINES TEXT))
+           (OUT NIL)
+           LINE)
+    LP
+      (COND
+        ((NULL LINES)
+         (RETURN (DREVERSE OUT))))
+      (SETQ LINE (CAR LINES))
+      (AND (MAG-TELEGRAM-CHAT-LINE-P LINE)
+           (SETQ OUT (CONS LINE OUT)))
+      (SETQ LINES (CDR LINES))
+      (GO LP))])
+
+(MAG-TELEGRAM-NTH0
+  [LAMBDA (LIST N)
+    (PROG ((I 0))
+    LP
+      (COND
+        ((NULL LIST)
+         (RETURN NIL))
+        ((EQ I N)
+         (RETURN (CAR LIST))))
+      (SETQ I (ADD1 I))
+      (SETQ LIST (CDR LIST))
+      (GO LP))])
+
+(MAG-TELEGRAM-JOIN-LINES
+  [LAMBDA (LINES)
+    (PROG ((OUT ""))
+    LP
+      (COND
+        ((NULL LINES)
+         (RETURN OUT)))
+      (SETQ OUT (CONCAT OUT (CAR LINES) (MAG-TELEGRAM-LF)))
+      (SETQ LINES (CDR LINES))
+      (GO LP))])
+
+(MAG-TELEGRAM-CHAT-ID-FROM-LINE
+  [LAMBDA (LINE)
+    (PROG ((I 1)
+           (LEN (AND LINE (NCHARS LINE)))
+           CH)
+      (COND
+        ((NULL LINE)
+         (RETURN NIL)))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN LINE)))
+      (SETQ CH (NTHCHARCODE LINE I))
+      (COND
+        ((OR (EQ CH 32) (EQ CH 9))
+         (RETURN (SUBSTRING LINE 1 (SUB1 I)))))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-TELEGRAM-VISIBLE-CHAT-ROWS
+  [LAMBDA (WINDOW)
+    (IMAX 1
+          (IDIFFERENCE
+            (IQUOTIENT (WINDOWPROP WINDOW 'HEIGHT)
+                       (MAG-WINDOW-LINEHEIGHT WINDOW))
+            4))])
+
+(MAG-TELEGRAM-CLAMP-SELECTION
+  [LAMBDA (SELECTED COUNT)
+    (COND
+      ((ILEQ COUNT 0)
+       0)
+      ((ILESSP SELECTED 0)
+       0)
+      ((IGEQ SELECTED COUNT)
+       (SUB1 COUNT))
+      (T SELECTED))])
+
+(MAG-TELEGRAM-ADJUST-TOP
+  [LAMBDA (TOP SELECTED VISIBLE COUNT)
+    (COND
+      ((ILEQ COUNT 0)
+       0)
+      ((ILESSP SELECTED TOP)
+       SELECTED)
+      ((IGEQ SELECTED (IPLUS TOP VISIBLE))
+       (IMAX 0 (IDIFFERENCE (ADD1 SELECTED) VISIBLE)))
+      ((IGREATERP (IPLUS TOP VISIBLE) COUNT)
+       (IMAX 0 (IDIFFERENCE COUNT VISIBLE)))
+      (T TOP))])
+
+(MAG-TELEGRAM-KEYID
+  [LAMBDA (CH)
+    (AND (GETD 'MAG-VTERM-SPECIAL-KEYID)
+         (MAG-VTERM-SPECIAL-KEYID CH))])
+
+(MAG-TELEGRAM-CONTINUATION-BYTEP
+  [LAMBDA (BYTE)
+    (AND (IGEQ BYTE 128)
+         (ILEQ BYTE 191))])
+
+(MAG-TELEGRAM-WRITE-CODE
+  [LAMBDA (OUT CODE)
+    (CL:WRITE-CHAR (OR (CL:CODE-CHAR CODE)
+                       (CL:CODE-CHAR 63))
+                   OUT)])
+
+(MAG-TELEGRAM-READ-STREAM-TEXT
+  [LAMBDA (STREAM)
+    (PROG ((END (GETEOFPTR STREAM))
+           (CODES NIL)
+           CH)
+      (SETFILEPTR STREAM 0)
+      (for I from 1 to END do
+        (SETQ CH (READCCODE STREAM))
+        (AND CH (SETQ CODES (CONS CH CODES))))
+      (RETURN (COND
+                (CODES (CONCATCODES (DREVERSE CODES)))
+                (T ""))))])
+
+(MAG-TELEGRAM-READ-UTF8-STREAM
+  [LAMBDA (STREAM)
+    (PROG ((END (GETEOFPTR STREAM))
+           (OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (I 0)
+           BYTE B2 B3 B4 CODE)
+      (SETFILEPTR STREAM 0)
+    LP
+      (COND
+        ((IGEQ I END)
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))
+      (SETQ BYTE (BIN STREAM))
+      (SETQ I (ADD1 I))
+      (COND
+        ((OR (NULL BYTE) (ILESSP BYTE 0))
+         (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT)))
+        ((ILESSP BYTE 128)
+         (MAG-TELEGRAM-WRITE-CODE OUT BYTE))
+        ((AND (IGEQ BYTE 194)
+              (ILEQ BYTE 223)
+              (ILESSP I END)
+              (MAG-TELEGRAM-CONTINUATION-BYTEP
+                (SETQ B2 (BIN STREAM))))
+         (SETQ I (ADD1 I))
+         (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 31) 6)
+                           (LOGAND B2 63)))
+         (MAG-TELEGRAM-WRITE-CODE OUT CODE))
+        ((AND (IGEQ BYTE 224)
+              (ILEQ BYTE 239)
+              (ILESSP (ADD1 I) END)
+              (MAG-TELEGRAM-CONTINUATION-BYTEP
+                (SETQ B2 (BIN STREAM)))
+              (MAG-TELEGRAM-CONTINUATION-BYTEP
+                (SETQ B3 (BIN STREAM)))
+              (OR (NEQ BYTE 224) (IGEQ B2 160))
+              (OR (NEQ BYTE 237) (ILESSP B2 160)))
+         (SETQ I (IPLUS I 2))
+         (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 15) 12)
+                           (LLSH (LOGAND B2 63) 6)
+                           (LOGAND B3 63)))
+         (MAG-TELEGRAM-WRITE-CODE OUT CODE))
+        ((AND (IGEQ BYTE 240)
+              (ILEQ BYTE 244)
+              (ILESSP (IPLUS I 2) END)
+              (MAG-TELEGRAM-CONTINUATION-BYTEP
+                (SETQ B2 (BIN STREAM)))
+              (MAG-TELEGRAM-CONTINUATION-BYTEP
+                (SETQ B3 (BIN STREAM)))
+              (MAG-TELEGRAM-CONTINUATION-BYTEP
+                (SETQ B4 (BIN STREAM)))
+              (OR (NEQ BYTE 240) (IGEQ B2 144))
+              (OR (NEQ BYTE 244) (ILESSP B2 144)))
+         (SETQ I (IPLUS I 3))
+         (SETQ CODE (IPLUS (LLSH (LOGAND BYTE 7) 18)
+                           (LLSH (LOGAND B2 63) 12)
+                           (LLSH (LOGAND B3 63) 6)
+                           (LOGAND B4 63)))
+         (MAG-TELEGRAM-WRITE-CODE OUT CODE))
+        (T
+         (MAG-TELEGRAM-WRITE-CODE OUT BYTE)))
+      (GO LP))])
+
+(MAG-TELEGRAM-READ-UTF8-FILE
+  [LAMBDA (PATH)
+    (PROG (STREAM TEXT)
+      (SETQ STREAM
+            (CAR
+              (NLSETQ
+                (OPENSTREAM PATH 'INPUT 'OLD 8 '((TYPE BINARY))))))
+      (COND
+        ((NULL STREAM)
+         (RETURN NIL)))
+      (SETQ TEXT (MAG-TELEGRAM-READ-UTF8-STREAM STREAM))
+      (CLOSEF STREAM)
+      (RETURN TEXT))])
+
 (MAG-TELEGRAM-SHELL
   [LAMBDA (COMMAND)
     (MAG-VTERM-ENSURE)
-    (PROG (STREAM TEXT)
-      (SETQ STREAM (CAR (NLSETQ (OPENSTREAM '{NODIRCORE} 'BOTH))))
-      (COND
-        ((NULL STREAM)
-         (RETURN "could not open temporary stream")))
-      (ShellCommand COMMAND STREAM)
-      (SETFILEPTR STREAM 0)
-      (SETQ TEXT (RSTRING STREAM))
-      (CLOSEF STREAM)
-      (RETURN (OR TEXT "")))])
+    (OR
+      (CAR
+        (NLSETQ
+          (PROG (STREAM TEXT)
+            (SETQ STREAM (CAR (NLSETQ (OPENSTREAM '{NODIRCORE} 'BOTH))))
+            (COND
+              ((NULL STREAM)
+               (RETURN "could not open temporary stream")))
+            (ShellCommand COMMAND STREAM)
+            (SETQ TEXT (MAG-TELEGRAM-READ-STREAM-TEXT STREAM))
+            (CLOSEF STREAM)
+            (RETURN (OR TEXT "")))))
+      (CONCAT "Mag Telegram shell command failed: " COMMAND (MAG-TELEGRAM-LF)))])
 
 (MAG-TELEGRAM-BRIDGE
   [LAMBDA (REQUEST)
-    (MAG-TELEGRAM-SHELL
-      (CONCAT MAG-TELEGRAM-BRIDGE-COMMAND " " (OR REQUEST "status") " 2>&1"))])
+    (MAG-VTERM-ENSURE)
+    (MAG-TELEGRAM-ENSURE-BRIDGE)
+    (NLSETQ (DELFILE MAG-TELEGRAM-DAEMON-RESPONSE-PATH))
+    (COND
+      ((MAG-WRITE-UTF8-TEXT-FILE
+         MAG-TELEGRAM-DAEMON-REQUEST-PATH
+         (OR REQUEST "status"))
+       (PROG ((I 0)
+              TEXT)
+       LP
+         (SETQ TEXT (MAG-TELEGRAM-READ-UTF8-FILE
+                      MAG-TELEGRAM-DAEMON-RESPONSE-PATH))
+         (COND
+           ((AND TEXT (IGREATERP (NCHARS TEXT) 0))
+            (RETURN TEXT))
+           ((IGEQ I MAG-TELEGRAM-RESPONSE-WAIT-TRIES)
+            (RETURN (CONCAT "Mag Telegram daemon did not respond"
+                            (MAG-TELEGRAM-LF)))))
+         (SETQ I (ADD1 I))
+         (BLOCK 100)
+         (GO LP)))
+      (T (CONCAT "could not write Mag Telegram request file" (MAG-TELEGRAM-LF))))])
 
 (MAG-TELEGRAM-START-BRIDGE
   [LAMBDA NIL
@@ -81,10 +318,11 @@
 
 (MAG-TELEGRAM-DASHBOARD-TEXT
   [LAMBDA NIL
-    (CONCAT "Mag Telegram\n"
-            "keys: s=start bridge, r=refresh, c=chats, q=close\n\n"
+    (CONCAT "Mag Telegram" (MAG-TELEGRAM-LF)
+            "keys: s=start bridge, r=refresh, c=chats, p=phone, v=code, w=password, q=close"
+            (MAG-TELEGRAM-LF2)
             (MAG-TELEGRAM-STATUS-TEXT)
-            "\n"
+            (MAG-TELEGRAM-LF)
             (MAG-TELEGRAM-CHATS-TEXT))])
 
 (MAG-TELEGRAM-DRAW-TEXT
@@ -92,18 +330,152 @@
     (WINDOWPROP WINDOW 'MAG-TELEGRAM-TEXT TEXT)
     (MAG-WINDOW-DRAW-LINES WINDOW (MAG-TELEGRAM-SPLIT-LINES TEXT))])
 
-(MAG-TELEGRAM-REFRESH
+(MAG-TELEGRAM-SHOW-DASHBOARD
   [LAMBDA (WINDOW)
     (AND WINDOW
+         (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE 'DASHBOARD)
          (MAG-TELEGRAM-DRAW-TEXT WINDOW (MAG-TELEGRAM-DASHBOARD-TEXT)))])
+
+(MAG-TELEGRAM-CHAT-ROWS
+  [LAMBDA (WINDOW CHATS SELECTED TOP VISIBLE)
+    (PROG ((I 0)
+           (DRAWN 0)
+           (OUT NIL)
+           LINE)
+    LP
+      (COND
+        ((OR (NULL CHATS) (IGEQ DRAWN VISIBLE))
+         (RETURN (DREVERSE OUT))))
+      (SETQ LINE (CAR CHATS))
+      (COND
+        ((IGEQ I TOP)
+         (SETQ OUT
+               (CONS
+                 (CONCAT (COND ((EQ I SELECTED) "> ") (T "  "))
+                         LINE)
+                 OUT))
+         (SETQ DRAWN (ADD1 DRAWN))))
+      (SETQ I (ADD1 I))
+      (SETQ CHATS (CDR CHATS))
+      (GO LP))])
+
+(MAG-TELEGRAM-DRAW-CHATS
+  [LAMBDA (WINDOW)
+    (PROG ((CHATS (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHATS) NIL))
+           (COUNT 0)
+           (SELECTED (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED) 0))
+           (TOP (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-TOP) 0))
+           (VISIBLE (MAG-TELEGRAM-VISIBLE-CHAT-ROWS WINDOW))
+           ROWS)
+      (SETQ COUNT (LENGTH CHATS))
+      (SETQ SELECTED (MAG-TELEGRAM-CLAMP-SELECTION SELECTED COUNT))
+      (SETQ TOP (MAG-TELEGRAM-ADJUST-TOP TOP SELECTED VISIBLE COUNT))
+      (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED SELECTED)
+      (WINDOWPROP WINDOW 'MAG-TELEGRAM-TOP TOP)
+      (SETQ ROWS (MAG-TELEGRAM-CHAT-ROWS WINDOW CHATS SELECTED TOP VISIBLE))
+      (MAG-TELEGRAM-DRAW-TEXT
+        WINDOW
+        (CONCAT "Mag Telegram chats (" COUNT ")" (MAG-TELEGRAM-LF)
+                "arrows: select, Enter/right: open, left: dashboard, r: reload, s: start, q: close"
+                (MAG-TELEGRAM-LF2)
+                (COND
+                  (ROWS (MAG-TELEGRAM-JOIN-LINES ROWS))
+                  (T (CONCAT "No chats cached yet. Start/auth the bridge, then refresh."
+                             (MAG-TELEGRAM-LF)))))))])
 
 (MAG-TELEGRAM-SHOW-CHATS
   [LAMBDA (WINDOW)
+    (PROG ((TEXT (MAG-TELEGRAM-CHATS-TEXT))
+           CHATS)
+      (COND
+        ((NULL WINDOW)
+         (RETURN NIL)))
+      (SETQ CHATS (MAG-TELEGRAM-CHAT-LINES-FROM-TEXT TEXT))
+      (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE 'CHATS)
+      (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHATS CHATS)
+      (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED
+                  (MAG-TELEGRAM-CLAMP-SELECTION
+                    (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED) 0)
+                    (LENGTH CHATS)))
+      (MAG-TELEGRAM-DRAW-CHATS WINDOW))])
+
+(MAG-TELEGRAM-SHOW-MESSAGES
+  [LAMBDA (WINDOW CHAT-ID CHAT-LINE)
+    (COND
+      ((AND WINDOW CHAT-ID)
+       (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE 'MESSAGES)
+       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID CHAT-ID)
+       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE CHAT-LINE)
+       (MAG-TELEGRAM-DRAW-TEXT
+         WINDOW
+         (CONCAT "Mag Telegram messages" (MAG-TELEGRAM-LF)
+                 "chat: " (OR CHAT-LINE CHAT-ID) (MAG-TELEGRAM-LF)
+                 "keys: s=send, left/c=chats, r=refresh, q=close"
+                 (MAG-TELEGRAM-LF2)
+                 (MAG-TELEGRAM-BRIDGE (CONCAT "messages " CHAT-ID)))))
+      (T NIL))])
+
+(MAG-TELEGRAM-OPEN-SELECTED-CHAT
+  [LAMBDA (WINDOW)
+    (PROG ((CHATS (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHATS))
+           (SELECTED (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED) 0))
+           LINE CHAT-ID)
+      (SETQ LINE (MAG-TELEGRAM-NTH0 CHATS SELECTED))
+      (SETQ CHAT-ID (MAG-TELEGRAM-CHAT-ID-FROM-LINE LINE))
+      (COND
+        (CHAT-ID
+         (MAG-TELEGRAM-SHOW-MESSAGES WINDOW CHAT-ID LINE))
+        (T
+         (MAG-TELEGRAM-DRAW-TEXT WINDOW
+                                 (CONCAT "No chat selected." (MAG-TELEGRAM-LF))))))])
+
+(MAG-TELEGRAM-MOVE-CHAT-SELECTION
+  [LAMBDA (WINDOW DELTA)
+    (AND (EQ (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE) 'CHATS)
+         (PROG ((COUNT (LENGTH (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHATS) NIL)))
+                (SELECTED (OR (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED) 0)))
+           (SETQ SELECTED
+                 (MAG-TELEGRAM-CLAMP-SELECTION
+                   (IPLUS SELECTED DELTA)
+                   COUNT))
+           (WINDOWPROP WINDOW 'MAG-TELEGRAM-SELECTED SELECTED)
+           (MAG-TELEGRAM-DRAW-CHATS WINDOW)))])
+
+(MAG-TELEGRAM-SEND-CURRENT
+  [LAMBDA (WINDOW)
+    (PROG ((CHAT-ID (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID))
+           TEXT RESULT)
+      (COND
+        ((NULL CHAT-ID)
+         (RETURN NIL)))
+      (SETQ TEXT (MAG-PROMPT-LINE "telegram message" NIL))
+      (COND
+        ((OR (NULL TEXT) (EQ (NCHARS TEXT) 0))
+         (RETURN NIL)))
+      (SETQ RESULT (MAG-TELEGRAM-BRIDGE (CONCAT "send " CHAT-ID " " TEXT)))
+      (BLOCK 300)
+      (MAG-TELEGRAM-SHOW-MESSAGES WINDOW CHAT-ID
+                                  (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE))
+      RESULT)])
+
+(MAG-TELEGRAM-AUTH-PROMPT
+  [LAMBDA (KIND PROMPT)
+    (LET ((VALUE (MAG-PROMPT-LINE PROMPT NIL)))
+      (COND
+        ((AND VALUE (IGREATERP (NCHARS VALUE) 0))
+         (MAG-TELEGRAM-BRIDGE (CONCAT "auth-" KIND " " VALUE)))
+        (T (CONCAT "auth cancelled" (MAG-TELEGRAM-LF)))))])
+
+(MAG-TELEGRAM-REFRESH
+  [LAMBDA (WINDOW)
     (AND WINDOW
-         (MAG-TELEGRAM-DRAW-TEXT
-           WINDOW
-           (CONCAT "Mag Telegram chats\nkeys: r=dashboard, q=close\n\n"
-                   (MAG-TELEGRAM-CHATS-TEXT))))])
+         (SELECTQ (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE)
+           (CHATS (MAG-TELEGRAM-SHOW-CHATS WINDOW))
+           (MESSAGES (MAG-TELEGRAM-SHOW-MESSAGES
+                       WINDOW
+                       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-ID)
+                       (WINDOWPROP WINDOW 'MAG-TELEGRAM-CHAT-LINE)))
+           (MAG-TELEGRAM-SHOW-DASHBOARD WINDOW)))])
 
 (MAG-TELEGRAM-ACTIVE-WINDOW
   [LAMBDA NIL
@@ -128,18 +500,47 @@
 
 (MAG-TELEGRAM-HANDLE-KEY
   [LAMBDA (WINDOW CH)
-    (SELECTQ CH
-      (113
-       (CLOSEW WINDOW))
-      (114
-       (MAG-TELEGRAM-REFRESH WINDOW))
-      (115
-       (MAG-TELEGRAM-START-BRIDGE)
-       (BLOCK 500)
-       (MAG-TELEGRAM-REFRESH WINDOW))
-      (99
-       (MAG-TELEGRAM-SHOW-CHATS WINDOW))
-      NIL)])
+    (LET ((KEYID (MAG-TELEGRAM-KEYID CH))
+          (MODE (WINDOWPROP WINDOW 'MAG-TELEGRAM-MODE)))
+      (COND
+        ((EQ KEYID 1)
+         (MAG-TELEGRAM-MOVE-CHAT-SELECTION WINDOW -1))
+        ((EQ KEYID 2)
+         (MAG-TELEGRAM-MOVE-CHAT-SELECTION WINDOW 1))
+        ((OR (EQ KEYID 3) (EQ KEYID 12))
+         (AND (EQ MODE 'CHATS)
+              (MAG-TELEGRAM-OPEN-SELECTED-CHAT WINDOW)))
+        ((EQ KEYID 4)
+         (SELECTQ MODE
+           (MESSAGES (MAG-TELEGRAM-SHOW-CHATS WINDOW))
+           (CHATS (MAG-TELEGRAM-SHOW-DASHBOARD WINDOW))
+           NIL))
+        (T
+         (SELECTQ CH
+           (113
+            (CLOSEW WINDOW))
+           (114
+            (MAG-TELEGRAM-REFRESH WINDOW))
+           (115
+            (COND
+              ((EQ MODE 'MESSAGES)
+               (MAG-TELEGRAM-SEND-CURRENT WINDOW))
+              (T
+               (MAG-TELEGRAM-START-BRIDGE)
+               (BLOCK 500)
+               (MAG-TELEGRAM-REFRESH WINDOW))))
+           (99
+            (MAG-TELEGRAM-SHOW-CHATS WINDOW))
+           (112
+            (MAG-TELEGRAM-AUTH-PROMPT "phone" "telegram phone")
+            (MAG-TELEGRAM-REFRESH WINDOW))
+           (118
+            (MAG-TELEGRAM-AUTH-PROMPT "code" "telegram login code")
+            (MAG-TELEGRAM-REFRESH WINDOW))
+           (119
+            (MAG-TELEGRAM-AUTH-PROMPT "password" "telegram 2fa password")
+            (MAG-TELEGRAM-REFRESH WINDOW))
+           NIL))))])
 
 (MAG-TELEGRAM-TYPEIN
   [LAMBDA (WINDOW)

@@ -40,6 +40,14 @@ mag-telegram-bridge messages 1001
 mag-telegram-bridge send 1001 'hello from Medley'
 ```
 
+Send an exact request from a file, useful for tests and non-shell request
+construction:
+
+```sh
+printf 'send 1001 hello with spaces\n' >/tmp/mag-telegram-request.txt
+mag-telegram-bridge --request-file /tmp/mag-telegram-request.txt
+```
+
 Stop it:
 
 ```sh
@@ -76,8 +84,10 @@ explicit `libtdjson.so` path if it is not discoverable by the dynamic linker.
 
 The daemon reads `/tmp/mag-telegram-request` and writes
 `/tmp/mag-telegram-response`. This mirrors the existing Medley debug bridge and
-keeps the first Medley UI simple. The protocol is intentionally text-oriented:
-Medley should render compact lines, not raw TDLib JSON.
+keeps the first Medley UI simple. The Medley UI writes this request file
+directly and decodes the UTF-8 response bytes itself, avoiding shell quoting and
+Medley `ShellCommand` character translation. The protocol is intentionally
+text-oriented: Medley should render compact lines, not raw TDLib JSON.
 
 Supported requests:
 
@@ -91,16 +101,37 @@ Supported requests:
 - `raw JSON`
 - `quit`
 
+## Medley UI
+
+Open the Medley dashboard with background menu item `Mag Telegram` or MCP
+request `open-telegram`.
+
+Keys:
+
+- `c`: show chats
+- `Up` / `Down`: select a chat
+- `Enter` / `Right`: open selected chat messages
+- `Left`: return to chats/dashboard
+- `s`: start bridge on dashboard/chats; send a text message in message view
+- `p`: submit phone number for TDLib auth
+- `v`: submit login verification code
+- `w`: submit 2FA password
+- `r`: refresh current view
+- `q`: close the window
+
 ## Current Scope
 
 Implemented now:
 
 - mock backend with private/group/channel sample data
 - daemon request/response protocol
+- exact `--request-file` CLI path for file-originated text requests
 - dynamic TDLib loading and basic authorization-state command emission
 - live update cache for `updateNewChat` and text `updateNewMessage` using a
   small purpose-built JSON extractor
 - send text message request construction
+- Medley dashboard, chat list selection, cached message viewing, text send, and
+  basic auth prompts
 
 Still intentionally missing:
 

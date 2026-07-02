@@ -631,15 +631,10 @@ static int run_daemon(bool force_mock) {
   return 0;
 }
 
-static int request_daemon(int argc, char **argv) {
+static int request_daemon_text(const char *text) {
   char request[MAG_TG_MAX_TEXT];
   char *response;
-  request[0] = 0;
-  for (int i = 1; i < argc; i++) {
-    if (i > 1) appendf(request, sizeof(request), " ");
-    appendf(request, sizeof(request), "%s", argv[i]);
-  }
-  if (request[0] == 0) copy_str(request, sizeof(request), "status");
+  copy_str(request, sizeof(request), text && text[0] ? text : "status");
   unlink(MAG_TG_RESPONSE_PATH);
   if (!write_file_atomic(MAG_TG_REQUEST_PATH, request)) {
     fprintf(stderr, "failed to write %s: %s\n", MAG_TG_REQUEST_PATH, strerror(errno));
@@ -659,6 +654,29 @@ static int request_daemon(int argc, char **argv) {
   }
   fprintf(stderr, "mag-telegram-bridge daemon did not respond; start it with: mag-telegram-bridge --daemon\n");
   return 1;
+}
+
+static int request_daemon(int argc, char **argv) {
+  char request[MAG_TG_MAX_TEXT];
+  request[0] = 0;
+  for (int i = 1; i < argc; i++) {
+    if (i > 1) appendf(request, sizeof(request), " ");
+    appendf(request, sizeof(request), "%s", argv[i]);
+  }
+  return request_daemon_text(request);
+}
+
+static int request_daemon_file(const char *path) {
+  char *request = read_file(path);
+  int status;
+  if (!request) {
+    fprintf(stderr, "failed to read request file %s: %s\n", path, strerror(errno));
+    return 2;
+  }
+  trim_right(request);
+  status = request_daemon_text(request);
+  free(request);
+  return status;
 }
 
 static int self_test(void) {
@@ -682,5 +700,6 @@ int main(int argc, char **argv) {
   if (argc >= 2 && strcmp(argv[1], "--daemon") == 0) return run_daemon(false);
   if (argc >= 2 && strcmp(argv[1], "--mock-daemon") == 0) return run_daemon(true);
   if (argc >= 2 && strcmp(argv[1], "--self-test") == 0) return self_test();
+  if (argc >= 3 && strcmp(argv[1], "--request-file") == 0) return request_daemon_file(argv[2]);
   return request_daemon(argc, argv);
 }

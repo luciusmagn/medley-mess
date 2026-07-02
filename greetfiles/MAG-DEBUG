@@ -624,6 +624,11 @@
     (LET ((MAG-CHAT-AUTO-PLACE T))
       (MAG-GOPHER))])
 
+(MAG-DEBUG-RPC-OPEN-TELEGRAM-WORKER
+  [LAMBDA NIL
+    (LET ((MAG-CHAT-AUTO-PLACE T))
+      (MAG-TELEGRAM))])
+
 (MAG-DEBUG-RPC-GOPHER-TEST-PAGE-WORKER
   [LAMBDA NIL
     (LET ((MAG-CHAT-AUTO-PLACE T))
@@ -1376,9 +1381,11 @@
          (T "MAG-GOPHER is not loaded")))
       ((STREQUAL COMMAND "open-telegram")
        (COND
-         ((GETD 'MAG-TELEGRAM-RPC-OPEN)
-          (MAG-TELEGRAM-RPC-OPEN))
-         (T "MAG-TELEGRAM-RPC-OPEN is not loaded")))
+         ((GETD 'MAG-TELEGRAM)
+          (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-OPEN-TELEGRAM-WORKER))
+                       'NAME 'MAG-RPC-TELEGRAM)
+          "opening Mag Telegram")
+         (T "MAG-TELEGRAM is not loaded")))
       ((STREQUAL COMMAND "telegram-status")
        (COND
          ((GETD 'MAG-TELEGRAM-RPC-STATUS)
