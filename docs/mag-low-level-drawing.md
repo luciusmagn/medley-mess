@@ -10,6 +10,7 @@ This is a local note for the Medley/Maiko Mag terminal and Gopher work. It docum
 - `greetfiles/MAG-DEBUG`: wrappers for Maiko debug status reporting.
 - `greetfiles/MAG-GOPHER`: Medley-rendered Gopher UI.
 - `greetfiles/MAG-TELEGRAM`: text-only Medley UI for the host-side Telegram bridge.
+- `greetfiles/MAG-SLIDES`: sent-like Medley presentation window.
 - `greetfiles/MAG-STOCK`: battery who-line, Rooms/Notecards/doc buttons.
 
 ## Coordinate Model Used By Mag Rows
@@ -200,6 +201,7 @@ Current safe request commands:
 - `eval-reset`
 - `reload-mag`
 - `open-shell`
+- `open-slides-demo`
 - `shell-load-test`
 - `close-shell`
 - `restart-rpc`

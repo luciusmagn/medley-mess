@@ -27,10 +27,11 @@
   [LAMBDA NIL
     (AND (GETD 'MAG-SHELL)
 	         (GETD 'MAG-CODEX)
-		         (GETD 'MAG-RUN)
-		         (GETD 'MAG-GOPHER)
-		         (GETD 'MAG-TELEGRAM)
-		         (GETD 'MAG-DEBUG-SHOW)
+			         (GETD 'MAG-RUN)
+			         (GETD 'MAG-GOPHER)
+			         (GETD 'MAG-TELEGRAM)
+			         (GETD 'MAG-SLIDES)
+			         (GETD 'MAG-DEBUG-SHOW)
 		         (GETD 'MAG-DEBUG-KEY-PROBE)
 		         (GETD 'MAG-DEBUG-RPC-START)
 		         (GETD 'MAG-INSTALL-WHO-LINE-BATTERY)
@@ -120,6 +121,11 @@
         X
         (IDIFFERENCE SCREENHEIGHT 500))
       (MAG-CREATE-BUTTON-IF-MISSING
+        "SLIDES"
+        '(MAG-BOOT-SLIDES)
+        X
+        (IDIFFERENCE SCREENHEIGHT 555))
+      (MAG-CREATE-BUTTON-IF-MISSING
         "ROOMS"
         '(MAG-ACTIVATE-ROOMS)
         X
@@ -182,6 +188,11 @@
     (MAG-DISPATCH-ASYNC 'MAG-TELEGRAM 'MAG-BOOT-TELEGRAM)
     NIL])
 
+(MAG-BOOT-SLIDES
+  [LAMBDA NIL
+    (MAG-DISPATCH-ASYNC 'MAG-SLIDES 'MAG-BOOT-SLIDES)
+    NIL])
+
 (MAG-BOOT-DEBUG
   [LAMBDA NIL
     (MAG-DISPATCH-ASYNC 'MAG-DEBUG-SHOW 'MAG-BOOT-DEBUG)
@@ -232,6 +243,9 @@
     [OR (SASSOC "Mag Telegram" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Telegram" '(MAG-BOOT-TELEGRAM)
                                                         "Open the Telegram client rendered in Medley windows"))]
+    [OR (SASSOC "Mag Slides" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Slides" '(MAG-BOOT-SLIDES)
+                                                       "Open a sent-like Medley presentation window"))]
     [OR (SASSOC "Mag Debug" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Debug" '(MAG-BOOT-DEBUG)
                                                      "Show Maiko/Medley Mag debug status"))]

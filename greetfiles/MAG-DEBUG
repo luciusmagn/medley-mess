@@ -653,6 +653,19 @@
     (LET ((MAG-CHAT-AUTO-PLACE T))
       (MAG-TELEGRAM))])
 
+(MAG-DEBUG-RPC-OPEN-SLIDES-DEMO
+  [LAMBDA NIL
+    (COND
+      ((GETD 'MAG-SLIDES-DEMO)
+       (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-OPEN-SLIDES-DEMO-WORKER))
+                    'NAME 'MAG-RPC-SLIDES)
+       "opening Mag Slides demo")
+      (T "MAG-SLIDES-DEMO is not loaded"))])
+
+(MAG-DEBUG-RPC-OPEN-SLIDES-DEMO-WORKER
+  [LAMBDA NIL
+    (MAG-SLIDES-DEMO)])
+
 (MAG-DEBUG-RPC-GOPHER-TEST-PAGE-WORKER
   [LAMBDA NIL
     (LET ((MAG-CHAT-AUTO-PLACE T))
@@ -1417,6 +1430,8 @@
        (MAG-DEBUG-RPC-OPEN-SHELL))
       ((STREQUAL COMMAND "open-font-sampler")
        (MAG-DEBUG-RPC-FONT-SAMPLER))
+      ((STREQUAL COMMAND "open-slides-demo")
+       (MAG-DEBUG-RPC-OPEN-SLIDES-DEMO))
       ((STREQUAL COMMAND "boot-shell")
        (MAG-DEBUG-RPC-BOOT-SHELL))
       ((STREQUAL COMMAND "shell-load-test")

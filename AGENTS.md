@@ -11,6 +11,7 @@ This tree has local, uncommitted Medley/Maiko integration work. Do not discard i
 - `greetfiles/MAG-DEBUG`: Maiko/Medley debug status wrappers.
 - `greetfiles/MAG-GOPHER`: Medley-rendered Gopher browser.
 - `greetfiles/MAG-TELEGRAM`: Medley UI for the host-side Telegram bridge.
+- `greetfiles/MAG-SLIDES`: sent-like Medley presentation window.
 - `greetfiles/MAG-STOCK`: battery who-line and stock Rooms/Notecards/documentation buttons.
 
 Low-level drawing notes live in `docs/mag-low-level-drawing.md`.
@@ -425,6 +426,7 @@ focus-dependent X window capture.
 - `reload-mag`
 - `restart-rpc`
 - `open-shell`
+- `open-slides-demo`
 - `shell-load-test`
 - `close-shell`
 - `shell-self-test`

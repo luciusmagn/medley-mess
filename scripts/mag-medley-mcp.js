@@ -50,6 +50,7 @@ const ALLOWED_REQUESTS = new Set([
   'restart-rpc',
   'open-shell',
   'open-font-sampler',
+  'open-slides-demo',
   'boot-shell',
   'shell-load-test',
   'close-shell',

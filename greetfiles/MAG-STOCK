@@ -333,6 +333,13 @@
                                     XCOORD _ (IDIFFERENCE SCREENWIDTH RIGHT)
                                     YCOORD _ (IDIFFERENCE SCREENHEIGHT
                                                           (SETQ Y (IPLUS Y DY))))))))
+      (OR (MAG-FIND-BUTTON "SLIDES")
+          (CREATE-BUTTON '(MAG-SLIDES)
+                         "SLIDES"
+                         (create POSITION
+                                 XCOORD _ (IDIFFERENCE SCREENWIDTH RIGHT)
+                                 YCOORD _ (IDIFFERENCE SCREENHEIGHT
+                                                       (SETQ Y (IPLUS Y DY))))))
       (AND ANY
            (NOT (MAG-FIND-BUTTON "ROOMS"))
            (MAG-CREATE-LABEL "ACTIVATE"
