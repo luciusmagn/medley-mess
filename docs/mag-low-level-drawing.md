@@ -39,11 +39,14 @@ The source format is intentionally line-oriented. `---` separates slides,
 path, and rows beginning with `|` are grouped into a simple drawn table.
 
 Image slides use a host-side converter, `scripts/mag-slides-export.js`, to
-decode common image formats through `ffmpeg`, dither them to a 1-bit bitmap,
-and write Medley's native `READBITMAP` text payload as `<source>.magbitmap`.
-The Lisp side reads that bitmap with `READBITMAP` and draws black pixels into
-the off-white slide frame via `BITBLT`; it does not run per-pixel image
-conversion inside Medley.
+decode common image formats through `ffmpeg`, pack grayscale photos into a
+native ordered-dithered 1bpp `READBITMAP` text payload, and write it as
+`<source>.magbitmap`. The Lisp side reads that bitmap with `READBITMAP` and
+draws it into the off-white slide frame via `BITBLT` without converting it
+again. This matches the monochrome bitmap image objects that Medley can display
+directly on the current 1bpp runtime. `--bits 4` and `--bits 8` remain available
+for experiments or a future color-capable runtime, but they are not the default
+for photos here.
 
 PDF export uses the same presenter renderer rather than a second layout
 engine. The host exporter asks the Medley RPC loop to `slides-open` the source

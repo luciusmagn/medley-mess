@@ -7,6 +7,7 @@
 (RPAQ? MAG-DEBUG-SCRATCH-BUFFER NIL)
 (RPAQ? MAG-DEBUG-RPC-READ-BUFFER NIL)
 (RPAQ? MAG-DEBUG-RPC-PROCESS NIL)
+(RPAQQ MAG-DEBUG-RPC-REQUEST-PATH "/tmp/medley-mag-request")
 (RPAQQ MAG-DEBUG-EVAL-DIR "/tmp/medley-mag-eval/")
 (RPAQQ MAG-DEBUG-SHELL-LOAD-COMMAND "sh -c 'i=0; while [ $i -lt 500 ]; do echo terminal-load-$i-abcdefghijklmnopqrstuvwxyz; i=$((i+1)); sleep 0.02; done; sleep 5'")
 
@@ -227,12 +228,33 @@
        (OR (SUBSTRING TEXT (ADD1 (NCHARS PREFIX))) ""))
       (T ""))])
 
+(MAG-DEBUG-RPC-READ-FILE
+  [LAMBDA NIL
+    (PROG (STREAM END CODES CH TEXT)
+      (SETQ STREAM
+            (CAR
+              (NLSETQ
+                (OPENSTREAM MAG-DEBUG-RPC-REQUEST-PATH 'INPUT 'OLD))))
+      (COND
+        ((NULL STREAM)
+         (RETURN NIL)))
+      (SETQ END (GETEOFPTR STREAM))
+      (SETFILEPTR STREAM 0)
+      (for I from 1 to END do
+        (SETQ CH (READCCODE STREAM))
+        (AND CH (SETQ CODES (CONS CH CODES))))
+      (CLOSEF STREAM)
+      (NLSETQ (DELFILE MAG-DEBUG-RPC-REQUEST-PATH))
+      (SETQ TEXT (COND (CODES (CONCATCODES (DREVERSE CODES))) (T "")))
+      (RETURN (MAG-DEBUG-RPC-TRIM-RIGHT TEXT)))])
+
 (MAG-DEBUG-RPC-READ
   [LAMBDA NIL
     (PROG (BUFFER LEN)
       (COND
-        ((NOT (MAG-DEBUG-RPC-AVAILABLEP))
+        ((NOT (MAG-DEBUG-RPC-REQUEST-P))
          (RETURN NIL)))
+      (RETURN (MAG-DEBUG-RPC-READ-FILE))
       (SETQ BUFFER (MAG-DEBUG-RPC-BUFFER))
       (SETQ LEN (MAG-UNIX-HANDLECOMM2 39 BUFFER))
       (COND

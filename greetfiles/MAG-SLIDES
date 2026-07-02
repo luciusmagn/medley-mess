@@ -18,8 +18,9 @@
 (RPAQQ MAG-SLIDES-TABLE-PAD-X 14)
 (RPAQQ MAG-SLIDES-TABLE-PAD-Y 9)
 (RPAQQ MAG-SLIDES-TABLE-GAP 22)
-(RPAQQ MAG-SLIDES-IMAGE-MAX-WIDTH 1600)
+(RPAQQ MAG-SLIDES-IMAGE-MAX-WIDTH 880)
 (RPAQQ MAG-SLIDES-IMAGE-MAX-HEIGHT 650)
+(RPAQQ MAG-SLIDES-IMAGE-BITS 1)
 (RPAQ? MAG-SLIDES-LAST-WINDOW NIL)
 (RPAQ? MAG-SLIDES-IMAGE-CACHE NIL)
 
@@ -70,6 +71,10 @@
 (MAG-SLIDES-SLIDE-IMAGE
   [LAMBDA (SLIDE)
     (CADDR (CDDDR SLIDE))])
+
+(MAG-SLIDES-FULL-REGION
+  [LAMBDA NIL
+    (CREATEREGION 0 0 SCREENWIDTH SCREENHEIGHT)])
 
 (MAG-SLIDES-BUILD-SLIDE
   [LAMBDA (TITLE SUBTITLE BODY META LAYOUT IMAGE)
@@ -250,8 +255,8 @@
                 '("Image slides reserve a framed stage for imported artwork."
                   "Use @image /path/to/file after @layout image.")
                 "image placeholder"
-                'IMAGE
-                "/home/mag/docs/example-image.png")
+	                'IMAGE
+	                "/home/mag/docs/example-photo-prague-1968.jpg")
           (LIST "Controls"
                 NIL
                 '("* Right/down/space/n: reveal or next"
@@ -421,6 +426,8 @@
                     MAG-SLIDES-IMAGE-MAX-WIDTH
                     " --max-height "
                     MAG-SLIDES-IMAGE-MAX-HEIGHT
+                    " --bits "
+                    MAG-SLIDES-IMAGE-BITS
                     " >/tmp/mag-slides-convert.log 2>&1"))
       (NLSETQ (ShellCommand COMMAND))
       (COND
@@ -1032,7 +1039,7 @@
         "  # title"
         "  ## subtitle or @subtitle text"
         "  @meta footer text in the lower-left corner"
-        "  @image /path/to/file imports a native 1-bit bitmap"
+        "  @image /path/to/file imports a native dithered READBITMAP"
         "  - bullet point"
         "  | cell | cell | draws a simple table"
         ""
@@ -1042,7 +1049,7 @@
         "  Body bullets: TimesRoman 36"
         "  Footer/page number: TimesRoman 18"
         ""
-        "Keys: right/down/space/n reveal or next, left/up/backspace/p previous, r reload, q close"
+        "Keys: right/down/space/n reveal one bullet or next, left/up/backspace/p previous, r reload, q close"
         "Menu: Export PDF renders through Medley screenshots into source.mag.pdf"))])
 
 (MAG-SLIDES-MENU
@@ -1152,10 +1159,7 @@
       (AND MAG-SLIDES-LAST-WINDOW
            (OPENWP MAG-SLIDES-LAST-WINDOW)
            (NLSETQ (CLOSEW MAG-SLIDES-LAST-WINDOW)))
-      (SETQ WINDOW (CREATEW (CREATEREGION 0
-                                           0
-                                           SCREENWIDTH
-                                           SCREENHEIGHT)
+      (SETQ WINDOW (CREATEW (MAG-SLIDES-FULL-REGION)
                              "Mag Slides"))
       (MAG-SLIDES-SET-STATE WINDOW SLIDES 1 SOURCE 0)
       (WINDOWPROP WINDOW 'MAG-SLIDES-RUNNING T)

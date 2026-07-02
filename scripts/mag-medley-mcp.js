@@ -51,6 +51,7 @@ const ALLOWED_REQUESTS = new Set([
   'open-shell',
   'open-font-sampler',
   'open-slides-demo',
+  'slides-count',
   'boot-shell',
   'shell-load-test',
   'close-shell',
@@ -92,6 +93,11 @@ const ALLOWED_REQUESTS = new Set([
   'gopher-key-right',
   'keys-help',
 ]);
+
+const ALLOWED_REQUEST_PREFIXES = [
+  'slides-open ',
+  'slides-goto ',
+];
 
 const ALLOWED_TELEGRAM_COMMANDS = new Set([
   'status',
@@ -190,7 +196,9 @@ function readStableResponse(path, deadline) {
 }
 
 function requestMedley(command, timeoutMs, opts = {}) {
-  if (!opts.allowDynamic && !ALLOWED_REQUESTS.has(command)) {
+  const allowed = ALLOWED_REQUESTS.has(command)
+    || ALLOWED_REQUEST_PREFIXES.some((prefix) => command.startsWith(prefix));
+  if (!opts.allowDynamic && !allowed) {
     throw new Error(`unsupported request: ${command}`);
   }
 
@@ -494,7 +502,7 @@ const tools = [
       properties: {
         command: {
           type: 'string',
-          enum: Array.from(ALLOWED_REQUESTS),
+          description: `Safe command. Exact commands include: ${Array.from(ALLOWED_REQUESTS).join(', ')}. Parameterized prefixes: ${ALLOWED_REQUEST_PREFIXES.join(', ')}.`,
         },
         timeout_ms: {
           type: 'integer',

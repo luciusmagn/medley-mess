@@ -12,9 +12,10 @@ const REQUEST_PATH = process.env.MAG_MEDLEY_REQUEST || '/tmp/medley-mag-request'
 const RESPONSE_PATH = process.env.MAG_MEDLEY_RESPONSE || '/tmp/medley-mag-response';
 const SCREENSHOT_PATH = process.env.MAG_MEDLEY_SCREENSHOT || '/tmp/medley-mag-screenshot.ppm';
 const MCP_SOCKET = process.env.MAG_MEDLEY_MCP_SOCKET || '/tmp/medley-mag-mcp.sock';
-const DEFAULT_MAX_WIDTH = 1600;
+const DEFAULT_MAX_WIDTH = 880;
 const DEFAULT_MAX_HEIGHT = 650;
 const DEFAULT_THRESHOLD = 128;
+const DEFAULT_BITS_PER_PIXEL = 1;
 
 function usage() {
   console.log(`Usage:
@@ -22,7 +23,10 @@ function usage() {
   mag-slides-export.js prepare <deck.mag>
   mag-slides-export.js export <deck.mag> [output.pdf] [--out-dir DIR]
 
-Image conversion writes Medley's native 1-bit READBITMAP text payload.
+Image conversion writes Medley's native READBITMAP text payload.
+Default image conversion is a 1bpp ordered-dithered bitmap, matching the
+monochrome image objects Medley can display directly. 4bpp/8bpp payloads remain
+available with --bits for experiments or color-capable runtimes.
 PDF export renders slides through the running Medley instance and screenshots Maiko's DisplayRegion.`);
 }
 
@@ -36,6 +40,7 @@ function parseOptions(argv) {
     maxWidth: DEFAULT_MAX_WIDTH,
     maxHeight: DEFAULT_MAX_HEIGHT,
     threshold: DEFAULT_THRESHOLD,
+    bits: DEFAULT_BITS_PER_PIXEL,
     dither: 'ordered',
     flipY: false,
     outDir: null,
@@ -51,6 +56,7 @@ function parseOptions(argv) {
     if (arg === '--max-width') opts.maxWidth = Number(next());
     else if (arg === '--max-height') opts.maxHeight = Number(next());
     else if (arg === '--threshold') opts.threshold = Number(next());
+    else if (arg === '--bits' || arg === '--bpp') opts.bits = Number(next());
     else if (arg === '--dither') opts.dither = next();
     else if (arg === '--flip-y') opts.flipY = true;
     else if (arg === '--no-flip-y') opts.flipY = false;
@@ -61,6 +67,7 @@ function parseOptions(argv) {
   if (!Number.isFinite(opts.maxWidth) || opts.maxWidth < 1) die('invalid --max-width');
   if (!Number.isFinite(opts.maxHeight) || opts.maxHeight < 1) die('invalid --max-height');
   if (!Number.isFinite(opts.threshold) || opts.threshold < 0 || opts.threshold > 255) die('invalid --threshold');
+  if (![1, 4, 8].includes(opts.bits)) die('invalid --bits; use 1, 4, or 8');
   if (!['none', 'ordered'].includes(opts.dither)) die('invalid --dither');
   return { opts, positional };
 }
@@ -143,26 +150,47 @@ const BAYER4 = [
   15, 7, 13, 5,
 ];
 
+function grayscaleToLevel(grayValue, x, y, opts) {
+  if (opts.bits === 1) {
+    let threshold = opts.threshold;
+    if (opts.dither === 'ordered') {
+      threshold += (BAYER4[(y % 4) * 4 + (x % 4)] - 7.5) * 10;
+    }
+    return grayValue < threshold ? 1 : 0;
+  }
+
+  const maxLevel = (1 << opts.bits) - 1;
+  const level = ((255 - grayValue) / 255) * maxLevel;
+  return Math.max(0, Math.min(maxLevel, Math.round(level)));
+}
+
 function medleyRowChars(gray, width, sourceY, opts) {
   const chars = [];
-  const groups = Math.ceil(width / 16) * 4;
-  for (let group = 0; group < groups; group += 1) {
-    let nibble = 0;
-    for (let bit = 0; bit < 4; bit += 1) {
-      const x = group * 4 + bit;
-      let black = false;
-      if (x < width) {
-        const g = gray[sourceY * width + x];
-        let threshold = opts.threshold;
-        if (opts.dither === 'ordered') {
-          threshold += (BAYER4[(sourceY % 4) * 4 + (x % 4)] - 7.5) * 10;
-        }
-        black = g < threshold;
-      }
-      if (black) nibble |= 1 << (3 - bit);
+  const bitsPerRow = Math.ceil((width * opts.bits) / 16) * 16;
+  let nibble = 0;
+  let nibbleBits = 0;
+
+  function pushBit(bit) {
+    nibble = (nibble << 1) | (bit ? 1 : 0);
+    nibbleBits += 1;
+    if (nibbleBits === 4) {
+      chars.push(String.fromCharCode(64 + nibble));
+      nibble = 0;
+      nibbleBits = 0;
     }
-    chars.push(String.fromCharCode(64 + nibble));
   }
+
+  for (let x = 0; x < width; x += 1) {
+    const level = grayscaleToLevel(gray[sourceY * width + x], x, sourceY, opts);
+    for (let bit = opts.bits - 1; bit >= 0; bit -= 1) {
+      pushBit((level >> bit) & 1);
+    }
+  }
+
+  for (let bit = width * opts.bits; bit < bitsPerRow; bit += 1) {
+    pushBit(0);
+  }
+
   return chars.join('');
 }
 
@@ -170,7 +198,7 @@ function writeMedleyBitmap(source, dest, opts) {
   const pgm = ffmpegToPgm(source, opts);
   const { width, height, gray } = parsePnm(pgm);
   const rows = [];
-  rows.push(`(${width} ${height}`);
+  rows.push(`(${width} ${height} ${opts.bits}`);
   for (let y = 0; y < height; y += 1) {
     const sourceY = opts.flipY ? height - 1 - y : y;
     rows.push(`"${medleyRowChars(gray, width, sourceY, opts)}"`);

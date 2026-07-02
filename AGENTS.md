@@ -33,9 +33,13 @@ Supported source syntax:
 - Bullet points reveal one at a time. Forward keys reveal the next bullet before
   advancing; backward keys hide a bullet before moving to the previous slide.
 - `| cell | cell |` rows render a simple table.
-- `@image /path/to/file` imports an image into a native 1-bit Medley bitmap.
-  The host converter writes `<file>.magbitmap` in `READBITMAP` text format,
-  and the presenter draws it with `BITBLT` inside the image frame.
+- `@image /path/to/file` imports an image into a native Medley bitmap. On this
+  mono runtime the host converter defaults to an ordered-dithered 1bpp
+  `READBITMAP` text payload, matching the historical monochrome bitmap image
+  format that Medley can display directly. `MAG-SLIDES` must keep the
+  `READBITMAP` result as-is; do not add a separate Lisp or Maiko
+  pre-reduction step. Use `--bits 4` or `--bits 8` only for experiments or a
+  future color-capable runtime.
 
 `TimesRomanD 72` renders spaces as vertical bars in this image. The slide
 renderer avoids that by drawing title words separately and manually advancing
