@@ -127,8 +127,10 @@ Implemented now:
 - daemon request/response protocol
 - exact `--request-file` CLI path for file-originated text requests
 - dynamic TDLib loading and basic authorization-state command emission
-- live update cache for `updateNewChat` and text `updateNewMessage` using a
-  small purpose-built JSON extractor
+- live update cache for `updateNewChat`, `updateNewMessage`,
+  `updateMessageSendSucceeded`, and `messages` history responses using a small
+  purpose-built JSON extractor
+- recent TDLib chat-history fetch on `messages CHAT_ID`
 - send text message request construction
 - Medley dashboard, chat list selection, cached message viewing, text send, and
   basic auth prompts
@@ -136,6 +138,7 @@ Implemented now:
 Still intentionally missing:
 
 - robust JSON parser for all TDLib entities
+- message pagination/backscroll beyond the first recent-history page
 - contact search and channel joining
 - media rendering, reactions, edits, read receipts
 - a permanent service definition

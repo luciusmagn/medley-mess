@@ -21,6 +21,8 @@
 #define MAG_TG_MAX_TEXT 4096
 #define MAG_TG_MAX_CHATS 256
 #define MAG_TG_MAX_MESSAGES 1024
+#define MAG_TG_HISTORY_LIMIT 40
+#define MAG_TG_HISTORY_WAIT_MS 1500
 
 struct TdApi {
   void *handle;
@@ -248,6 +250,12 @@ static bool json_extract_string(const char *json, const char *key, char *out, si
   return true;
 }
 
+static bool json_extract_string_after(const char *json, const char *marker, const char *key,
+                                      char *out, size_t cap) {
+  const char *p = strstr(json, marker);
+  return p ? json_extract_string(p, key, out, cap) : false;
+}
+
 static bool json_extract_i64(const char *json, const char *key, long long *out) {
   char needle[128];
   const char *p;
@@ -261,6 +269,31 @@ static bool json_extract_i64(const char *json, const char *key, long long *out) 
   errno = 0;
   *out = strtoll(p, &end, 10);
   return errno == 0 && end && end != p;
+}
+
+static bool json_extract_i64_after(const char *json, const char *marker, const char *key, long long *out) {
+  const char *p = strstr(json, marker);
+  return p ? json_extract_i64(p, key, out) : false;
+}
+
+static const char *json_object_end(const char *p) {
+  int depth = 0;
+  bool in_string = false;
+  bool escaped = false;
+  for (; *p; p++) {
+    if (in_string) {
+      if (escaped) escaped = false;
+      else if (*p == '\\') escaped = true;
+      else if (*p == '"') in_string = false;
+      continue;
+    }
+    if (*p == '"') in_string = true;
+    else if (*p == '{') depth++;
+    else if (*p == '}') {
+      if (depth > 0 && --depth == 0) return p + 1;
+    }
+  }
+  return NULL;
 }
 
 static const char *chat_kind_from_json(const char *json) {
@@ -286,6 +319,15 @@ static struct Chat *find_chat(struct Bridge *b, long long id) {
 static void add_message(struct Bridge *b, long long chat_id, long long message_id, long long sender_id,
                         bool outgoing, const char *text) {
   struct Message *m;
+  for (size_t i = 0; i < b->message_count; i++) {
+    m = &b->messages[i];
+    if (m->chat_id == chat_id && m->message_id == message_id) {
+      m->sender_id = sender_id;
+      m->outgoing = outgoing;
+      copy_str(m->text, sizeof(m->text), text && text[0] ? text : "[non-text message]");
+      return;
+    }
+  }
   if (b->message_count >= MAG_TG_MAX_MESSAGES) {
     memmove(&b->messages[0], &b->messages[1], sizeof(b->messages[0]) * (MAG_TG_MAX_MESSAGES - 1));
     b->message_count = MAG_TG_MAX_MESSAGES - 1;
@@ -363,6 +405,17 @@ static bool load_tdlib(struct Bridge *b) {
 
 static void td_send_json(struct Bridge *b, const char *json) {
   if (b->live && b->td.send && b->td.client) b->td.send(b->td.client, json);
+}
+
+static void td_request_chat_history(struct Bridge *b, long long chat_id) {
+  char req[512];
+  if (!b->live || strcmp(b->auth_state, "ready") != 0) return;
+  snprintf(req, sizeof(req),
+           "{\"@type\":\"getChatHistory\",\"chat_id\":%lld,"
+           "\"from_message_id\":0,\"offset\":0,\"limit\":%d,"
+           "\"only_local\":false,\"@extra\":\"mag-history:%lld\"}",
+           chat_id, MAG_TG_HISTORY_LIMIT, chat_id);
+  td_send_json(b, req);
 }
 
 static void send_tdlib_parameters(struct Bridge *b) {
@@ -448,22 +501,55 @@ static void handle_chat_update(struct Bridge *b, const char *json) {
   if (chat->kind[0] == 0) copy_str(chat->kind, sizeof(chat->kind), chat_kind_from_json(json));
 }
 
-static void handle_message_update(struct Bridge *b, const char *json) {
+static void cache_message_object(struct Bridge *b, const char *json) {
   long long chat_id = 0, id = 0, sender_id = 0;
   char text[512];
   bool outgoing = strstr(json, "\"is_outgoing\":true") != NULL;
-  if (!strstr(json, "updateNewMessage") && !strstr(json, "updateMessageSendSucceeded")) return;
   if (!json_extract_i64(json, "chat_id", &chat_id)) return;
   if (!json_extract_i64(json, "id", &id)) id = (long long)time(NULL);
-  json_extract_i64(json, "user_id", &sender_id);
-  if (!strstr(json, "messageText") || !json_extract_string(json, "text", text, sizeof(text))) {
+  if (!json_extract_i64_after(json, "messageSenderUser", "user_id", &sender_id)) {
+    json_extract_i64_after(json, "messageSenderChat", "chat_id", &sender_id);
+  }
+  if (!strstr(json, "messageText") ||
+      !json_extract_string_after(json, "formattedText", "text", text, sizeof(text))) {
     copy_str(text, sizeof(text), "[non-text message]");
   }
   add_message(b, chat_id, id, sender_id, outgoing, text);
 }
 
+static void handle_message_update(struct Bridge *b, const char *json) {
+  const char *message;
+  if (!strstr(json, "updateNewMessage") && !strstr(json, "updateMessageSendSucceeded")) return;
+  message = strstr(json, "\"@type\":\"message\"");
+  cache_message_object(b, message ? message : json);
+}
+
+static void handle_messages_response(struct Bridge *b, const char *json) {
+  const char *p = json;
+  while ((p = strstr(p, "\"@type\":\"message\"")) != NULL) {
+    const char *start = p;
+    const char *end;
+    while (start > json && *start != '{') start--;
+    end = (*start == '{') ? json_object_end(start) : NULL;
+    if (end && end > start && (size_t)(end - start) < 32768) {
+      size_t len = (size_t)(end - start);
+      char *one = calloc(len + 1, 1);
+      if (one) {
+        memcpy(one, start, len);
+        cache_message_object(b, one);
+        free(one);
+      }
+      p = end;
+    } else {
+      cache_message_object(b, p);
+      p += strlen("\"@type\":\"message\"");
+    }
+  }
+}
+
 static void handle_td_update(struct Bridge *b, const char *json) {
   if (!json) return;
+  if (strstr(json, "\"@type\":\"messages\"")) handle_messages_response(b, json);
   if (strstr(json, "updateAuthorizationState")) handle_auth_update(b, json);
   handle_chat_update(b, json);
   handle_message_update(b, json);
@@ -474,6 +560,15 @@ static void poll_tdlib(struct Bridge *b) {
   if (!b->live || !b->td.receive) return;
   result = b->td.receive(b->td.client, 0.05);
   if (result) handle_td_update(b, result);
+}
+
+static void poll_tdlib_for(struct Bridge *b, long ms) {
+  long elapsed = 0;
+  while (elapsed < ms) {
+    poll_tdlib(b);
+    sleep_ms(50);
+    elapsed += 50;
+  }
 }
 
 static void response_status(struct Bridge *b, char *out, size_t cap) {
@@ -495,6 +590,10 @@ static void response_chats(struct Bridge *b, char *out, size_t cap) {
 
 static void response_messages(struct Bridge *b, long long chat_id, char *out, size_t cap) {
   size_t count = 0;
+  if (b->live && strcmp(b->auth_state, "ready") == 0) {
+    td_request_chat_history(b, chat_id);
+    poll_tdlib_for(b, MAG_TG_HISTORY_WAIT_MS);
+  }
   snprintf(out, cap, "Mag Telegram messages chat=%lld\n", chat_id);
   for (size_t i = 0; i < b->message_count; i++) {
     struct Message *m = &b->messages[i];
@@ -640,7 +739,7 @@ static int request_daemon_text(const char *text) {
     fprintf(stderr, "failed to write %s: %s\n", MAG_TG_REQUEST_PATH, strerror(errno));
     return 2;
   }
-  for (int i = 0; i < 15; i++) {
+  for (int i = 0; i < 50; i++) {
     struct stat st;
     if (stat(MAG_TG_RESPONSE_PATH, &st) == 0 && st.st_size > 0) {
       response = read_file(MAG_TG_RESPONSE_PATH);
@@ -692,6 +791,16 @@ static int self_test(void) {
   if (!strstr(out, "mock sent")) return 1;
   handle_request(&b, "messages 1001", out, sizeof(out));
   if (!strstr(out, "hello")) return 1;
+  handle_td_update(&b,
+                   "{\"@type\":\"messages\",\"total_count\":1,\"messages\":[{"
+                   "\"@type\":\"message\",\"id\":9001,\"chat_id\":4242,"
+                   "\"sender_id\":{\"@type\":\"messageSenderUser\",\"user_id\":777},"
+                   "\"is_outgoing\":false,"
+                   "\"content\":{\"@type\":\"messageText\","
+                   "\"text\":{\"@type\":\"formattedText\",\"text\":\"history hello\",\"entities\":[]}}"
+                   "}]}");
+  handle_request(&b, "messages 4242", out, sizeof(out));
+  if (!strstr(out, "777: history hello")) return 1;
   puts("mag-telegram-bridge self-test ok");
   return 0;
 }
