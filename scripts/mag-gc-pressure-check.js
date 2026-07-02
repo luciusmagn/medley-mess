@@ -59,6 +59,10 @@ function reportValue(report, key) {
   return match ? match[1].trim() : '?';
 }
 
+function lines(text) {
+  return String(text).split(/\r?\n|\r/);
+}
+
 async function gcReport(label) {
   const gc = await requestMedley('gc-report');
   const line = [
@@ -75,10 +79,10 @@ async function gcReport(label) {
 async function runShellPressure() {
   for (let i = 1; i <= SHELL_CYCLES; i++) {
     console.log(`@@ shell-cycle ${i} start`);
-    console.log((await requestMedley('shell-load-test')).split('\n')[0]);
+    console.log(lines(await requestMedley('shell-load-test'))[0]);
     await sleep(SHELL_SETTLE_MS);
-    console.log((await requestMedley('shell-state')).split('\n').slice(0, 4).join(' | '));
-    console.log((await requestMedley('close-shell')).split('\n')[0]);
+    console.log(lines(await requestMedley('shell-state')).slice(0, 4).join(' | '));
+    console.log(lines(await requestMedley('close-shell'))[0]);
     await sleep(1000);
     await gcReport(`after-shell-${i}`);
   }
@@ -90,7 +94,7 @@ async function runTelegramPressure() {
     const command = commands[i % commands.length];
     const result = await requestMedley(command);
     if (i % 50 === 0 || i === TELEGRAM_REQUESTS) {
-      console.log(`@@ telegram-${i} ${command} first=${JSON.stringify(String(result).split('\n')[0])}`);
+      console.log(`@@ telegram-${i} ${command} first=${JSON.stringify(lines(result)[0])}`);
     }
   }
   await gcReport('after-telegram');

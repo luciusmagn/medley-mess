@@ -47,6 +47,7 @@ construction:
 ```sh
 printf 'send 1001 hello with spaces\n' >/tmp/mag-telegram-request.txt
 mag-telegram-bridge --request-file /tmp/mag-telegram-request.txt
+mag-telegram-bridge --request-file-ascii /tmp/mag-telegram-request.txt
 ```
 
 Stop it:
@@ -128,19 +129,24 @@ The bridge starts and reuses a persistent `mag-telegram-grammers --daemon`
 process, forwarding requests through `/tmp/mag-telegram-grammers-request` and
 `/tmp/mag-telegram-grammers-response`. The Rust daemon holds the MTProto client
 open and bounds each request at 20s so a slow Telegram operation cannot wedge
-the C bridge indefinitely.
+the C bridge indefinitely. It also caches dialog rows and message pages for
+normal Medley navigation, so moving around the chat list and reopening a recent
+message page does not force a Telegram fetch each time.
 
 ## Protocol Files
 
-The daemon reads `/tmp/mag-telegram-request` and writes
-`/tmp/mag-telegram-response`. This mirrors the existing Medley debug bridge and
-keeps the first Medley UI simple. The Medley UI writes this request file
-directly and decodes the UTF-8 response bytes itself, avoiding shell quoting and
-Medley `ShellCommand` character translation. Normal Telegram UI requests do not
-run `ShellCommand`; on Maiko builds with `UNIX-HANDLECOMM 57`, Medley also
-starts the daemon through native host process launch and only falls back to
-`ShellCommand` on older binaries. The protocol is intentionally text-oriented:
-Medley should render compact lines, not raw TDLib JSON.
+The C bridge daemon reads `/tmp/mag-telegram-request` and writes
+`/tmp/mag-telegram-response`. Its client path waits for the request file to be
+consumed before accepting a response, then deletes the response after reading
+it; this avoids reading stale replies under fast MCP/Medley request loops.
+
+Medley itself does not write the daemon request file directly anymore. It writes
+the exact request to `/tmp/mag-telegram-medley-request` and invokes
+`mag-telegram-bridge --request-file-ascii /tmp/mag-telegram-medley-request`.
+The ASCII mode keeps host CLI Unicode behavior intact while protecting
+Interlisp `ShellCommand` stream reading from Telegram names/messages that
+contain non-ASCII bytes. The protocol is intentionally text-oriented: Medley
+should render compact lines, not raw TDLib JSON.
 
 Supported requests:
 
@@ -195,17 +201,20 @@ Implemented now:
 - mock backend with private/group/channel sample data
 - daemon request/response protocol
 - exact `--request-file` CLI path for file-originated text requests
+- ASCII-safe `--request-file-ascii` CLI path used by Medley
 - persistent config file at `~/.config/mag-telegram/config`, with environment
   variables still available as overrides
 - `backend=grammers` config and environment selection, with
   `grammers_command` override for the Rust helper
 - secret-safe `doctor` diagnostics for config, credential presence, TDLib
   library/symbol loading, and grammers backend reachability
-- direct Medley request-file path for normal UI requests; shell use is limited
-  to fallback daemon startup on older Maiko binaries
+- private Medley request-file path through `--request-file-ascii`; direct
+  daemon request/response files are owned by the C bridge client/daemon pair
 - grammers delegation for `status`, `auth-status`, `chats`,
   `chats-view`, `chat-at`, `messages`, `older`, `send`, and `mark-read`
   through a persistent Rust `mag-telegram-grammers --daemon`
+- short-lived dialog/message caches in the Rust daemon, with message-cache
+  invalidation after sending
 - dynamic TDLib loading and authorization-state command emission for
   phone/code/password/registration flows
 - TDLib main chat-list ordering from chat position updates

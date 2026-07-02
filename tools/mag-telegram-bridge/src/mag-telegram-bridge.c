@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -10,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -18,11 +20,13 @@
 #define MAG_TG_REQUEST_PATH "/tmp/mag-telegram-request"
 #define MAG_TG_RESPONSE_PATH "/tmp/mag-telegram-response"
 #define MAG_TG_PID_PATH "/tmp/mag-telegram-bridge.pid"
+#define MAG_TG_CLIENT_LOCK_PATH "/tmp/mag-telegram-bridge-client.lock"
 #define MAG_TG_DEFAULT_CONFIG_REL ".config/mag-telegram/config"
 #define MAG_TG_DEFAULT_GRAMMERS_COMMAND "/home/mag/.local/bin/mag-telegram-grammers"
 #define MAG_TG_GRAMMERS_REQUEST_PATH "/tmp/mag-telegram-grammers-request"
 #define MAG_TG_GRAMMERS_RESPONSE_PATH "/tmp/mag-telegram-grammers-response"
 #define MAG_TG_GRAMMERS_PID_PATH "/tmp/mag-telegram-grammers.pid"
+#define MAG_TG_GRAMMERS_CLIENT_LOCK_PATH "/tmp/mag-telegram-grammers-client.lock"
 #define MAG_TG_GRAMMERS_LOG_PATH "/tmp/mag-telegram-grammers.log"
 #define MAG_TG_MAX_TEXT 4096
 #define MAG_TG_MAX_LINE 1024
@@ -31,6 +35,8 @@
 #define MAG_TG_MAX_MESSAGES 1024
 #define MAG_TG_HISTORY_LIMIT 40
 #define MAG_TG_HISTORY_WAIT_MS 1500
+
+static void sleep_ms(long ms);
 
 struct TdApi {
   void *handle;
@@ -169,6 +175,33 @@ static bool write_file_atomic(const char *path, const char *text) {
   return rename(tmp, path) == 0;
 }
 
+static bool wait_file_consumed(const char *path, int attempts) {
+  struct stat st;
+  for (int i = 0; i < attempts; i++) {
+    if (stat(path, &st) != 0) return true;
+    sleep_ms(100);
+  }
+  return false;
+}
+
+static int acquire_file_lock(const char *path) {
+  int fd = open(path, O_CREAT | O_RDWR, 0600);
+  if (fd < 0) return -1;
+  while (flock(fd, LOCK_EX) != 0) {
+    if (errno == EINTR) continue;
+    close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+static void release_file_lock(int fd) {
+  if (fd >= 0) {
+    flock(fd, LOCK_UN);
+    close(fd);
+  }
+}
+
 static bool process_alive(long pid) {
   if (pid <= 0) return false;
   if (kill((pid_t)pid, 0) == 0) return true;
@@ -198,6 +231,15 @@ static void trim_right(char *s) {
   n = strlen(s);
   while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t')) {
     s[--n] = 0;
+  }
+}
+
+static void ascii_sanitize_in_place(char *s) {
+  unsigned char *p = (unsigned char *)s;
+  if (!p) return;
+  while (*p) {
+    if (*p >= 127 || (*p < 32 && *p != '\n' && *p != '\r' && *p != '\t')) *p = '?';
+    p++;
   }
 }
 
@@ -780,11 +822,23 @@ static bool start_grammers_daemon(struct Bridge *b) {
 
 static bool grammers_request_text(struct Bridge *b, const char *request, char *out, size_t cap) {
   char *response;
+  int lock_fd;
   if (out && cap > 0) out[0] = 0;
   if (!start_grammers_daemon(b)) return false;
+  lock_fd = acquire_file_lock(MAG_TG_GRAMMERS_CLIENT_LOCK_PATH);
+  if (lock_fd < 0) {
+    snprintf(b->last_error, sizeof(b->last_error), "failed locking grammers request path: %s", strerror(errno));
+    return false;
+  }
   unlink(MAG_TG_GRAMMERS_RESPONSE_PATH);
   if (!write_file_atomic(MAG_TG_GRAMMERS_REQUEST_PATH, request && request[0] ? request : "status")) {
     snprintf(b->last_error, sizeof(b->last_error), "failed writing grammers daemon request: %s", strerror(errno));
+    release_file_lock(lock_fd);
+    return false;
+  }
+  if (!wait_file_consumed(MAG_TG_GRAMMERS_REQUEST_PATH, 250)) {
+    snprintf(b->last_error, sizeof(b->last_error), "grammers daemon did not consume request");
+    release_file_lock(lock_fd);
     return false;
   }
   for (int i = 0; i < 250; i++) {
@@ -794,13 +848,16 @@ static bool grammers_request_text(struct Bridge *b, const char *request, char *o
       if (response) {
         copy_str(out, cap, response);
         free(response);
+        unlink(MAG_TG_GRAMMERS_RESPONSE_PATH);
         b->last_error[0] = 0;
+        release_file_lock(lock_fd);
         return true;
       }
     }
     sleep_ms(100);
   }
   snprintf(b->last_error, sizeof(b->last_error), "grammers daemon did not respond");
+  release_file_lock(lock_fd);
   return false;
 }
 
@@ -1566,29 +1623,49 @@ static int run_daemon(bool force_mock) {
   return 0;
 }
 
-static int request_daemon_text(const char *text) {
+static int request_daemon_text_ascii(const char *text, bool ascii_safe) {
   char request[MAG_TG_MAX_TEXT];
   char *response;
+  int lock_fd;
   copy_str(request, sizeof(request), text && text[0] ? text : "status");
+  lock_fd = acquire_file_lock(MAG_TG_CLIENT_LOCK_PATH);
+  if (lock_fd < 0) {
+    fprintf(stderr, "failed to lock %s: %s\n", MAG_TG_CLIENT_LOCK_PATH, strerror(errno));
+    return 2;
+  }
   unlink(MAG_TG_RESPONSE_PATH);
   if (!write_file_atomic(MAG_TG_REQUEST_PATH, request)) {
     fprintf(stderr, "failed to write %s: %s\n", MAG_TG_REQUEST_PATH, strerror(errno));
+    release_file_lock(lock_fd);
     return 2;
+  }
+  if (!wait_file_consumed(MAG_TG_REQUEST_PATH, 250)) {
+    fprintf(stderr, "mag-telegram-bridge daemon did not consume request\n");
+    release_file_lock(lock_fd);
+    return 1;
   }
   for (int i = 0; i < 250; i++) {
     struct stat st;
     if (stat(MAG_TG_RESPONSE_PATH, &st) == 0 && st.st_size > 0) {
       response = read_file(MAG_TG_RESPONSE_PATH);
       if (response) {
+        if (ascii_safe) ascii_sanitize_in_place(response);
         fputs(response, stdout);
         free(response);
+        unlink(MAG_TG_RESPONSE_PATH);
+        release_file_lock(lock_fd);
         return 0;
       }
     }
     sleep_ms(100);
   }
   fprintf(stderr, "mag-telegram-bridge daemon did not respond; start it with: mag-telegram-bridge --daemon\n");
+  release_file_lock(lock_fd);
   return 1;
+}
+
+static int request_daemon_text(const char *text) {
+  return request_daemon_text_ascii(text, false);
 }
 
 static int request_daemon(int argc, char **argv) {
@@ -1601,7 +1678,7 @@ static int request_daemon(int argc, char **argv) {
   return request_daemon_text(request);
 }
 
-static int request_daemon_file(const char *path) {
+static int request_daemon_file_ascii(const char *path, bool ascii_safe) {
   char *request = read_file(path);
   int status;
   if (!request) {
@@ -1609,9 +1686,13 @@ static int request_daemon_file(const char *path) {
     return 2;
   }
   trim_right(request);
-  status = request_daemon_text(request);
+  status = request_daemon_text_ascii(request, ascii_safe);
   free(request);
   return status;
+}
+
+static int request_daemon_file(const char *path) {
+  return request_daemon_file_ascii(path, false);
 }
 
 static int doctor_command(void) {
@@ -1801,6 +1882,7 @@ int main(int argc, char **argv) {
   if (argc >= 2 && strcmp(argv[1], "--mock-daemon") == 0) return run_daemon(true);
   if (argc >= 2 && strcmp(argv[1], "--self-test") == 0) return self_test();
   if (argc >= 2 && strcmp(argv[1], "--doctor") == 0) return doctor_command();
+  if (argc >= 3 && strcmp(argv[1], "--request-file-ascii") == 0) return request_daemon_file_ascii(argv[2], true);
   if (argc >= 3 && strcmp(argv[1], "--request-file") == 0) return request_daemon_file(argv[2]);
   return request_daemon(argc, argv);
 }

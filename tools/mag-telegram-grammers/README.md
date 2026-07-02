@@ -65,6 +65,12 @@ through `/tmp/mag-telegram-grammers-request` and
 is intentionally cheap and reports `chats=ondemand`; chat counts are fetched by
 `chats` and `chats-view`.
 
+The daemon caches dialog rows and message pages for short-lived interactive
+navigation. Dialog navigation commands (`chats-view`, `chat-at`) reuse cached
+rows when the requested viewport is already loaded. Message pages are cached by
+chat id, older-page cursor, limit, and display mode. Sending a message clears
+that chat's message cache and invalidates the dialog cache.
+
 ## Verified On This Machine
 
 - The SHODAN session parses as grammers JSON.
@@ -77,9 +83,11 @@ is intentionally cheap and reports `chats=ondemand`; chat counts are fetched by
   `chats-view`/`messages` through the existing Medley-facing protocol.
 - 50 repeated `mag-telegram-bridge status` calls leave only one persistent
   `mag-telegram-grammers --daemon`, with no per-request helper processes.
+- Repeated `chats-view`, `chat-at`, and `messages` calls are served through
+  daemon caches after the first fetch; observed cached calls were roughly 0.2s
+  on this machine.
 
 ## Next Integration Step
 
-The next useful step is richer message viewport behavior and better cached
-dialog/message state in the daemon, so common navigation does not need a fresh
-Telegram fetch each time.
+The next useful step is richer message viewport behavior: scrolling within a
+message page and a clearer distinction between local refresh and network reload.

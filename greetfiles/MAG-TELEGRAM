@@ -3,9 +3,7 @@
 (FILESLOAD RECORD)
 (FILESLOAD CHATDECLS)
 (RPAQQ MAG-TELEGRAM-BRIDGE-COMMAND "/home/mag/.local/bin/mag-telegram-bridge")
-(RPAQQ MAG-TELEGRAM-DAEMON-REQUEST-PATH "/tmp/mag-telegram-request")
-(RPAQQ MAG-TELEGRAM-DAEMON-RESPONSE-PATH "/tmp/mag-telegram-response")
-(RPAQQ MAG-TELEGRAM-RESPONSE-WAIT-TRIES 250)
+(RPAQQ MAG-TELEGRAM-REQUEST-FILE-PATH "/tmp/mag-telegram-medley-request")
 (RPAQ? MAG-TELEGRAM-LAST-WINDOW NIL)
 
 (DEFINEQ
@@ -232,42 +230,38 @@
             (RETURN (OR TEXT "")))))
       (CONCAT "Mag Telegram shell command failed: " COMMAND (MAG-TELEGRAM-LF)))])
 
-(MAG-TELEGRAM-BRIDGE-REQUEST
-  [LAMBDA (REQUEST)
-    (NLSETQ (DELFILE MAG-TELEGRAM-DAEMON-RESPONSE-PATH))
-    (COND
-      ((MAG-WRITE-UTF8-TEXT-FILE
-         MAG-TELEGRAM-DAEMON-REQUEST-PATH
-         (OR REQUEST "status"))
-       (PROG ((I 0)
-              TEXT)
-       LP
-         (SETQ TEXT (MAG-TELEGRAM-READ-UTF8-FILE
-                      MAG-TELEGRAM-DAEMON-RESPONSE-PATH))
-         (COND
-           ((AND TEXT (IGREATERP (NCHARS TEXT) 0))
-            (RETURN TEXT))
-           ((IGEQ I MAG-TELEGRAM-RESPONSE-WAIT-TRIES)
-            (RETURN (CONCAT "Mag Telegram daemon did not respond"
-                            (MAG-TELEGRAM-LF)))))
-         (SETQ I (ADD1 I))
-         (BLOCK 100)
-         (GO LP)))
-      (T (CONCAT "could not write Mag Telegram request file" (MAG-TELEGRAM-LF))))])
-
 (MAG-TELEGRAM-BRIDGE-RESPONSE-TIMEOUT-P
   [LAMBDA (TEXT)
     (AND TEXT (STRPOS "Mag Telegram daemon did not respond" TEXT))])
 
+(MAG-TELEGRAM-BRIDGE-REQUEST-FILE
+  [LAMBDA (REQUEST)
+    (PROG (TEXT)
+      (NLSETQ (DELFILE MAG-TELEGRAM-REQUEST-FILE-PATH))
+      (COND
+        ((NULL
+           (MAG-WRITE-UTF8-TEXT-FILE
+             MAG-TELEGRAM-REQUEST-FILE-PATH
+             (OR REQUEST "status")))
+         (RETURN (CONCAT "could not write Mag Telegram request file"
+                         (MAG-TELEGRAM-LF)))))
+      (SETQ TEXT
+            (MAG-TELEGRAM-SHELL
+              (CONCAT MAG-TELEGRAM-BRIDGE-COMMAND
+                      " --request-file-ascii "
+                      MAG-TELEGRAM-REQUEST-FILE-PATH)))
+      (NLSETQ (DELFILE MAG-TELEGRAM-REQUEST-FILE-PATH))
+      (RETURN TEXT))])
+
 (MAG-TELEGRAM-BRIDGE
   [LAMBDA (REQUEST)
     (MAG-VTERM-ENSURE)
-    (LET ((TEXT (MAG-TELEGRAM-BRIDGE-REQUEST REQUEST)))
+    (LET ((TEXT (MAG-TELEGRAM-BRIDGE-REQUEST-FILE REQUEST)))
       (COND
         ((MAG-TELEGRAM-BRIDGE-RESPONSE-TIMEOUT-P TEXT)
          (MAG-TELEGRAM-START-BRIDGE)
          (BLOCK 500)
-         (MAG-TELEGRAM-BRIDGE-REQUEST REQUEST))
+         (MAG-TELEGRAM-BRIDGE-REQUEST-FILE REQUEST))
         (T TEXT)))])
 
 (MAG-TELEGRAM-START-BRIDGE
@@ -299,7 +293,7 @@
 
 (MAG-TELEGRAM-CHATS-TEXT
   [LAMBDA NIL
-    (MAG-TELEGRAM-BRIDGE "chats")])
+    (MAG-TELEGRAM-BRIDGE "chats-view 0 0 12")])
 
 (MAG-TELEGRAM-CHATS-VIEW-TEXT
   [LAMBDA (WINDOW)
@@ -631,7 +625,5 @@
            (CAR (NLSETQ (MAG-TELEGRAM-REFRESH W)))))
     T])
 )
-
-(NLSETQ (MAG-TELEGRAM-APPLY-BACKGROUND-OPEN-WINDOWS))
 
 STOP

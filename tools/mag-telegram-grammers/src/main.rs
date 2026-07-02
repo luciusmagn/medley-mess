@@ -11,7 +11,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime;
 
 const DEFAULT_CONFIG: &str = "/home/mag/.config/mag-telegram/config";
@@ -24,6 +24,9 @@ const DEFAULT_DAEMON_RESPONSE: &str = "/tmp/mag-telegram-grammers-response";
 const DEFAULT_DAEMON_PID: &str = "/tmp/mag-telegram-grammers.pid";
 const DEFAULT_TIMEOUT_SECONDS: u64 = 20;
 const DAEMON_LOOP_SLEEP_MS: u64 = 100;
+const DIALOG_CACHE_TTL_SECONDS: u64 = 180;
+const MESSAGE_CACHE_TTL_SECONDS: u64 = 180;
+const MESSAGE_CACHE_MAX_PAGES: usize = 64;
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -55,6 +58,34 @@ struct DialogRow {
     kind: &'static str,
     name: String,
     preview: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct MessageRow {
+    id: i32,
+    sender: String,
+    body: String,
+}
+
+#[derive(Debug, Clone)]
+struct MessagePage {
+    peer_dialog_id: i64,
+    from_message_id: i64,
+    limit: usize,
+    show_names: bool,
+    rows: Vec<MessageRow>,
+    oldest_id: i32,
+    newest_id: i32,
+    loaded_at: Instant,
+}
+
+#[derive(Debug)]
+struct DaemonState {
+    dialogs_total: usize,
+    dialogs: Vec<DialogRow>,
+    dialogs_show_names: bool,
+    dialogs_loaded_at: Option<Instant>,
+    message_pages: Vec<MessagePage>,
 }
 
 #[derive(Debug, Clone)]
@@ -675,6 +706,51 @@ async fn collect_dialog_rows(
     .await
 }
 
+impl DaemonState {
+    fn new() -> Self {
+        Self {
+            dialogs_total: 0,
+            dialogs: Vec::new(),
+            dialogs_show_names: true,
+            dialogs_loaded_at: None,
+            message_pages: Vec::new(),
+        }
+    }
+
+    fn dialogs_fresh_for(&self, min_rows: usize, show_names: bool) -> bool {
+        self.dialogs_show_names == show_names
+            && self.dialogs.len() >= min_rows
+            && self
+                .dialogs_loaded_at
+                .map(|loaded| loaded.elapsed() < Duration::from_secs(DIALOG_CACHE_TTL_SECONDS))
+                .unwrap_or(false)
+    }
+
+    fn clear_messages_for(&mut self, peer_dialog_id: i64) {
+        self.message_pages
+            .retain(|page| page.peer_dialog_id != peer_dialog_id);
+    }
+}
+
+async fn ensure_dialog_cache(
+    client: &Client,
+    state: &mut DaemonState,
+    min_rows: usize,
+    show_names: bool,
+    force: bool,
+) -> Result<()> {
+    if !force && state.dialogs_fresh_for(min_rows, show_names) {
+        return Ok(());
+    }
+    let fetch_rows = min_rows.max(60);
+    let (total, rows) = collect_dialog_rows_with_client(client, fetch_rows, show_names).await?;
+    state.dialogs_total = total;
+    state.dialogs = rows;
+    state.dialogs_show_names = show_names;
+    state.dialogs_loaded_at = Some(Instant::now());
+    Ok(())
+}
+
 fn dialog_line(row: &DialogRow) -> String {
     let mut line = format!("{} [{}] {}", row.id, row.kind, row.name);
     if let Some(preview) = &row.preview {
@@ -686,11 +762,20 @@ fn dialog_line(row: &DialogRow) -> String {
     line
 }
 
-async fn chats_bridge_text(client: &Client, limit: usize, show_names: bool) -> Result<String> {
-    let (total, rows) = collect_dialog_rows_with_client(client, limit, show_names).await?;
+async fn cached_chats_bridge_text(
+    client: &Client,
+    state: &mut DaemonState,
+    limit: usize,
+    show_names: bool,
+    force: bool,
+) -> Result<String> {
+    ensure_dialog_cache(client, state, limit, show_names, force).await?;
     let mut out = String::new();
-    push_line(&mut out, format!("Mag Telegram chats ({total})"));
-    for row in &rows {
+    push_line(
+        &mut out,
+        format!("Mag Telegram chats ({})", state.dialogs_total),
+    );
+    for row in state.dialogs.iter().take(limit) {
         push_line(&mut out, dialog_line(row));
     }
     Ok(out)
@@ -710,12 +795,14 @@ async fn print_chats_bridge(
     Ok(())
 }
 
-async fn chats_view_text(
+async fn cached_chats_view_text(
     client: &Client,
+    state: &mut DaemonState,
     selected: isize,
     top: isize,
     visible: usize,
     show_names: bool,
+    force: bool,
 ) -> Result<String> {
     let visible = visible.max(1);
     let initial_selected = selected.max(0) as usize;
@@ -723,8 +810,9 @@ async fn chats_view_text(
     let needed = initial_top
         .saturating_add(visible)
         .max(initial_selected.saturating_add(1));
-    let (total, rows) = collect_dialog_rows_with_client(client, needed, show_names).await?;
-    let count = total;
+    ensure_dialog_cache(client, state, needed, show_names, force).await?;
+
+    let count = state.dialogs_total;
     let selected = if count > 0 {
         initial_selected.min(count - 1)
     } else {
@@ -741,7 +829,10 @@ async fn chats_view_text(
     if top.saturating_add(visible) > count {
         top = count.saturating_sub(visible);
     }
-    let end = top.saturating_add(visible).min(rows.len()).min(count);
+    let end = top
+        .saturating_add(visible)
+        .min(state.dialogs.len())
+        .min(count);
 
     let mut out = String::new();
     push_line(&mut out, format!("Mag Telegram chats ({count})"));
@@ -763,7 +854,10 @@ async fn chats_view_text(
     }
     for index in top..end {
         let prefix = if index == selected { "> " } else { "  " };
-        push_line(&mut out, format!("{prefix}{}", dialog_line(&rows[index])));
+        push_line(
+            &mut out,
+            format!("{prefix}{}", dialog_line(&state.dialogs[index])),
+        );
     }
     Ok(out)
 }
@@ -817,19 +911,27 @@ async fn print_chats_view(
     Ok(())
 }
 
-async fn chat_at_text(client: &Client, selected: isize, show_names: bool) -> Result<String> {
+async fn cached_chat_at_text(
+    client: &Client,
+    state: &mut DaemonState,
+    selected: isize,
+    show_names: bool,
+    force: bool,
+) -> Result<String> {
     let index = selected.max(0) as usize;
-    let (total, rows) =
-        collect_dialog_rows_with_client(client, index.saturating_add(1), show_names).await?;
+    ensure_dialog_cache(client, state, index.saturating_add(1), show_names, force).await?;
     let mut out = String::new();
-    if total == 0 || index >= rows.len() {
+    if state.dialogs_total == 0 || index >= state.dialogs.len() {
         push_line(&mut out, "chat-id=0");
         push_line(&mut out, "status=no-chats");
         return Ok(out);
     }
-    push_line(&mut out, format!("chat-id={}", rows[index].id));
+    push_line(&mut out, format!("chat-id={}", state.dialogs[index].id));
     push_line(&mut out, format!("index={index}"));
-    push_line(&mut out, format!("line={}", dialog_line(&rows[index])));
+    push_line(
+        &mut out,
+        format!("line={}", dialog_line(&state.dialogs[index])),
+    );
     Ok(out)
 }
 
@@ -889,14 +991,29 @@ async fn print_chats(
     .await
 }
 
-async fn messages_page_text(
+async fn cached_messages_page_text(
     client: &Client,
     session: &Arc<SqliteSession>,
+    state: &mut DaemonState,
     peer_dialog_id: i64,
     from_message_id: i64,
     limit: usize,
     show_names: bool,
+    force: bool,
 ) -> Result<String> {
+    let limit = limit.max(1);
+    if !force {
+        if let Some(page) = state.message_pages.iter().find(|page| {
+            page.peer_dialog_id == peer_dialog_id
+                && page.from_message_id == from_message_id
+                && page.limit == limit
+                && page.show_names == show_names
+                && page.loaded_at.elapsed() < Duration::from_secs(MESSAGE_CACHE_TTL_SECONDS)
+        }) {
+            return Ok(message_page_output(page));
+        }
+    }
+
     if !client.is_authorized().await? {
         bail!("session is not authorized");
     }
@@ -905,52 +1022,75 @@ async fn messages_page_text(
         .peer_ref(peer_id)
         .await?
         .ok_or_else(|| anyhow!("peer not found in session cache: {peer_dialog_id}"))?;
-    let mut messages = client.iter_messages(peer_ref).limit(limit.max(1));
+    let mut messages = client.iter_messages(peer_ref).limit(limit);
     if from_message_id > 0 {
         messages = messages.offset_id(message_id_i32(from_message_id));
     }
-    let mut rows: Vec<(i32, String, String)> = Vec::new();
+    let mut rows = Vec::new();
     while let Some(message) = messages.next().await? {
-        rows.push((
-            message.id(),
-            sender_label_for_message(&message, show_names),
-            message_body_for_display(&message, show_names, 512),
-        ));
+        rows.push(MessageRow {
+            id: message.id(),
+            sender: sender_label_for_message(&message, show_names),
+            body: message_body_for_display(&message, show_names, 512),
+        });
     }
     rows.reverse();
-    let oldest_id = rows.first().map(|row| row.0).unwrap_or(0);
-    let newest_id = rows.last().map(|row| row.0).unwrap_or(0);
+    let oldest_id = rows.first().map(|row| row.id).unwrap_or(0);
+    let newest_id = rows.last().map(|row| row.id).unwrap_or(0);
     if from_message_id == 0 {
         let _ = client.mark_as_read(peer_ref).await;
     }
 
+    let page = MessagePage {
+        peer_dialog_id,
+        from_message_id,
+        limit,
+        show_names,
+        rows,
+        oldest_id,
+        newest_id,
+        loaded_at: Instant::now(),
+    };
+    let out = message_page_output(&page);
+    state.message_pages.push(page);
+    if state.message_pages.len() > MESSAGE_CACHE_MAX_PAGES {
+        let remove_count = state.message_pages.len() - MESSAGE_CACHE_MAX_PAGES;
+        state.message_pages.drain(0..remove_count);
+    }
+    Ok(out)
+}
+
+fn message_page_output(page: &MessagePage) -> String {
     let mut out = String::new();
     push_line(
         &mut out,
-        format!("Mag Telegram messages chat={peer_dialog_id}"),
+        format!("Mag Telegram messages chat={}", page.peer_dialog_id),
     );
     push_line(
         &mut out,
         format!(
             "page={} cached-total={} page-count={} oldest-id={} newest-id={}",
-            if from_message_id > 0 {
+            if page.from_message_id > 0 {
                 "older"
             } else {
                 "latest"
             },
-            rows.len(),
-            rows.len(),
-            oldest_id,
-            newest_id
+            page.rows.len(),
+            page.rows.len(),
+            page.oldest_id,
+            page.newest_id
         ),
     );
-    for (id, sender, body) in &rows {
-        push_line(&mut out, format!("{id} | {sender}: {body}"));
+    for row in &page.rows {
+        push_line(
+            &mut out,
+            format!("{} | {}: {}", row.id, row.sender, row.body),
+        );
     }
-    if rows.is_empty() {
+    if page.rows.is_empty() {
         push_line(&mut out, "No cached text messages for this chat/page yet.");
     }
-    Ok(out)
+    out
 }
 
 async fn print_messages_page(
@@ -1315,12 +1455,13 @@ async fn run_daemon(config: &Config) -> Result<()> {
     eprintln!(
         "mag-telegram-grammers daemon backend=grammers auth=ready request={DEFAULT_DAEMON_REQUEST}"
     );
+    let mut state = DaemonState::new();
 
     loop {
         if let Some(request) = take_daemon_request()? {
             let response = tokio::time::timeout(
                 Duration::from_secs(DEFAULT_TIMEOUT_SECONDS),
-                handle_daemon_request_text(config, &client, &session, request.trim()),
+                handle_daemon_request_text(config, &client, &session, &mut state, request.trim()),
             )
             .await;
             let (text, stop) = match response {
@@ -1351,6 +1492,7 @@ async fn handle_daemon_request_text(
     config: &Config,
     client: &Client,
     session: &Arc<SqliteSession>,
+    state: &mut DaemonState,
     request: &str,
 ) -> Result<(String, bool)> {
     let mut parts = request.splitn(2, char::is_whitespace);
@@ -1367,7 +1509,7 @@ async fn handle_daemon_request_text(
         }
         "auth-status" => auth_status_text(client).await?,
         "online-status" => online_status_text(config, client).await?,
-        "chats" => chats_bridge_text(client, 60, true).await?,
+        "chats" => cached_chats_bridge_text(client, state, 60, true, false).await?,
         "chats-view" => {
             let mut bits = arg.split_whitespace();
             let selected = bits
@@ -1382,11 +1524,11 @@ async fn handle_daemon_request_text(
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(20);
-            chats_view_text(client, selected, top, visible, true).await?
+            cached_chats_view_text(client, state, selected, top, visible, true, false).await?
         }
         "chat-at" => {
             let selected = arg.parse::<isize>().unwrap_or(0);
-            chat_at_text(client, selected, true).await?
+            cached_chat_at_text(client, state, selected, true, false).await?
         }
         "messages" => {
             let mut bits = arg.split_whitespace();
@@ -1400,7 +1542,7 @@ async fn handle_daemon_request_text(
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(30);
-            messages_page_text(client, session, peer, from_message_id, limit, true).await?
+            cached_messages_page_text(client, session, state, peer, from_message_id, limit, true, false).await?
         }
         "older" => {
             let mut bits = arg.split_whitespace();
@@ -1418,7 +1560,7 @@ async fn handle_daemon_request_text(
                 .next()
                 .and_then(|s| s.parse::<usize>().ok())
                 .unwrap_or(30);
-            messages_page_text(client, session, peer, from_message_id, limit, true).await?
+            cached_messages_page_text(client, session, state, peer, from_message_id, limit, true, false).await?
         }
         "send" => {
             let mut bits = arg.splitn(2, char::is_whitespace);
@@ -1431,7 +1573,10 @@ async fn handle_daemon_request_text(
             if text.is_empty() {
                 bail!("send needs message text");
             }
-            send_message_text(client, session, peer, text).await?
+            let result = send_message_text(client, session, peer, text).await?;
+            state.clear_messages_for(peer);
+            state.dialogs_loaded_at = None;
+            result
         }
         "mark-read" => {
             let mut bits = arg.split_whitespace();
