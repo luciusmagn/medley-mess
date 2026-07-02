@@ -249,6 +249,17 @@ pick sample pointer values from HTCOLL, then
 space for raw referrers. This is read-only. Treat unboxed array/data matches as
 noisy until the chain reaches an obvious Lisp root.
 
+For a repeatable retained-link pressure check, run:
+
+```sh
+/home/mag/src/medley/scripts/mag-gc-pressure-check.js --external-scan
+```
+
+The check opens/closes Mag Shell load-test windows and sends repeated Telegram
+status/auth/doctor/chat requests through the MCP bridge, then reports
+`htcoll-hi-links`, live/free links, and generated atom samples. A healthy run
+keeps `htcoll-hi-links` pinned at the baseline and prints `newatom-names none`.
+
 ## Telegram Bridge
 
 `tools/mag-telegram-bridge` is the host-side foundation for a text-only

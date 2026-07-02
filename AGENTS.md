@@ -108,6 +108,10 @@ Current diagnosis as of 2026-07-02:
   `A#=0` through samples 0-12 while Mag Shell rendered output.
 - Use `scripts/mag-gc-scan-live.py` to measure generated atom counts and
   `scripts/mag-gc-refscan.py <ldex-pid> <ptr>...` for raw referrer tracing.
+- Use `scripts/mag-gc-pressure-check.js --external-scan` for the current
+  repeatable pressure check. On 2026-07-02, three Mag Shell load/close cycles
+  plus 200 live-mode Telegram status/auth/doctor/chat requests kept
+  `htcoll-hi-links=2624` and reported `newatom-names none`.
 
 Do not put automatic Mag Shell draining/rendering in `MAG-DEBUG-RPC-LOOP`.
 That loop is control-plane only. A reproduced failure showed that polling

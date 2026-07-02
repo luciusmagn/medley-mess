@@ -66,6 +66,8 @@ const ALLOWED_REQUESTS = new Set([
   'open-gopher',
   'open-telegram',
   'telegram-status',
+  'telegram-auth',
+  'telegram-doctor',
   'telegram-chats',
   'close-gopher',
   'keys-test',

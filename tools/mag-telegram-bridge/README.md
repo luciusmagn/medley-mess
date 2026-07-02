@@ -77,6 +77,10 @@ chmod 600 ~/.config/mag-telegram/config
 mag-telegram-bridge --daemon
 ```
 
+`encryption_key` is written as a normal local string in the config file. The
+bridge base64-encodes it when sending TDLib JSON, because TDLib represents
+`bytes` fields as base64 strings in JSON mode.
+
 Environment variables override the config file, which is useful for one-off
 tests:
 

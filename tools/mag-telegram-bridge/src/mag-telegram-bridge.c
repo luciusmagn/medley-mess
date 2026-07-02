@@ -257,6 +257,27 @@ static void json_escape(const char *src, char *dst, size_t cap) {
   dst[used] = 0;
 }
 
+static void base64_encode_text(const char *src, char *dst, size_t cap) {
+  static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const unsigned char *in = (const unsigned char *)(src ? src : "");
+  size_t len = strlen((const char *)in);
+  size_t used = 0;
+  if (cap == 0) return;
+  dst[0] = 0;
+  for (size_t i = 0; i < len && used + 4 < cap; i += 3) {
+    unsigned value = (unsigned)in[i] << 16;
+    bool have2 = i + 1 < len;
+    bool have3 = i + 2 < len;
+    if (have2) value |= (unsigned)in[i + 1] << 8;
+    if (have3) value |= (unsigned)in[i + 2];
+    dst[used++] = table[(value >> 18) & 63];
+    dst[used++] = table[(value >> 12) & 63];
+    dst[used++] = have2 ? table[(value >> 6) & 63] : '=';
+    dst[used++] = have3 ? table[value & 63] : '=';
+  }
+  dst[used] = 0;
+}
+
 static bool json_extract_string(const char *json, const char *key, char *out, size_t cap) {
   char needle[128];
   const char *p;
@@ -768,11 +789,12 @@ static void td_view_message(struct Bridge *b, long long chat_id, long long messa
 }
 
 static void send_tdlib_parameters(struct Bridge *b) {
-  char data[1024], files[1024], hash[512], key[512], req[4096];
+  char data[1024], files[1024], hash[512], key_base64[512], key[768], req[4096];
   json_escape(b->data_dir, data, sizeof(data));
   json_escape(b->files_dir, files, sizeof(files));
   json_escape(b->api_hash, hash, sizeof(hash));
-  json_escape(b->encryption_key, key, sizeof(key));
+  base64_encode_text(b->encryption_key, key_base64, sizeof(key_base64));
+  json_escape(key_base64, key, sizeof(key));
   snprintf(req, sizeof(req),
            "{\"@type\":\"setTdlibParameters\","
            "\"use_test_dc\":false,"
@@ -1448,6 +1470,7 @@ static int self_test(void) {
   struct Bridge cfg;
   char out[8192];
   char req[MAG_TG_MAX_TEXT + 1024];
+  char encoded[128];
   char *high;
   char *low;
   char cfgpath[256];
@@ -1483,6 +1506,8 @@ static int self_test(void) {
   if (had_old_config) setenv("MAG_TELEGRAM_CONFIG", old_config_copy, 1);
   else unsetenv("MAG_TELEGRAM_CONFIG");
   unlink(cfgpath);
+  base64_encode_text("mag-telegram-local", encoded, sizeof(encoded));
+  if (strcmp(encoded, "bWFnLXRlbGVncmFtLWxvY2Fs") != 0) return 1;
   build_send_message_request(1234, "hello \"telegram\"", req, sizeof(req));
   if (!strstr(req, "\"@type\":\"sendMessage\"")) return 1;
   if (!strstr(req, "\"entities\":[]")) return 1;
