@@ -34,6 +34,7 @@ mag-telegram-bridge --daemon
 Query it from another process:
 
 ```sh
+mag-telegram-bridge --doctor
 mag-telegram-bridge status
 mag-telegram-bridge chats
 mag-telegram-bridge messages 1001
@@ -115,6 +116,7 @@ Medley should render compact lines, not raw TDLib JSON.
 Supported requests:
 
 - `status`
+- `doctor`
 - `chats`
 - `messages CHAT_ID [FROM_MESSAGE_ID]`
 - `older CHAT_ID FROM_MESSAGE_ID`
@@ -153,6 +155,8 @@ Implemented now:
 - exact `--request-file` CLI path for file-originated text requests
 - persistent config file at `~/.config/mag-telegram/config`, with environment
   variables still available as overrides
+- secret-safe `doctor` diagnostics for config, credential presence, and TDLib
+  library/symbol loading
 - direct Medley request-file path for normal UI requests; shell use is limited
   to fallback daemon startup on older Maiko binaries
 - dynamic TDLib loading and basic authorization-state command emission

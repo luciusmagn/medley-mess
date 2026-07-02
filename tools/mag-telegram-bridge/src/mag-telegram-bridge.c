@@ -517,6 +517,37 @@ static void apply_env_overrides(struct Bridge *b) {
   }
 }
 
+static void load_runtime_config(struct Bridge *b) {
+  const char *home = env_or("HOME", "/tmp");
+  read_config_file(b);
+  apply_env_overrides(b);
+  if (b->encryption_key[0] == 0) copy_str(b->encryption_key, sizeof(b->encryption_key), "mag-telegram-local");
+  if (b->data_dir[0] == 0) snprintf(b->data_dir, sizeof(b->data_dir), "%s/.local/share/mag-telegram/tdlib", home);
+}
+
+static bool check_tdlib_library(struct Bridge *b) {
+  const char *lib = b->tdlib_library[0] ? b->tdlib_library : "libtdjson.so";
+  void *handle = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+  if (!handle) {
+    b->last_error[0] = 0;
+    appendf(b->last_error, sizeof(b->last_error), "dlopen failed for ");
+    appendf(b->last_error, sizeof(b->last_error), "%s", lib);
+    appendf(b->last_error, sizeof(b->last_error), ": ");
+    appendf(b->last_error, sizeof(b->last_error), "%s", dlerror());
+    return false;
+  }
+  if (!dlsym(handle, "td_json_client_create") ||
+      !dlsym(handle, "td_json_client_send") ||
+      !dlsym(handle, "td_json_client_receive") ||
+      !dlsym(handle, "td_json_client_destroy")) {
+    copy_str(b->last_error, sizeof(b->last_error), "libtdjson is missing required JSON client symbols");
+    dlclose(handle);
+    return false;
+  }
+  dlclose(handle);
+  return true;
+}
+
 static bool load_tdlib(struct Bridge *b) {
   const char *lib = b->tdlib_library[0] ? b->tdlib_library : "libtdjson.so";
   b->td.handle = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
@@ -600,10 +631,7 @@ static void send_tdlib_parameters(struct Bridge *b) {
 }
 
 static bool init_live(struct Bridge *b) {
-  const char *home = env_or("HOME", "/tmp");
-  read_config_file(b);
-  apply_env_overrides(b);
-  if (b->encryption_key[0] == 0) copy_str(b->encryption_key, sizeof(b->encryption_key), "mag-telegram-local");
+  load_runtime_config(b);
   if (b->api_id[0] == 0 || b->api_hash[0] == 0) {
     b->last_error[0] = 0;
     appendf(b->last_error, sizeof(b->last_error), "Telegram api_id/api_hash are not set; use env or ");
@@ -611,7 +639,6 @@ static bool init_live(struct Bridge *b) {
             b->config_path[0] ? b->config_path : "~/.config/mag-telegram/config");
     return false;
   }
-  if (b->data_dir[0] == 0) snprintf(b->data_dir, sizeof(b->data_dir), "%s/.local/share/mag-telegram/tdlib", home);
   copy_str(b->files_dir, sizeof(b->files_dir), b->data_dir);
   appendf(b->files_dir, sizeof(b->files_dir), "/files");
   ensure_dir(b->files_dir);
@@ -770,6 +797,36 @@ static void response_status(struct Bridge *b, char *out, size_t cap) {
            b->last_error[0] ? b->last_error : "none");
 }
 
+static void response_doctor(char *out, size_t cap) {
+  struct Bridge b;
+  bool has_credentials;
+  bool tdlib_ok;
+  memset(&b, 0, sizeof(b));
+  load_runtime_config(&b);
+  has_credentials = b.api_id[0] != 0 && b.api_hash[0] != 0;
+  tdlib_ok = check_tdlib_library(&b);
+  snprintf(out, cap,
+           "Mag Telegram doctor\n"
+           "config=%s\n"
+           "api-id=%s\n"
+           "api-hash=%s\n"
+           "encryption-key=%s\n"
+           "data-dir=%s\n"
+           "tdlib-library=%s\n"
+           "tdlib-load=%s\n"
+           "status=%s\n"
+           "detail=%s\n",
+           b.config_path[0] ? b.config_path : "unset",
+           b.api_id[0] ? "set" : "missing",
+           b.api_hash[0] ? "set" : "missing",
+           b.encryption_key[0] ? "set" : "missing",
+           b.data_dir[0] ? b.data_dir : "unset",
+           b.tdlib_library[0] ? b.tdlib_library : "libtdjson.so",
+           tdlib_ok ? "ok" : "fail",
+           (has_credentials && tdlib_ok) ? "ready-for-auth" : "not-ready",
+           b.last_error[0] ? b.last_error : "none");
+}
+
 static void response_chats(struct Bridge *b, char *out, size_t cap) {
   struct Chat *items[MAG_TG_MAX_CHATS];
   snprintf(out, cap, "Mag Telegram chats (%zu)\n", b->chat_count);
@@ -896,6 +953,7 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
   cmd[i] = 0;
   arg = skip_space(request + i);
   if (strcmp(cmd, "status") == 0) response_status(b, out, cap);
+  else if (strcmp(cmd, "doctor") == 0) response_doctor(out, cap);
   else if (strcmp(cmd, "chats") == 0) response_chats(b, out, cap);
   else if (strcmp(cmd, "messages") == 0) {
     char *end = NULL;
@@ -1024,6 +1082,13 @@ static int request_daemon_file(const char *path) {
   return status;
 }
 
+static int doctor_command(void) {
+  char out[8192];
+  response_doctor(out, sizeof(out));
+  fputs(out, stdout);
+  return strstr(out, "status=ready-for-auth") ? 0 : 1;
+}
+
 static int self_test(void) {
   struct Bridge b;
   struct Bridge cfg;
@@ -1049,14 +1114,21 @@ static int self_test(void) {
   }
   setenv("MAG_TELEGRAM_CONFIG", cfgpath, 1);
   read_config_file(&cfg);
-  if (had_old_config) setenv("MAG_TELEGRAM_CONFIG", old_config_copy, 1);
-  else unsetenv("MAG_TELEGRAM_CONFIG");
-  unlink(cfgpath);
   if (strcmp(cfg.api_id, "12345") != 0) return 1;
   if (strcmp(cfg.api_hash, "test-hash") != 0) return 1;
   if (strcmp(cfg.encryption_key, "test key") != 0) return 1;
   if (strcmp(cfg.data_dir, "/tmp/mag-telegram-test-db") != 0) return 1;
   if (strcmp(cfg.tdlib_library, "/tmp/libtdjson-test.so") != 0) return 1;
+  response_doctor(out, sizeof(out));
+  if (!strstr(out, "api-id=set")) return 1;
+  if (!strstr(out, "api-hash=set")) return 1;
+  if (!strstr(out, "tdlib-library=/tmp/libtdjson-test.so")) return 1;
+  if (!strstr(out, "tdlib-load=fail")) return 1;
+  if (!strstr(out, "status=not-ready")) return 1;
+  if (strstr(out, "test-hash")) return 1;
+  if (had_old_config) setenv("MAG_TELEGRAM_CONFIG", old_config_copy, 1);
+  else unsetenv("MAG_TELEGRAM_CONFIG");
+  unlink(cfgpath);
   build_send_message_request(1234, "hello \"telegram\"", req, sizeof(req));
   if (!strstr(req, "\"@type\":\"sendMessage\"")) return 1;
   if (!strstr(req, "\"entities\":[]")) return 1;
@@ -1122,6 +1194,7 @@ int main(int argc, char **argv) {
   if (argc >= 2 && strcmp(argv[1], "--daemon") == 0) return run_daemon(false);
   if (argc >= 2 && strcmp(argv[1], "--mock-daemon") == 0) return run_daemon(true);
   if (argc >= 2 && strcmp(argv[1], "--self-test") == 0) return self_test();
+  if (argc >= 2 && strcmp(argv[1], "--doctor") == 0) return doctor_command();
   if (argc >= 3 && strcmp(argv[1], "--request-file") == 0) return request_daemon_file(argv[2]);
   return request_daemon(argc, argv);
 }
