@@ -49,6 +49,7 @@ const ALLOWED_REQUESTS = new Set([
   'reload-mag',
   'restart-rpc',
   'open-shell',
+  'open-font-sampler',
   'boot-shell',
   'shell-load-test',
   'close-shell',
