@@ -11,10 +11,14 @@
 (RPAQQ MAG-SLIDES-FOOTER-Y 40)
 (RPAQQ MAG-SLIDES-BODY-GAP 34)
 (RPAQQ MAG-SLIDES-BODY-LEADING 22)
-(RPAQQ MAG-SLIDES-BULLET-LEADING 34)
+(RPAQQ MAG-SLIDES-BULLET-LEADING 44)
+(RPAQQ MAG-SLIDES-SUBBULLET-LEADING 32)
 (RPAQQ MAG-SLIDES-BULLET-INDENT 62)
+(RPAQQ MAG-SLIDES-SUBBULLET-INDENT 118)
 (RPAQQ MAG-SLIDES-BULLET-DOT-X 18)
+(RPAQQ MAG-SLIDES-SUBBULLET-DOT-X 78)
 (RPAQQ MAG-SLIDES-BULLET-DOT-SIZE 12)
+(RPAQQ MAG-SLIDES-SUBBULLET-DOT-SIZE 8)
 (RPAQQ MAG-SLIDES-TABLE-PAD-X 14)
 (RPAQQ MAG-SLIDES-TABLE-PAD-Y 9)
 (RPAQQ MAG-SLIDES-TABLE-GAP 22)
@@ -48,9 +52,24 @@
   [LAMBDA NIL
     (MAG-SLIDES-FONT 'TIMESROMAN 36)])
 
+(MAG-SLIDES-SUBBULLET-FONT
+  [LAMBDA NIL
+    (MAG-SLIDES-FONT 'TIMESROMAN 30)])
+
 (MAG-SLIDES-FOOTER-FONT
   [LAMBDA NIL
     (MAG-SLIDES-FONT-FACE 'TIMESROMAN 18 'MIR)])
+
+(MAG-SLIDES-FONT-VARIANT
+  [LAMBDA (FONT BOLD ITALIC)
+    (PROG ((RESULT FONT))
+      (AND BOLD
+           (SETQ RESULT (OR (CAR (NLSETQ (FONTCOPY RESULT 'WEIGHT 'BOLD)))
+                            RESULT)))
+      (AND ITALIC
+           (SETQ RESULT (OR (CAR (NLSETQ (FONTCOPY RESULT 'SLOPE 'ITALIC)))
+                            RESULT)))
+      (RETURN RESULT))])
 
 (MAG-SLIDES-SLIDE-TITLE
   [LAMBDA (SLIDE)
@@ -161,6 +180,103 @@
       (SETQ I (ADD1 I))
       (GO LP))])
 
+(MAG-SLIDES-MARKER-AT-P
+  [LAMBDA (TEXT INDEX MARKER)
+    (LET ((END (IDIFFERENCE (IPLUS INDEX (NCHARS MARKER)) 1)))
+      (AND TEXT
+           MARKER
+           (IGEQ INDEX 1)
+           (ILEQ END (NCHARS TEXT))
+           (STREQUAL MARKER (SUBSTRING TEXT INDEX END))))])
+
+(MAG-SLIDES-ADD-RICH-SEGMENT
+  [LAMBDA (SEGMENTS TEXT BOLD ITALIC)
+    (COND
+      ((OR (NULL TEXT) (EQ (NCHARS TEXT) 0))
+       SEGMENTS)
+      (T (CONS (LIST TEXT BOLD ITALIC) SEGMENTS)))])
+
+(MAG-SLIDES-RICH-SEGMENTS
+  [LAMBDA (TEXT)
+    (PROG ((I 1)
+           (START 1)
+           (LEN (AND TEXT (NCHARS TEXT)))
+           (SEGMENTS NIL)
+           (BOLD NIL)
+           (ITALIC NIL))
+      (COND
+        ((OR (NULL TEXT) (EQ LEN 0))
+         (RETURN NIL)))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (AND (ILEQ START LEN)
+              (SETQ SEGMENTS
+                    (MAG-SLIDES-ADD-RICH-SEGMENT
+                      SEGMENTS
+                      (SUBSTRING TEXT START LEN)
+                      BOLD
+                      ITALIC)))
+         (RETURN (DREVERSE SEGMENTS))))
+      (COND
+        ((MAG-SLIDES-MARKER-AT-P TEXT I "**")
+         (AND (ILESSP START I)
+              (SETQ SEGMENTS
+                    (MAG-SLIDES-ADD-RICH-SEGMENT
+                      SEGMENTS
+                      (SUBSTRING TEXT START (SUB1 I))
+                      BOLD
+                      ITALIC)))
+         (SETQ BOLD (NOT BOLD))
+         (SETQ I (IPLUS I 2))
+         (SETQ START I)
+         (GO LP))
+        ((MAG-SLIDES-MARKER-AT-P TEXT I "//")
+         (AND (ILESSP START I)
+              (SETQ SEGMENTS
+                    (MAG-SLIDES-ADD-RICH-SEGMENT
+                      SEGMENTS
+                      (SUBSTRING TEXT START (SUB1 I))
+                      BOLD
+                      ITALIC)))
+         (SETQ ITALIC (NOT ITALIC))
+         (SETQ I (IPLUS I 2))
+         (SETQ START I)
+         (GO LP)))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-SLIDES-DRAW-RICH-BASELINE
+  [LAMBDA (WINDOW X BASELINE FONT TEXT)
+    (PROG ((SEGMENTS (MAG-SLIDES-RICH-SEGMENTS (OR TEXT "")))
+           SEG SEG-FONT SEG-TEXT)
+    LP
+      (COND
+        ((NULL SEGMENTS)
+         (DSPFONT FONT WINDOW)
+         (RETURN X)))
+      (SETQ SEG (CAR SEGMENTS))
+      (SETQ SEG-TEXT (CAR SEG))
+      (SETQ SEG-FONT (MAG-SLIDES-FONT-VARIANT FONT (CADR SEG) (CADDR SEG)))
+      (DSPFONT SEG-FONT WINDOW)
+      (MOVETO X BASELINE WINDOW)
+      (PRIN1 SEG-TEXT WINDOW)
+      (SETQ X (IPLUS X (STRINGWIDTH SEG-TEXT SEG-FONT)))
+      (SETQ SEGMENTS (CDR SEGMENTS))
+      (GO LP))])
+
+(MAG-SLIDES-DRAW-RICH-TOP
+  [LAMBDA (WINDOW X YTOP FONT TEXT LEADING)
+    (PROG (HEIGHT DESCENT BASELINE)
+      (COND
+        ((NULL FONT)
+         (RETURN YTOP)))
+      (SETQ HEIGHT (FONTPROP FONT 'HEIGHT))
+      (SETQ DESCENT (OR (FONTPROP FONT 'DESCENT) 0))
+      (SETQ BASELINE (IDIFFERENCE YTOP (IDIFFERENCE HEIGHT DESCENT)))
+      (MAG-SLIDES-DRAW-RICH-BASELINE WINDOW X BASELINE FONT TEXT)
+      (RETURN (IDIFFERENCE YTOP (IPLUS HEIGHT (OR LEADING 0)))))])
+
 (MAG-SLIDES-LAYOUT-SYMBOL
   [LAMBDA (TEXT)
     (COND
@@ -217,6 +333,14 @@
              (SETQ SUBTITLE (MAG-SLIDES-DROP-PREFIX LINE 3)))
             ((MAG-SLIDES-PREFIX-P "# " LINE)
              (SETQ TITLE (MAG-SLIDES-DROP-PREFIX LINE 2)))
+            ((MAG-SLIDES-PREFIX-P "    - " LINE)
+             (SETQ BODY
+                   (CONS (CONCAT "** " (MAG-SLIDES-DROP-PREFIX LINE 6))
+                         BODY)))
+            ((MAG-SLIDES-PREFIX-P "  - " LINE)
+             (SETQ BODY
+                   (CONS (CONCAT "** " (MAG-SLIDES-DROP-PREFIX LINE 4))
+                         BODY)))
             ((MAG-SLIDES-PREFIX-P "- " LINE)
              (SETQ BODY
                    (CONS (CONCAT "* " (MAG-SLIDES-DROP-PREFIX LINE 2))
@@ -239,8 +363,9 @@
                 NIL)
           (LIST "Typography Defaults"
                 NIL
-                '("* Body bullets use TimesRoman 36"
-                  "* Footer metadata uses TimesRoman 18"
+                '("* Body bullets use **TimesRoman 36**"
+                  "** Subpoints use TimesRoman 30"
+                  "* Use //italic// footer metadata and page numbers"
                   "* Page numbers sit bottom-right")
                 "normal slide"
                 'BODY
@@ -330,11 +455,25 @@
 
 (MAG-SLIDES-BULLET-LINE-P
   [LAMBDA (LINE)
-    (MAG-SLIDES-PREFIX-P "* " LINE)])
+    (OR (MAG-SLIDES-PREFIX-P "* " LINE)
+        (MAG-SLIDES-PREFIX-P "** " LINE))])
+
+(MAG-SLIDES-SUBBULLET-LINE-P
+  [LAMBDA (LINE)
+    (MAG-SLIDES-PREFIX-P "** " LINE)])
+
+(MAG-SLIDES-BULLET-LEVEL
+  [LAMBDA (LINE)
+    (COND
+      ((MAG-SLIDES-SUBBULLET-LINE-P LINE) 2)
+      (T 1))])
 
 (MAG-SLIDES-BULLET-TEXT
   [LAMBDA (LINE)
-    (MAG-SLIDES-DROP-PREFIX LINE 2)])
+    (COND
+      ((MAG-SLIDES-SUBBULLET-LINE-P LINE)
+       (MAG-SLIDES-DROP-PREFIX LINE 3))
+      (T (MAG-SLIDES-DROP-PREFIX LINE 2)))])
 
 (MAG-SLIDES-SLIDE-REVEAL-COUNT
   [LAMBDA (SLIDE)
@@ -697,8 +836,7 @@
       (AND TEXT
            (PROGN
              (SETQ X (IPLUS LEFT (ITIMES I COLWIDTH) MAG-SLIDES-TABLE-PAD-X))
-             (MOVETO X BASELINE WINDOW)
-             (PRIN1 TEXT WINDOW)))
+             (MAG-SLIDES-DRAW-RICH-BASELINE WINDOW X BASELINE FONT TEXT)))
       (SETQ I (ADD1 I))
       (GO LP))])
 
@@ -733,11 +871,16 @@
     (IDIFFERENCE YTOP (IPLUS (FONTPROP FONT 'HEIGHT) (OR LEADING 0)))])
 
 (MAG-SLIDES-DRAW-BULLET-DOT
-  [LAMBDA (WINDOW YTOP FONT)
-    (PROG ((SIZE MAG-SLIDES-BULLET-DOT-SIZE)
+  [LAMBDA (WINDOW YTOP FONT LEVEL)
+    (PROG ((SIZE (COND ((EQ LEVEL 2)
+                        MAG-SLIDES-SUBBULLET-DOT-SIZE)
+                       (T MAG-SLIDES-BULLET-DOT-SIZE)))
            (HEIGHT (FONTPROP FONT 'HEIGHT))
            X Y EDGE MID)
-      (SETQ X (IPLUS MAG-SLIDES-MARGIN-X MAG-SLIDES-BULLET-DOT-X))
+      (SETQ X (IPLUS MAG-SLIDES-MARGIN-X
+                      (COND ((EQ LEVEL 2)
+                             MAG-SLIDES-SUBBULLET-DOT-X)
+                            (T MAG-SLIDES-BULLET-DOT-X))))
       (SETQ Y (IDIFFERENCE YTOP (IQUOTIENT (IPLUS HEIGHT SIZE) 2)))
       (SETQ EDGE (IMAX 2 (IQUOTIENT SIZE 4)))
       (SETQ MID (IDIFFERENCE SIZE (ITIMES 2 EDGE)))
@@ -746,21 +889,46 @@
       (BLTSHADE BLACKSHADE WINDOW (IPLUS X EDGE) (IPLUS Y EDGE MID) MID EDGE 'REPLACE)
       T)])
 
+(MAG-SLIDES-BULLET-FONT-FOR-LINE
+  [LAMBDA (LINE)
+    (COND
+      ((EQ (MAG-SLIDES-BULLET-LEVEL LINE) 2)
+       (MAG-SLIDES-SUBBULLET-FONT))
+      (T (MAG-SLIDES-BODY-FONT)))])
+
+(MAG-SLIDES-BULLET-LEADING-FOR-LINE
+  [LAMBDA (LINE)
+    (COND
+      ((EQ (MAG-SLIDES-BULLET-LEVEL LINE) 2)
+       MAG-SLIDES-SUBBULLET-LEADING)
+      (T MAG-SLIDES-BULLET-LEADING))])
+
+(MAG-SLIDES-BULLET-INDENT-FOR-LINE
+  [LAMBDA (LINE)
+    (COND
+      ((EQ (MAG-SLIDES-BULLET-LEVEL LINE) 2)
+       MAG-SLIDES-SUBBULLET-INDENT)
+      (T MAG-SLIDES-BULLET-INDENT))])
+
 (MAG-SLIDES-DRAW-BULLET-LINE
   [LAMBDA (WINDOW LINE YTOP FONT)
-    (MAG-SLIDES-DRAW-BULLET-DOT WINDOW YTOP FONT)
-    (MAG-SLIDES-DRAW-TOP WINDOW
-                         (IPLUS MAG-SLIDES-MARGIN-X MAG-SLIDES-BULLET-INDENT)
-                         YTOP
-                         FONT
-                         (MAG-SLIDES-BULLET-TEXT LINE)
-                         MAG-SLIDES-BULLET-LEADING)])
+    (PROG ((LEVEL (MAG-SLIDES-BULLET-LEVEL LINE)))
+      (SETQ FONT (MAG-SLIDES-BULLET-FONT-FOR-LINE LINE))
+      (MAG-SLIDES-DRAW-BULLET-DOT WINDOW YTOP FONT LEVEL)
+      (RETURN
+        (MAG-SLIDES-DRAW-RICH-TOP
+          WINDOW
+          (IPLUS MAG-SLIDES-MARGIN-X (MAG-SLIDES-BULLET-INDENT-FOR-LINE LINE))
+          YTOP
+          FONT
+          (MAG-SLIDES-BULLET-TEXT LINE)
+          (MAG-SLIDES-BULLET-LEADING-FOR-LINE LINE))))])
 
 (MAG-SLIDES-DRAW-BODY-LINES
   [LAMBDA (WINDOW LINES YTOP REVEAL)
     (PROG ((FONT (MAG-SLIDES-BODY-FONT))
            (SEEN 0)
-           TABLE LINE)
+           TABLE LINE LINE-FONT LINE-LEADING)
     LP
       (COND
         ((NULL LINES)
@@ -773,21 +941,23 @@
          (SETQ LINES (CDR TABLE)))
         ((MAG-SLIDES-BULLET-LINE-P LINE)
          (SETQ SEEN (ADD1 SEEN))
+         (SETQ LINE-FONT (MAG-SLIDES-BULLET-FONT-FOR-LINE LINE))
+         (SETQ LINE-LEADING (MAG-SLIDES-BULLET-LEADING-FOR-LINE LINE))
          (SETQ YTOP
                (COND
                  ((ILEQ SEEN REVEAL)
                   (MAG-SLIDES-DRAW-BULLET-LINE WINDOW LINE YTOP FONT))
                  (T
-                  (MAG-SLIDES-ADVANCE-BODY-Y YTOP FONT MAG-SLIDES-BULLET-LEADING))))
+                  (MAG-SLIDES-ADVANCE-BODY-Y YTOP LINE-FONT LINE-LEADING))))
          (SETQ LINES (CDR LINES)))
         (T
          (SETQ YTOP
-               (MAG-SLIDES-DRAW-TOP WINDOW
-                                    MAG-SLIDES-MARGIN-X
-                                    YTOP
-                                    FONT
-                                    LINE
-                                    MAG-SLIDES-BODY-LEADING))
+               (MAG-SLIDES-DRAW-RICH-TOP WINDOW
+                                         MAG-SLIDES-MARGIN-X
+                                         YTOP
+                                         FONT
+                                         LINE
+                                         MAG-SLIDES-BODY-LEADING))
          (SETQ LINES (CDR LINES))))
       (GO LP))])
 
@@ -1036,12 +1206,15 @@
         "  @meta footer text in the lower-left corner"
         "  @image /path/to/file imports a native dithered READBITMAP"
         "  - bullet point"
+        "    - sub-point"
+        "  **bold** and //italic// emphasize inline text"
         "  | cell | cell | draws a simple table"
         ""
         "Fonts:"
         "  Title: TimesRomanD 72"
         "  Title subtitle: Classic 48"
         "  Body bullets: TimesRoman 36"
+        "  Sub-points: TimesRoman 30"
         "  Footer/page number: TimesRoman 18"
         ""
         "Keys: right/down/space/n reveal one bullet or next, left/up/backspace/p previous, r reload, q close"
