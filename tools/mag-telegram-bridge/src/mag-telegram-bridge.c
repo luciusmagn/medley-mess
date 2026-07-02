@@ -18,7 +18,9 @@
 #define MAG_TG_REQUEST_PATH "/tmp/mag-telegram-request"
 #define MAG_TG_RESPONSE_PATH "/tmp/mag-telegram-response"
 #define MAG_TG_PID_PATH "/tmp/mag-telegram-bridge.pid"
+#define MAG_TG_DEFAULT_CONFIG_REL ".config/mag-telegram/config"
 #define MAG_TG_MAX_TEXT 4096
+#define MAG_TG_MAX_LINE 1024
 #define MAG_TG_MAX_CHATS 256
 #define MAG_TG_MAX_USERS 512
 #define MAG_TG_MAX_MESSAGES 1024
@@ -63,6 +65,8 @@ struct Bridge {
   char last_error[512];
   char data_dir[512];
   char files_dir[512];
+  char config_path[512];
+  char tdlib_library[512];
   char api_id[64];
   char api_hash[256];
   char encryption_key[256];
@@ -186,6 +190,26 @@ static void trim_right(char *s) {
 static const char *skip_space(const char *p) {
   while (*p && isspace((unsigned char)*p)) p++;
   return p;
+}
+
+static char *skip_space_mut(char *p) {
+  while (*p && isspace((unsigned char)*p)) p++;
+  return p;
+}
+
+static void trim_both(char **p) {
+  *p = skip_space_mut(*p);
+  trim_right(*p);
+}
+
+static void unquote_value(char *s) {
+  size_t len;
+  if (!s) return;
+  len = strlen(s);
+  if (len >= 2 && ((s[0] == '"' && s[len - 1] == '"') || (s[0] == '\'' && s[len - 1] == '\''))) {
+    memmove(s, s + 1, len - 2);
+    s[len - 2] = 0;
+  }
 }
 
 static void sleep_ms(long ms) {
@@ -418,12 +442,76 @@ static bool ensure_dir(const char *path) {
   return mkdir(tmp, 0700) == 0 || errno == EEXIST;
 }
 
+static void apply_config_value(struct Bridge *b, const char *key, const char *value) {
+  if (!key || !value) return;
+  if (strcmp(key, "api_id") == 0 || strcmp(key, "MAG_TELEGRAM_API_ID") == 0) {
+    copy_str(b->api_id, sizeof(b->api_id), value);
+  } else if (strcmp(key, "api_hash") == 0 || strcmp(key, "MAG_TELEGRAM_API_HASH") == 0) {
+    copy_str(b->api_hash, sizeof(b->api_hash), value);
+  } else if (strcmp(key, "encryption_key") == 0 || strcmp(key, "MAG_TELEGRAM_ENCRYPTION_KEY") == 0) {
+    copy_str(b->encryption_key, sizeof(b->encryption_key), value);
+  } else if (strcmp(key, "data_dir") == 0) {
+    copy_str(b->data_dir, sizeof(b->data_dir), value);
+  } else if (strcmp(key, "data_base_dir") == 0 || strcmp(key, "MAG_TELEGRAM_DATA_DIR") == 0) {
+    snprintf(b->data_dir, sizeof(b->data_dir), "%s/tdlib", value);
+  } else if (strcmp(key, "tdlib_library") == 0 || strcmp(key, "MAG_TELEGRAM_TDLIB_LIBRARY") == 0) {
+    copy_str(b->tdlib_library, sizeof(b->tdlib_library), value);
+  }
+}
+
+static void read_config_file(struct Bridge *b) {
+  const char *home = env_or("HOME", "/tmp");
+  const char *path = getenv("MAG_TELEGRAM_CONFIG");
+  FILE *f;
+  char line[MAG_TG_MAX_LINE];
+  if (path && path[0]) copy_str(b->config_path, sizeof(b->config_path), path);
+  else snprintf(b->config_path, sizeof(b->config_path), "%s/%s", home, MAG_TG_DEFAULT_CONFIG_REL);
+  f = fopen(b->config_path, "r");
+  if (!f) return;
+  while (fgets(line, sizeof(line), f)) {
+    char *p = line;
+    char *eq;
+    char *key;
+    char *value;
+    trim_both(&p);
+    if (p[0] == 0 || p[0] == '#' || p[0] == ';') continue;
+    eq = strchr(p, '=');
+    if (!eq) continue;
+    *eq = 0;
+    key = p;
+    value = eq + 1;
+    trim_both(&key);
+    trim_both(&value);
+    unquote_value(value);
+    apply_config_value(b, key, value);
+  }
+  fclose(f);
+}
+
+static void apply_env_overrides(struct Bridge *b) {
+  const char *value;
+  if ((value = getenv("MAG_TELEGRAM_API_ID")) && value[0]) copy_str(b->api_id, sizeof(b->api_id), value);
+  if ((value = getenv("MAG_TELEGRAM_API_HASH")) && value[0]) copy_str(b->api_hash, sizeof(b->api_hash), value);
+  if ((value = getenv("MAG_TELEGRAM_ENCRYPTION_KEY")) && value[0]) {
+    copy_str(b->encryption_key, sizeof(b->encryption_key), value);
+  }
+  if ((value = getenv("MAG_TELEGRAM_DATA_DIR")) && value[0]) {
+    snprintf(b->data_dir, sizeof(b->data_dir), "%s/tdlib", value);
+  }
+  if ((value = getenv("MAG_TELEGRAM_TDLIB_LIBRARY")) && value[0]) {
+    copy_str(b->tdlib_library, sizeof(b->tdlib_library), value);
+  }
+}
+
 static bool load_tdlib(struct Bridge *b) {
-  const char *lib = getenv("MAG_TELEGRAM_TDLIB_LIBRARY");
-  if (!lib || !lib[0]) lib = "libtdjson.so";
+  const char *lib = b->tdlib_library[0] ? b->tdlib_library : "libtdjson.so";
   b->td.handle = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
   if (!b->td.handle) {
-    snprintf(b->last_error, sizeof(b->last_error), "dlopen failed for %s: %s", lib, dlerror());
+    b->last_error[0] = 0;
+    appendf(b->last_error, sizeof(b->last_error), "dlopen failed for ");
+    appendf(b->last_error, sizeof(b->last_error), "%s", lib);
+    appendf(b->last_error, sizeof(b->last_error), ": ");
+    appendf(b->last_error, sizeof(b->last_error), "%s", dlerror());
     return false;
   }
   b->td.create = dlsym(b->td.handle, "td_json_client_create");
@@ -499,16 +587,17 @@ static void send_tdlib_parameters(struct Bridge *b) {
 
 static bool init_live(struct Bridge *b) {
   const char *home = env_or("HOME", "/tmp");
-  const char *base = getenv("MAG_TELEGRAM_DATA_DIR");
-  copy_str(b->api_id, sizeof(b->api_id), getenv("MAG_TELEGRAM_API_ID"));
-  copy_str(b->api_hash, sizeof(b->api_hash), getenv("MAG_TELEGRAM_API_HASH"));
-  copy_str(b->encryption_key, sizeof(b->encryption_key), env_or("MAG_TELEGRAM_ENCRYPTION_KEY", "mag-telegram-local"));
+  read_config_file(b);
+  apply_env_overrides(b);
+  if (b->encryption_key[0] == 0) copy_str(b->encryption_key, sizeof(b->encryption_key), "mag-telegram-local");
   if (b->api_id[0] == 0 || b->api_hash[0] == 0) {
-    copy_str(b->last_error, sizeof(b->last_error), "MAG_TELEGRAM_API_ID and MAG_TELEGRAM_API_HASH are not set");
+    b->last_error[0] = 0;
+    appendf(b->last_error, sizeof(b->last_error), "Telegram api_id/api_hash are not set; use env or ");
+    appendf(b->last_error, sizeof(b->last_error), "%s",
+            b->config_path[0] ? b->config_path : "~/.config/mag-telegram/config");
     return false;
   }
-  if (base && base[0]) snprintf(b->data_dir, sizeof(b->data_dir), "%s/tdlib", base);
-  else snprintf(b->data_dir, sizeof(b->data_dir), "%s/.local/share/mag-telegram/tdlib", home);
+  if (b->data_dir[0] == 0) snprintf(b->data_dir, sizeof(b->data_dir), "%s/.local/share/mag-telegram/tdlib", home);
   copy_str(b->files_dir, sizeof(b->files_dir), b->data_dir);
   appendf(b->files_dir, sizeof(b->files_dir), "/files");
   ensure_dir(b->files_dir);
@@ -647,9 +736,12 @@ static void poll_tdlib_for(struct Bridge *b, long ms) {
 
 static void response_status(struct Bridge *b, char *out, size_t cap) {
   snprintf(out, cap,
-           "Mag Telegram bridge\nbackend=%s\nauth=%s\nlive=%s\nchats=%zu\nmessages=%zu\ndata-dir=%s\nlast-error=%s\n",
+           "Mag Telegram bridge\nbackend=%s\nauth=%s\nlive=%s\nchats=%zu\nmessages=%zu\nconfig=%s\ndata-dir=%s\ntdlib-library=%s\nlast-error=%s\n",
            b->backend, b->auth_state, b->live ? "yes" : "no", b->chat_count,
-           b->message_count, b->data_dir[0] ? b->data_dir : "unset",
+           b->message_count,
+           b->config_path[0] ? b->config_path : "unset",
+           b->data_dir[0] ? b->data_dir : "unset",
+           b->tdlib_library[0] ? b->tdlib_library : "libtdjson.so",
            b->last_error[0] ? b->last_error : "none");
 }
 
@@ -899,8 +991,34 @@ static int request_daemon_file(const char *path) {
 
 static int self_test(void) {
   struct Bridge b;
+  struct Bridge cfg;
   char out[8192];
+  char cfgpath[256];
+  const char *old_config = getenv("MAG_TELEGRAM_CONFIG");
+  char old_config_copy[512];
+  bool had_old_config = old_config && old_config[0];
   memset(&b, 0, sizeof(b));
+  memset(&cfg, 0, sizeof(cfg));
+  if (had_old_config) copy_str(old_config_copy, sizeof(old_config_copy), old_config);
+  snprintf(cfgpath, sizeof(cfgpath), "/tmp/mag-telegram-bridge-test-%ld.conf", (long)getpid());
+  if (!write_file_atomic(cfgpath,
+                         "api_id = 12345\n"
+                         "api_hash = test-hash\n"
+                         "encryption_key = 'test key'\n"
+                         "data_dir = /tmp/mag-telegram-test-db\n"
+                         "tdlib_library = /tmp/libtdjson-test.so\n")) {
+    return 1;
+  }
+  setenv("MAG_TELEGRAM_CONFIG", cfgpath, 1);
+  read_config_file(&cfg);
+  if (had_old_config) setenv("MAG_TELEGRAM_CONFIG", old_config_copy, 1);
+  else unsetenv("MAG_TELEGRAM_CONFIG");
+  unlink(cfgpath);
+  if (strcmp(cfg.api_id, "12345") != 0) return 1;
+  if (strcmp(cfg.api_hash, "test-hash") != 0) return 1;
+  if (strcmp(cfg.encryption_key, "test key") != 0) return 1;
+  if (strcmp(cfg.data_dir, "/tmp/mag-telegram-test-db") != 0) return 1;
+  if (strcmp(cfg.tdlib_library, "/tmp/libtdjson-test.so") != 0) return 1;
   init_mock(&b);
   handle_request(&b, "status", out, sizeof(out));
   if (!strstr(out, "backend=mock")) return 1;

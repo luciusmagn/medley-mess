@@ -61,6 +61,25 @@ currently advertises package `tdlib`.
 
 ```sh
 guix install tdlib
+mkdir -p ~/.config/mag-telegram
+chmod 700 ~/.config/mag-telegram
+cat >~/.config/mag-telegram/config <<'EOF'
+api_id=123456
+api_hash=your-api-hash
+encryption_key=local database key
+# Optional exact TDLib database directory:
+# data_dir=/home/mag/.local/share/mag-telegram/tdlib
+# Optional explicit library path:
+# tdlib_library=/gnu/store/...-tdlib.../lib/libtdjson.so
+EOF
+chmod 600 ~/.config/mag-telegram/config
+mag-telegram-bridge --daemon
+```
+
+Environment variables override the config file, which is useful for one-off
+tests:
+
+```sh
 export MAG_TELEGRAM_API_ID=123456
 export MAG_TELEGRAM_API_HASH=your-api-hash
 export MAG_TELEGRAM_ENCRYPTION_KEY='local database key'
@@ -79,6 +98,7 @@ The bridge stores TDLib database files below
 `~/.local/share/mag-telegram/tdlib` by default. Override with
 `MAG_TELEGRAM_DATA_DIR` if needed. Set `MAG_TELEGRAM_TDLIB_LIBRARY` to an
 explicit `libtdjson.so` path if it is not discoverable by the dynamic linker.
+Set `MAG_TELEGRAM_CONFIG` to use a non-default config file.
 
 ## Protocol Files
 
@@ -128,6 +148,8 @@ Implemented now:
 - mock backend with private/group/channel sample data
 - daemon request/response protocol
 - exact `--request-file` CLI path for file-originated text requests
+- persistent config file at `~/.config/mag-telegram/config`, with environment
+  variables still available as overrides
 - dynamic TDLib loading and basic authorization-state command emission
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
