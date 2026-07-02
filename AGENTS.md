@@ -231,6 +231,10 @@ For live evidence, use the Medley RPC bridge:
   JSON MTProto session. The credentials are usable by the current TDLib bridge,
   but the session file is not a TDLib database. A future grammers/Rust backend
   should copy that session into its own state directory before writing it.
+  `tools/mag-telegram-grammers` is that backend scaffold: it imports the JSON
+  into `~/.local/share/mag-telegram/grammers/session.sqlite` and has been
+  verified on this machine with `authorized=yes`, live redacted dialog listing,
+  and live redacted message-id fetches.
 - `close-gopher` closes the remembered active Mag Gopher window. Use it to
   clean up windows opened by `open-gopher`, `gopher-test-page`, or
   `gopher-self-test` during diagnostics.

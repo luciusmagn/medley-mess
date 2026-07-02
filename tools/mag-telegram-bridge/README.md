@@ -113,9 +113,16 @@ credentials copied from SHODAN. The API id/hash are usable by the current TDLib
 bridge config, but the session file itself is not a TDLib database and cannot
 be imported by this C/TDLib backend.
 
-A future grammers/Rust backend can use a copy of that session to avoid a fresh
-phone/code login. Do not let two clients write the same session file
-concurrently; copy it into a backend-owned state directory before using it.
+`tools/mag-telegram-grammers` is the Rust/grammers backend scaffold for that
+session. It converts the source JSON session into
+`~/.local/share/mag-telegram/grammers/session.sqlite` and has been verified to
+report `authorized=yes`, list dialogs, and fetch redacted message ids through
+the existing session. Do not let two clients write the same source session file
+concurrently; the Rust tool writes its own backend-owned SQLite copy instead.
+
+The Medley UI still talks to this C bridge. The next integration step is making
+this bridge delegate to `mag-telegram-grammers` or promoting the Rust tool into
+a persistent daemon with the same request/response protocol.
 
 ## Protocol Files
 

@@ -1,0 +1,12 @@
+[package]
+name = "mag-telegram-grammers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+grammers-client = { git = "https://codeberg.org/Lonami/grammers.git" }
+grammers-session = { git = "https://codeberg.org/Lonami/grammers.git", features = ["serde", "sqlite-storage"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.49", features = ["rt", "time"] }
