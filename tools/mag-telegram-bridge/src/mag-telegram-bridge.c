@@ -661,6 +661,14 @@ static void handle_auth_update(struct Bridge *b, const char *json) {
     copy_str(b->auth_state, sizeof(b->auth_state), "wait-code");
   } else if (strstr(json, "authorizationStateWaitPassword")) {
     copy_str(b->auth_state, sizeof(b->auth_state), "wait-password");
+  } else if (strstr(json, "authorizationStateWaitRegistration")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-registration");
+  } else if (strstr(json, "authorizationStateWaitOtherDeviceConfirmation")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-other-device");
+  } else if (strstr(json, "authorizationStateWaitEmailAddress")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-email-address");
+  } else if (strstr(json, "authorizationStateWaitEmailCode")) {
+    copy_str(b->auth_state, sizeof(b->auth_state), "wait-email-code");
   } else if (strstr(json, "authorizationStateReady")) {
     copy_str(b->auth_state, sizeof(b->auth_state), "ready");
     td_send_json(b, "{\"@type\":\"loadChats\",\"chat_list\":{\"@type\":\"chatListMain\"},\"limit\":100}");
@@ -670,6 +678,16 @@ static void handle_auth_update(struct Bridge *b, const char *json) {
     copy_str(b->auth_state, sizeof(b->auth_state), "closed");
     b->stop = true;
   }
+}
+
+static void handle_error_response(struct Bridge *b, const char *json) {
+  long long code = 0;
+  char message[256] = "";
+  if (!strstr(json, "\"@type\":\"error\"")) return;
+  json_extract_i64(json, "code", &code);
+  json_extract_string(json, "message", message, sizeof(message));
+  snprintf(b->last_error, sizeof(b->last_error), "tdlib error %lld: %s",
+           code, message[0] ? message : "unknown");
 }
 
 static void handle_chat_update(struct Bridge *b, const char *json) {
@@ -763,6 +781,7 @@ static void handle_messages_response(struct Bridge *b, const char *json) {
 
 static void handle_td_update(struct Bridge *b, const char *json) {
   if (!json) return;
+  handle_error_response(b, json);
   if (strstr(json, "\"@type\":\"messages\"")) handle_messages_response(b, json);
   if (strstr(json, "updateAuthorizationState")) handle_auth_update(b, json);
   handle_user_update(b, json);
@@ -786,14 +805,52 @@ static void poll_tdlib_for(struct Bridge *b, long ms) {
   }
 }
 
+static const char *auth_action_for_state(struct Bridge *b) {
+  if (!b->live && b->last_error[0]) return "configure";
+  if (strcmp(b->auth_state, "wait-phone") == 0) return "auth-phone";
+  if (strcmp(b->auth_state, "wait-code") == 0) return "auth-code";
+  if (strcmp(b->auth_state, "wait-password") == 0) return "auth-password";
+  if (strcmp(b->auth_state, "wait-registration") == 0) return "auth-register";
+  if (strcmp(b->auth_state, "wait-email-address") == 0) return "unsupported-email-address";
+  if (strcmp(b->auth_state, "wait-email-code") == 0) return "unsupported-email-code";
+  if (strcmp(b->auth_state, "wait-other-device") == 0) return "unsupported-other-device";
+  if (strcmp(b->auth_state, "ready") == 0) return "none";
+  if (strcmp(b->auth_state, "mock-ready") == 0) return "none";
+  return "wait";
+}
+
+static const char *auth_hint_for_state(struct Bridge *b) {
+  if (!b->live && b->last_error[0]) return "Add api_id and api_hash to ~/.config/mag-telegram/config, then restart bridge.";
+  if (strcmp(b->auth_state, "wait-phone") == 0) return "Use auth-phone +country-number.";
+  if (strcmp(b->auth_state, "wait-code") == 0) return "Use auth-code with the login code Telegram sent.";
+  if (strcmp(b->auth_state, "wait-password") == 0) return "Use auth-password with the Telegram 2FA password.";
+  if (strcmp(b->auth_state, "wait-registration") == 0) return "Use auth-register FIRST LAST to finish new account registration.";
+  if (strcmp(b->auth_state, "wait-email-address") == 0) return "TDLib asks for email address; bridge command is not implemented yet.";
+  if (strcmp(b->auth_state, "wait-email-code") == 0) return "TDLib asks for email code; bridge command is not implemented yet.";
+  if (strcmp(b->auth_state, "wait-other-device") == 0) return "TDLib asks for other-device confirmation; use phone login for now.";
+  if (strcmp(b->auth_state, "ready") == 0) return "Authorized; chats and messages are available.";
+  if (strcmp(b->auth_state, "mock-ready") == 0) return "Mock mode; configure credentials for live Telegram.";
+  return "Wait for TDLib authorization update, then refresh.";
+}
+
 static void response_status(struct Bridge *b, char *out, size_t cap) {
   snprintf(out, cap,
-           "Mag Telegram bridge\nbackend=%s\nauth=%s\nlive=%s\nchats=%zu\nmessages=%zu\nconfig=%s\ndata-dir=%s\ntdlib-library=%s\nlast-error=%s\n",
-           b->backend, b->auth_state, b->live ? "yes" : "no", b->chat_count,
-           b->message_count,
+           "Mag Telegram bridge\nbackend=%s\nauth=%s\nauth-action=%s\nauth-hint=%s\nlive=%s\nchats=%zu\nmessages=%zu\nconfig=%s\ndata-dir=%s\ntdlib-library=%s\nlast-error=%s\n",
+           b->backend, b->auth_state,
+           auth_action_for_state(b), auth_hint_for_state(b),
+           b->live ? "yes" : "no", b->chat_count, b->message_count,
            b->config_path[0] ? b->config_path : "unset",
            b->data_dir[0] ? b->data_dir : "unset",
            b->tdlib_library[0] ? b->tdlib_library : "libtdjson.so",
+           b->last_error[0] ? b->last_error : "none");
+}
+
+static void response_auth_status(struct Bridge *b, char *out, size_t cap) {
+  snprintf(out, cap,
+           "Mag Telegram auth\nstate=%s\naction=%s\nhint=%s\nlast-error=%s\n",
+           b->auth_state,
+           auth_action_for_state(b),
+           auth_hint_for_state(b),
            b->last_error[0] ? b->last_error : "none");
 }
 
@@ -916,23 +973,70 @@ static void command_send(struct Bridge *b, long long chat_id, const char *text, 
   }
 }
 
-static void command_auth(struct Bridge *b, const char *type, const char *value, char *out, size_t cap) {
+static bool split_register_names(const char *value, char *first, size_t first_cap, char *last, size_t last_cap) {
+  const char *p = skip_space(value ? value : "");
+  size_t n = 0;
+  while (p[n] && !isspace((unsigned char)p[n]) && n + 1 < first_cap) {
+    first[n] = p[n];
+    n++;
+  }
+  first[n] = 0;
+  while (p[n] && !isspace((unsigned char)p[n])) n++;
+  copy_str(last, last_cap, skip_space(p + n));
+  return first[0] != 0;
+}
+
+static bool build_auth_request(const char *type, const char *value, char *req, size_t req_cap, char *err, size_t err_cap) {
   char escaped[MAG_TG_MAX_TEXT];
-  char req[MAG_TG_MAX_TEXT + 256];
-  json_escape(value, escaped, sizeof(escaped));
-  if (!b->live) {
-    snprintf(out, cap, "auth command recorded in mock mode: %s\n", type);
-    return;
+  char first[128];
+  char last[128];
+  char first_escaped[256];
+  char last_escaped[256];
+  if (!type) {
+    copy_str(err, err_cap, "missing auth type");
+    return false;
   }
   if (strcmp(type, "phone") == 0) {
-    snprintf(req, sizeof(req), "{\"@type\":\"setAuthenticationPhoneNumber\",\"phone_number\":\"%s\"}", escaped);
+    json_escape(value, escaped, sizeof(escaped));
+    snprintf(req, req_cap, "{\"@type\":\"setAuthenticationPhoneNumber\",\"phone_number\":\"%s\"}", escaped);
   } else if (strcmp(type, "code") == 0) {
-    snprintf(req, sizeof(req), "{\"@type\":\"checkAuthenticationCode\",\"code\":\"%s\"}", escaped);
+    json_escape(value, escaped, sizeof(escaped));
+    snprintf(req, req_cap, "{\"@type\":\"checkAuthenticationCode\",\"code\":\"%s\"}", escaped);
+  } else if (strcmp(type, "password") == 0) {
+    json_escape(value, escaped, sizeof(escaped));
+    snprintf(req, req_cap, "{\"@type\":\"checkAuthenticationPassword\",\"password\":\"%s\"}", escaped);
+  } else if (strcmp(type, "register") == 0) {
+    if (!split_register_names(value, first, sizeof(first), last, sizeof(last))) {
+      copy_str(err, err_cap, "auth-register needs at least a first name");
+      return false;
+    }
+    json_escape(first, first_escaped, sizeof(first_escaped));
+    json_escape(last, last_escaped, sizeof(last_escaped));
+    snprintf(req, req_cap,
+             "{\"@type\":\"registerUser\",\"first_name\":\"%s\",\"last_name\":\"%s\","
+             "\"disable_notification\":false}",
+             first_escaped, last_escaped);
   } else {
-    snprintf(req, sizeof(req), "{\"@type\":\"checkAuthenticationPassword\",\"password\":\"%s\"}", escaped);
+    snprintf(err, err_cap, "unknown auth type: %s", type);
+    return false;
+  }
+  return true;
+}
+
+static void command_auth(struct Bridge *b, const char *type, const char *value, char *out, size_t cap) {
+  char req[MAG_TG_MAX_TEXT + 256];
+  char err[256] = "";
+  if (!build_auth_request(type, value, req, sizeof(req), err, sizeof(err))) {
+    snprintf(out, cap, "%s\n", err[0] ? err : "could not build auth request");
+    return;
+  }
+  if (!b->live) {
+    response_auth_status(b, out, cap);
+    return;
   }
   td_send_json(b, req);
-  snprintf(out, cap, "sent auth-%s\n", type);
+  poll_tdlib_for(b, 800);
+  response_auth_status(b, out, cap);
 }
 
 static void handle_request(struct Bridge *b, const char *request, char *out, size_t cap) {
@@ -954,6 +1058,7 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
   arg = skip_space(request + i);
   if (strcmp(cmd, "status") == 0) response_status(b, out, cap);
   else if (strcmp(cmd, "doctor") == 0) response_doctor(out, cap);
+  else if (strcmp(cmd, "auth-status") == 0) response_auth_status(b, out, cap);
   else if (strcmp(cmd, "chats") == 0) response_chats(b, out, cap);
   else if (strcmp(cmd, "messages") == 0) {
     char *end = NULL;
@@ -974,6 +1079,7 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
   } else if (strcmp(cmd, "auth-phone") == 0) command_auth(b, "phone", arg, out, cap);
   else if (strcmp(cmd, "auth-code") == 0) command_auth(b, "code", arg, out, cap);
   else if (strcmp(cmd, "auth-password") == 0) command_auth(b, "password", arg, out, cap);
+  else if (strcmp(cmd, "auth-register") == 0) command_auth(b, "register", arg, out, cap);
   else if (strcmp(cmd, "raw") == 0) {
     if (b->live) {
       td_send_json(b, arg);
@@ -1133,9 +1239,20 @@ static int self_test(void) {
   if (!strstr(req, "\"@type\":\"sendMessage\"")) return 1;
   if (!strstr(req, "\"entities\":[]")) return 1;
   if (!strstr(req, "hello \\\"telegram\\\"")) return 1;
+  if (!build_auth_request("register", "Alice Example", req, sizeof(req), out, sizeof(out))) return 1;
+  if (!strstr(req, "\"@type\":\"registerUser\"")) return 1;
+  if (!strstr(req, "\"first_name\":\"Alice\"")) return 1;
+  if (!strstr(req, "\"last_name\":\"Example\"")) return 1;
+  if (!strstr(req, "\"disable_notification\":false")) return 1;
+  if (build_auth_request("register", "", req, sizeof(req), out, sizeof(out))) return 1;
   init_mock(&b);
   handle_request(&b, "status", out, sizeof(out));
   if (!strstr(out, "backend=mock")) return 1;
+  if (!strstr(out, "auth-action=none")) return 1;
+  handle_auth_update(&b, "{\"@type\":\"updateAuthorizationState\",\"authorization_state\":{\"@type\":\"authorizationStateWaitRegistration\"}}");
+  handle_request(&b, "auth-status", out, sizeof(out));
+  if (!strstr(out, "state=wait-registration")) return 1;
+  if (!strstr(out, "action=auth-register")) return 1;
   handle_request(&b, "chats", out, sizeof(out));
   if (!strstr(out, "Saved Messages")) return 1;
   handle_td_update(&b,

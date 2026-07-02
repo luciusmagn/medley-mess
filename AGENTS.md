@@ -213,8 +213,9 @@ For live evidence, use the Medley RPC bridge:
   the UI button.
 - `open-telegram` opens the text-only Mag Telegram dashboard backed by
   `tools/mag-telegram-bridge`.
-- `telegram-status` and `telegram-chats` proxy compact bridge status/chat
-  listings for diagnostics without exposing raw TDLib JSON.
+- `telegram-status`, `telegram-auth`, `telegram-doctor`, and
+  `telegram-chats` proxy compact bridge diagnostics/listings without exposing
+  raw TDLib JSON.
 - `close-gopher` closes the remembered active Mag Gopher window. Use it to
   clean up windows opened by `open-gopher`, `gopher-test-page`, or
   `gopher-self-test` during diagnostics.

@@ -1396,6 +1396,16 @@
          ((GETD 'MAG-TELEGRAM-RPC-CHATS)
           (MAG-TELEGRAM-RPC-CHATS))
          (T "MAG-TELEGRAM-RPC-CHATS is not loaded")))
+      ((STREQUAL COMMAND "telegram-auth")
+       (COND
+         ((GETD 'MAG-TELEGRAM-RPC-AUTH)
+          (MAG-TELEGRAM-RPC-AUTH))
+         (T "MAG-TELEGRAM-RPC-AUTH is not loaded")))
+      ((STREQUAL COMMAND "telegram-doctor")
+       (COND
+         ((GETD 'MAG-TELEGRAM-RPC-DOCTOR)
+          (MAG-TELEGRAM-RPC-DOCTOR))
+         (T "MAG-TELEGRAM-RPC-DOCTOR is not loaded")))
       ((STREQUAL COMMAND "close-gopher")
        (COND
          ((GETD 'MAG-GOPHER-RPC-CLOSE-ACTIVE)

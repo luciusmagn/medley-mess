@@ -200,6 +200,8 @@ Current safe request commands:
 - `open-gopher`
 - `open-telegram`
 - `telegram-status`
+- `telegram-auth`
+- `telegram-doctor`
 - `telegram-chats`
 - `close-gopher`
 - `shell-self-test`
@@ -259,7 +261,8 @@ Medley-facing commands:
 
 - `MAG-TELEGRAM` opens the dashboard.
 - `open-telegram` opens it through the safe debug RPC path.
-- `telegram-status` and `telegram-chats` return compact bridge output.
+- `telegram-status`, `telegram-auth`, `telegram-doctor`, and
+  `telegram-chats` return compact bridge output.
 
 Do not make `MAG-DEBUG-RPC-LOOP` automatically call terminal pump helpers.
 The RPC loop must stay control-plane only. A reproduced GC-table pressure test

@@ -365,12 +365,22 @@
   [LAMBDA NIL
     (MAG-TELEGRAM-BRIDGE "chats")])
 
+(MAG-TELEGRAM-AUTH-TEXT
+  [LAMBDA NIL
+    (MAG-TELEGRAM-BRIDGE "auth-status")])
+
+(MAG-TELEGRAM-DOCTOR-TEXT
+  [LAMBDA NIL
+    (MAG-TELEGRAM-BRIDGE "doctor")])
+
 (MAG-TELEGRAM-DASHBOARD-TEXT
   [LAMBDA NIL
     (CONCAT "Mag Telegram" (MAG-TELEGRAM-LF)
-            "keys: s=start bridge, r=refresh, c=chats, p=phone, v=code, w=password, q=close"
+            "keys: s=start, r=refresh, c=chats, p=phone, v=code, w=password, n=name, d=doctor, q=close"
             (MAG-TELEGRAM-LF2)
             (MAG-TELEGRAM-STATUS-TEXT)
+            (MAG-TELEGRAM-LF)
+            (MAG-TELEGRAM-AUTH-TEXT)
             (MAG-TELEGRAM-LF)
             (MAG-TELEGRAM-CHATS-TEXT))])
 
@@ -544,6 +554,18 @@
          (MAG-TELEGRAM-BRIDGE (CONCAT "auth-" KIND " " VALUE)))
         (T (CONCAT "auth cancelled" (MAG-TELEGRAM-LF)))))])
 
+(MAG-TELEGRAM-AUTH-REGISTER-PROMPT
+  [LAMBDA NIL
+    (PROG (FIRST LAST)
+      (SETQ FIRST (MAG-PROMPT-LINE "telegram first name" NIL))
+      (COND
+        ((OR (NULL FIRST) (EQ (NCHARS FIRST) 0))
+         (RETURN (CONCAT "auth cancelled" (MAG-TELEGRAM-LF)))))
+      (SETQ LAST (MAG-PROMPT-LINE "telegram last name" NIL))
+      (RETURN
+        (MAG-TELEGRAM-BRIDGE
+          (CONCAT "auth-register " FIRST " " (OR LAST "")))))])
+
 (MAG-TELEGRAM-REFRESH
   [LAMBDA (WINDOW)
     (AND WINDOW
@@ -569,6 +591,14 @@
 (MAG-TELEGRAM-RPC-CHATS
   [LAMBDA NIL
     (MAG-TELEGRAM-CHATS-TEXT)])
+
+(MAG-TELEGRAM-RPC-AUTH
+  [LAMBDA NIL
+    (MAG-TELEGRAM-AUTH-TEXT)])
+
+(MAG-TELEGRAM-RPC-DOCTOR
+  [LAMBDA NIL
+    (MAG-TELEGRAM-DOCTOR-TEXT)])
 
 (MAG-TELEGRAM-RPC-OPEN
   [LAMBDA NIL
@@ -622,6 +652,14 @@
            (119
             (MAG-TELEGRAM-AUTH-PROMPT "password" "telegram 2fa password")
             (MAG-TELEGRAM-REFRESH WINDOW))
+           (110
+            (MAG-TELEGRAM-AUTH-REGISTER-PROMPT)
+            (MAG-TELEGRAM-REFRESH WINDOW))
+           (100
+            (MAG-TELEGRAM-DRAW-TEXT
+              WINDOW
+              (CONCAT "Mag Telegram doctor" (MAG-TELEGRAM-LF2)
+                      (MAG-TELEGRAM-DOCTOR-TEXT))))
            NIL))))])
 
 (MAG-TELEGRAM-TYPEIN

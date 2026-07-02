@@ -93,6 +93,7 @@ Authorization is driven through bridge commands:
 mag-telegram-bridge auth-phone +420...
 mag-telegram-bridge auth-code 12345
 mag-telegram-bridge auth-password '2fa-password'
+mag-telegram-bridge auth-register First Last
 ```
 
 The bridge stores TDLib database files below
@@ -117,6 +118,7 @@ Supported requests:
 
 - `status`
 - `doctor`
+- `auth-status`
 - `chats`
 - `messages CHAT_ID [FROM_MESSAGE_ID]`
 - `older CHAT_ID FROM_MESSAGE_ID`
@@ -124,6 +126,7 @@ Supported requests:
 - `auth-phone PHONE`
 - `auth-code CODE`
 - `auth-password PASSWORD`
+- `auth-register FIRST [LAST]`
 - `raw JSON`
 - `quit`
 
@@ -143,6 +146,8 @@ Keys:
 - `p`: submit phone number for TDLib auth
 - `v`: submit login verification code
 - `w`: submit 2FA password
+- `n`: submit first/last name if TDLib asks for registration
+- `d`: show bridge doctor output
 - `r`: refresh current view
 - `q`: close the window
 
@@ -159,7 +164,8 @@ Implemented now:
   library/symbol loading
 - direct Medley request-file path for normal UI requests; shell use is limited
   to fallback daemon startup on older Maiko binaries
-- dynamic TDLib loading and basic authorization-state command emission
+- dynamic TDLib loading and authorization-state command emission for
+  phone/code/password/registration flows
 - TDLib main chat-list ordering from chat position updates
 - live update cache for `updateNewChat`, `updateNewMessage`,
   `updateMessageSendSucceeded`, and `messages` history responses using a small
