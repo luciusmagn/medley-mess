@@ -234,13 +234,84 @@ static void trim_right(char *s) {
   }
 }
 
-static void ascii_sanitize_in_place(char *s) {
-  unsigned char *p = (unsigned char *)s;
-  if (!p) return;
-  while (*p) {
-    if (*p >= 127 || (*p < 32 && *p != '\n' && *p != '\r' && *p != '\t')) *p = '?';
-    p++;
+static unsigned int utf8_next_codepoint(const unsigned char **cursor) {
+  const unsigned char *p = *cursor;
+  unsigned int cp;
+  if (*p < 0x80) {
+    *cursor = p + 1;
+    return *p;
   }
+  if ((*p & 0xe0) == 0xc0 && (p[1] & 0xc0) == 0x80) {
+    cp = ((*p & 0x1f) << 6) | (p[1] & 0x3f);
+    *cursor = p + 2;
+    return cp >= 0x80 ? cp : '?';
+  }
+  if ((*p & 0xf0) == 0xe0 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80) {
+    cp = ((*p & 0x0f) << 12) | ((p[1] & 0x3f) << 6) | (p[2] & 0x3f);
+    *cursor = p + 3;
+    return cp >= 0x800 ? cp : '?';
+  }
+  if ((*p & 0xf8) == 0xf0 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80 &&
+      (p[3] & 0xc0) == 0x80) {
+    cp = ((*p & 0x07) << 18) | ((p[1] & 0x3f) << 12) | ((p[2] & 0x3f) << 6) | (p[3] & 0x3f);
+    *cursor = p + 4;
+    return (cp >= 0x10000 && cp <= 0x10ffff) ? cp : '?';
+  }
+  *cursor = p + 1;
+  return '?';
+}
+
+static char ascii_fold_codepoint(unsigned int cp) {
+  switch (cp) {
+    case 0x00c1: case 0x00c4: case 0x00c5: return 'A';
+    case 0x00e1: case 0x00e4: case 0x00e5: return 'a';
+    case 0x010c: return 'C';
+    case 0x010d: case 0x00e7: return 'c';
+    case 0x010e: return 'D';
+    case 0x010f: return 'd';
+    case 0x00c9: case 0x011a: case 0x00cb: return 'E';
+    case 0x00e9: case 0x011b: case 0x00eb: return 'e';
+    case 0x00cd: case 0x00cf: return 'I';
+    case 0x00ed: case 0x00ef: return 'i';
+    case 0x0147: case 0x00d1: return 'N';
+    case 0x0148: case 0x00f1: return 'n';
+    case 0x00d3: case 0x00d6: case 0x00d8: return 'O';
+    case 0x00f3: case 0x00f6: case 0x00f8: return 'o';
+    case 0x0158: return 'R';
+    case 0x0159: return 'r';
+    case 0x0160: return 'S';
+    case 0x0161: case 0x00df: return 's';
+    case 0x0164: return 'T';
+    case 0x0165: return 't';
+    case 0x00da: case 0x016e: case 0x00dc: return 'U';
+    case 0x00fa: case 0x016f: case 0x00fc: return 'u';
+    case 0x00dd: return 'Y';
+    case 0x00fd: return 'y';
+    case 0x017d: return 'Z';
+    case 0x017e: return 'z';
+    case 0x00a0: return ' ';
+    case 0x2010: case 0x2011: case 0x2012: case 0x2013: case 0x2014: return '-';
+    case 0x2018: case 0x2019: return '\'';
+    case 0x201c: case 0x201d: return '"';
+    case 0x2026: return '.';
+    default:
+      if (cp >= 32 && cp < 127) return (char)cp;
+      if (cp == '\n' || cp == '\r' || cp == '\t') return (char)cp;
+      return '?';
+  }
+}
+
+static void ascii_sanitize_in_place(char *s) {
+  const unsigned char *readp = (const unsigned char *)s;
+  char *writep = s;
+  if (!s) return;
+  while (*readp) {
+    unsigned int cp = utf8_next_codepoint(&readp);
+    char folded = ascii_fold_codepoint(cp);
+    if ((unsigned char)folded < 32 && folded != '\n' && folded != '\r' && folded != '\t') folded = ' ';
+    *writep++ = folded;
+  }
+  *writep = 0;
 }
 
 static const char *skip_space(const char *p) {

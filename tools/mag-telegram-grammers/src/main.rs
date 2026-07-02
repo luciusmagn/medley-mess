@@ -55,10 +55,8 @@ struct OnlineOptions {
 #[derive(Debug, Clone)]
 struct DialogRow {
     id: i64,
-    kind: &'static str,
     name: String,
     unread_count: i32,
-    preview: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -680,17 +678,10 @@ async fn collect_dialog_rows_with_client(
         };
         let peer = dialog.peer();
         let id = peer.id().bot_api_dialog_id().unwrap_or(0);
-        let preview = dialog.last_message.as_ref().map(|message| {
-            let sender = sender_label_for_message(message, show_names);
-            let body = message_body_for_display(message, show_names, 220);
-            format!("{sender}: {body}")
-        });
         rows.push(DialogRow {
             id,
-            kind: peer_kind_name(peer.id().kind()),
             name: display_name(peer.name(), show_names),
             unread_count: dialog.unread_count(),
-            preview,
         });
     }
     Ok((total, rows))
@@ -754,19 +745,11 @@ async fn ensure_dialog_cache(
 }
 
 fn dialog_line(row: &DialogRow) -> String {
-    let badge = if row.unread_count > 0 {
-        format!("[{}]", row.unread_count)
+    if row.unread_count > 0 {
+        format!("{} {}", row.name, row.unread_count)
     } else {
-        "[ ]".to_string()
-    };
-    let mut line = format!("{badge} {} [{}] {}", row.id, row.kind, row.name);
-    if let Some(preview) = &row.preview {
-        if !preview.is_empty() {
-            line.push_str(" :: ");
-            line.push_str(preview);
-        }
+        row.name.clone()
     }
-    line
 }
 
 async fn cached_chats_bridge_text(
@@ -847,6 +830,7 @@ async fn cached_chats_view_text(
         &mut out,
         format!("selected={selected} top={top} count={count} visible={visible}"),
     );
+    push_line(&mut out, "refresh-after=15");
     push_line(
         &mut out,
         "arrows: select, Enter/right: open, left: dashboard, r: reload, s: start, q: close",
@@ -905,6 +889,7 @@ async fn print_chats_view(
 
     println!("Mag Telegram chats ({count})");
     println!("selected={selected} top={top} count={count} visible={visible}");
+    println!("refresh-after=15");
     println!("arrows: select, Enter/right: open, left: dashboard, r: reload, s: start, q: close");
     println!();
     if count == 0 {
@@ -1089,10 +1074,7 @@ fn message_page_output(page: &MessagePage) -> String {
         ),
     );
     for row in &page.rows {
-        push_line(
-            &mut out,
-            format!("{}: {}", row.sender, row.body),
-        );
+        push_line(&mut out, format!("{}\t{}", row.sender, row.body));
     }
     if page.rows.is_empty() {
         push_line(&mut out, "No cached text messages for this chat/page yet.");
@@ -1151,7 +1133,7 @@ async fn print_messages_page(
         );
         for (id, sender, body) in &rows {
             let _ = id;
-            println!("{sender}: {body}");
+            println!("{sender}\t{body}");
         }
         if rows.is_empty() {
             println!("No cached text messages for this chat/page yet.");
