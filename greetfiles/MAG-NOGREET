@@ -50,8 +50,8 @@
          (NLSETQ (Apps.DoInit)))
     (AND (GETD 'Apps.ActivateRooms)
          (NLSETQ (Apps.ActivateRooms T)))
-    (AND (GETD 'Apps.InitNotecards)
-         (NLSETQ (Apps.InitNotecards T)))])
+    (AND (GETD 'MAG-SAFE-ACTIVATE-NOTECARDS)
+         (NLSETQ (MAG-SAFE-ACTIVATE-NOTECARDS T)))])
 
 (MAG-DISPATCH
   [LAMBDA (FN)
