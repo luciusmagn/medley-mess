@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-grammers-client = { git = "https://codeberg.org/Lonami/grammers.git" }
-grammers-session = { git = "https://codeberg.org/Lonami/grammers.git", features = ["serde", "sqlite-storage"] }
+grammers-client = { path = "../../../grammers-mag/grammers-client" }
+grammers-session = { path = "../../../grammers-mag/grammers-session", features = ["serde", "sqlite-storage"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.49", features = ["rt", "time"] }

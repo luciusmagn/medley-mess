@@ -57,6 +57,7 @@ struct DialogRow {
     id: i64,
     kind: &'static str,
     name: String,
+    unread_count: i32,
     preview: Option<String>,
 }
 
@@ -688,6 +689,7 @@ async fn collect_dialog_rows_with_client(
             id,
             kind: peer_kind_name(peer.id().kind()),
             name: display_name(peer.name(), show_names),
+            unread_count: dialog.unread_count(),
             preview,
         });
     }
@@ -752,7 +754,12 @@ async fn ensure_dialog_cache(
 }
 
 fn dialog_line(row: &DialogRow) -> String {
-    let mut line = format!("{} [{}] {}", row.id, row.kind, row.name);
+    let badge = if row.unread_count > 0 {
+        format!("[{}]", row.unread_count)
+    } else {
+        "[ ]".to_string()
+    };
+    let mut line = format!("{badge} {} [{}] {}", row.id, row.kind, row.name);
     if let Some(preview) = &row.preview {
         if !preview.is_empty() {
             line.push_str(" :: ");
@@ -1084,7 +1091,7 @@ fn message_page_output(page: &MessagePage) -> String {
     for row in &page.rows {
         push_line(
             &mut out,
-            format!("{} | {}: {}", row.id, row.sender, row.body),
+            format!("{}: {}", row.sender, row.body),
         );
     }
     if page.rows.is_empty() {
@@ -1143,7 +1150,8 @@ async fn print_messages_page(
             newest_id
         );
         for (id, sender, body) in &rows {
-            println!("{id} | {sender}: {body}");
+            let _ = id;
+            println!("{sender}: {body}");
         }
         if rows.is_empty() {
             println!("No cached text messages for this chat/page yet.");
