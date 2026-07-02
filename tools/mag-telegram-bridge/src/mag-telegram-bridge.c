@@ -547,6 +547,26 @@ static int chat_ptr_compare_desc(const void *ap, const void *bp) {
   return 0;
 }
 
+static void sorted_chat_items(struct Bridge *b, struct Chat **items) {
+  for (size_t i = 0; i < b->chat_count; i++) items[i] = &b->chats[i];
+  if (b->chat_count > 1) qsort(items, b->chat_count, sizeof(items[0]), chat_ptr_compare_desc);
+}
+
+static long clamp_long(long value, long min, long max) {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+static long adjust_chat_top(long top, long selected, long visible, long count) {
+  if (count <= 0) return 0;
+  if (visible <= 0) visible = 1;
+  if (selected < top) return selected;
+  if (selected >= top + visible) return selected - visible + 1;
+  if (top + visible > count) return count > visible ? count - visible : 0;
+  return top;
+}
+
 static void init_mock(struct Bridge *b) {
   struct Chat *c;
   copy_str(b->backend, sizeof(b->backend), "mock");
@@ -1037,31 +1057,71 @@ static void response_doctor(char *out, size_t cap) {
            b.last_error[0] ? b.last_error : "none");
 }
 
+static const char *sender_label(struct Bridge *b, struct Message *m, char *buf, size_t cap) {
+  return sender_label_id(b, m->sender_id, m->outgoing, buf, cap);
+}
+
+static void append_chat_line(struct Bridge *b, struct Chat *chat, char *out, size_t cap) {
+  char label[256];
+  appendf(out, cap, "%lld [%s] %s", chat->id,
+          chat->kind[0] ? chat->kind : "chat",
+          chat->title[0] ? chat->title : "(untitled)");
+  if (chat->unread_count > 0) appendf(out, cap, " unread=%lld", chat->unread_count);
+  if (chat->last_text[0]) {
+    appendf(out, cap, " :: %s: %s",
+            sender_label_id(b, chat->last_sender_id, chat->last_outgoing, label, sizeof(label)),
+            chat->last_text);
+  }
+}
+
 static void response_chats(struct Bridge *b, char *out, size_t cap) {
   struct Chat *items[MAG_TG_MAX_CHATS];
   snprintf(out, cap, "Mag Telegram chats (%zu)\n", b->chat_count);
+  sorted_chat_items(b, items);
   for (size_t i = 0; i < b->chat_count; i++) {
-    items[i] = &b->chats[i];
-  }
-  if (b->chat_count > 1) qsort(items, b->chat_count, sizeof(items[0]), chat_ptr_compare_desc);
-  for (size_t i = 0; i < b->chat_count; i++) {
-    struct Chat *chat = items[i];
-    char label[256];
-    appendf(out, cap, "%lld [%s] %s", chat->id,
-            chat->kind[0] ? chat->kind : "chat",
-            chat->title[0] ? chat->title : "(untitled)");
-    if (chat->unread_count > 0) appendf(out, cap, " unread=%lld", chat->unread_count);
-    if (chat->last_text[0]) {
-      appendf(out, cap, " :: %s: %s",
-              sender_label_id(b, chat->last_sender_id, chat->last_outgoing, label, sizeof(label)),
-              chat->last_text);
-    }
+    append_chat_line(b, items[i], out, cap);
     appendf(out, cap, "\n");
   }
 }
 
-static const char *sender_label(struct Bridge *b, struct Message *m, char *buf, size_t cap) {
-  return sender_label_id(b, m->sender_id, m->outgoing, buf, cap);
+static void response_chats_view(struct Bridge *b, long selected, long top, long visible, char *out, size_t cap) {
+  struct Chat *items[MAG_TG_MAX_CHATS];
+  long count = (long)b->chat_count;
+  long end;
+  if (visible <= 0) visible = 1;
+  selected = count > 0 ? clamp_long(selected, 0, count - 1) : 0;
+  top = adjust_chat_top(top, selected, visible, count);
+  end = top + visible;
+  if (end > count) end = count;
+  sorted_chat_items(b, items);
+  snprintf(out, cap,
+           "Mag Telegram chats (%ld)\n"
+           "selected=%ld top=%ld count=%ld visible=%ld\n"
+           "arrows: select, Enter/right: open, left: dashboard, r: reload, s: start, q: close\n\n",
+           count, selected, top, count, visible);
+  if (count <= 0) {
+    appendf(out, cap, "No chats cached yet. Start/auth the bridge, then refresh.\n");
+    return;
+  }
+  for (long i = top; i < end; i++) {
+    appendf(out, cap, "%s", i == selected ? "> " : "  ");
+    append_chat_line(b, items[i], out, cap);
+    appendf(out, cap, "\n");
+  }
+}
+
+static void response_chat_at(struct Bridge *b, long selected, char *out, size_t cap) {
+  struct Chat *items[MAG_TG_MAX_CHATS];
+  long count = (long)b->chat_count;
+  if (count <= 0) {
+    snprintf(out, cap, "chat-id=0\nstatus=no-chats\n");
+    return;
+  }
+  selected = clamp_long(selected, 0, count - 1);
+  sorted_chat_items(b, items);
+  snprintf(out, cap, "chat-id=%lld\nindex=%ld\nline=", items[selected]->id, selected);
+  append_chat_line(b, items[selected], out, cap);
+  appendf(out, cap, "\n");
 }
 
 static void build_send_message_request(long long chat_id, const char *text, char *req, size_t cap) {
@@ -1233,6 +1293,15 @@ static void handle_request(struct Bridge *b, const char *request, char *out, siz
   else if (strcmp(cmd, "doctor") == 0) response_doctor(out, cap);
   else if (strcmp(cmd, "auth-status") == 0) response_auth_status(b, out, cap);
   else if (strcmp(cmd, "chats") == 0) response_chats(b, out, cap);
+  else if (strcmp(cmd, "chats-view") == 0) {
+    char *end = NULL;
+    long selected = strtol(arg, &end, 10);
+    long top = end ? strtol(skip_space(end), &end, 10) : 0;
+    long visible = end ? strtol(skip_space(end), NULL, 10) : 20;
+    response_chats_view(b, selected, top, visible, out, cap);
+  } else if (strcmp(cmd, "chat-at") == 0) {
+    response_chat_at(b, strtol(arg, NULL, 10), out, cap);
+  }
   else if (strcmp(cmd, "messages") == 0) {
     char *end = NULL;
     long long from_message_id = 0;
@@ -1434,6 +1503,12 @@ static int self_test(void) {
   if (!strstr(out, "action=auth-register")) return 1;
   handle_request(&b, "chats", out, sizeof(out));
   if (!strstr(out, "Saved Messages")) return 1;
+  handle_request(&b, "chats-view 1 0 2", out, sizeof(out));
+  if (!strstr(out, "selected=1 top=0 count=3 visible=2")) return 1;
+  if (!strstr(out, "> 1002 [group] Lisp Notes Group")) return 1;
+  handle_request(&b, "chat-at 2", out, sizeof(out));
+  if (!strstr(out, "chat-id=1003")) return 1;
+  if (!strstr(out, "line=1003 [channel] Systems Channel")) return 1;
   handle_td_update(&b,
                    "{\"@type\":\"updateNewChat\",\"chat\":{\"@type\":\"chat\",\"id\":4243,"
                    "\"title\":\"Sorted Low\",\"type\":{\"@type\":\"chatTypePrivate\"},"

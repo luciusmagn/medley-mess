@@ -120,6 +120,8 @@ Supported requests:
 - `doctor`
 - `auth-status`
 - `chats`
+- `chats-view SELECTED TOP VISIBLE`
+- `chat-at INDEX`
 - `messages CHAT_ID [FROM_MESSAGE_ID]`
 - `older CHAT_ID FROM_MESSAGE_ID`
 - `send CHAT_ID TEXT`
@@ -172,6 +174,8 @@ Implemented now:
   supergroups, channels, and secret chats
 - compact chat previews from TDLib unread counts and last-message updates,
   rendered as `unread=N :: sender: text` in chat listings
+- C-rendered chat selection viewports and selected-chat lookup through
+  `chats-view` and `chat-at`, keeping row formatting out of Interlisp
 - `messages CHAT_ID` and `mark-read CHAT_ID [MESSAGE_ID]` use TDLib
   `viewMessages` to mark displayed text as viewed/read in live mode
 - live update cache for `updateNewChat`, `updateNewMessage`,
