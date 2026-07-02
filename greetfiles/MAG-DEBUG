@@ -109,6 +109,23 @@
            (T "mag-gc unavailable"))))
       (T "mag-gc unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 50"))])
 
+(MAG-DEBUG-SCREENSHOT-AVAILABLEP
+  [LAMBDA NIL
+    (IGEQ (MAG-DEBUG-MAXCOMMAND) 58)])
+
+(MAG-DEBUG-SCREENSHOT-REPORT
+  [LAMBDA NIL
+    (COND
+      ((MAG-DEBUG-SCREENSHOT-AVAILABLEP)
+       (LET ((BUFFER (MAG-DEBUG-BUFFER))
+             LEN)
+         (SETQ LEN (MAG-UNIX-HANDLECOMM2 58 BUFFER))
+         (COND
+           ((AND LEN (IGREATERP LEN 0))
+            (MAG-GHOSTTY-BUFFER-STRING BUFFER LEN))
+           (T "mag-screenshot unavailable"))))
+      (T "mag-screenshot unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 58"))])
+
 (MAG-DEBUG-RPC-RECLAIM
   [LAMBDA NIL
     (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
@@ -604,6 +621,13 @@
   [LAMBDA NIL
     (LET ((MAG-CHAT-AUTO-PLACE T))
       (MAG-SHELL))])
+
+(MAG-DEBUG-RPC-BOOT-SHELL
+  [LAMBDA NIL
+    (COND
+      ((GETD 'MAG-BOOT-SHELL)
+       (MAG-BOOT-SHELL))
+      (T "MAG-BOOT-SHELL is not loaded"))])
 
 (MAG-DEBUG-RPC-SHELL-LOAD-TEST
   [LAMBDA NIL
@@ -1280,6 +1304,8 @@
 	       (MAG-DEBUG-RPC-RECLAIM))
 	      ((STREQUAL COMMAND "goal-status")
 	       (MAG-DEBUG-RPC-GOAL-STATUS))
+      ((STREQUAL COMMAND "screenshot")
+       (MAG-DEBUG-SCREENSHOT-REPORT))
       ((STREQUAL COMMAND "write-debug-report")
        (MAG-DEBUG-WRITE-REPORT NIL)
        "wrote /tmp/medley-mag-debug.txt")
@@ -1300,6 +1326,8 @@
        (MAG-DEBUG-RPC-RESTART))
       ((STREQUAL COMMAND "open-shell")
        (MAG-DEBUG-RPC-OPEN-SHELL))
+      ((STREQUAL COMMAND "boot-shell")
+       (MAG-DEBUG-RPC-BOOT-SHELL))
       ((STREQUAL COMMAND "shell-load-test")
        (MAG-DEBUG-RPC-SHELL-LOAD-TEST))
       ((STREQUAL COMMAND "close-shell")

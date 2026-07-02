@@ -123,6 +123,9 @@ glyph descenders by about a pixel; text should use the padded baseline.
   --daemon` as a detached host process and returns the child pid. The bridge
   still owns pid-file duplicate suppression. `MAG-TELEGRAM` uses this before
   falling back to Medley `ShellCommand`.
+- `UNIX-HANDLECOMM 58` exports Maiko's in-memory `DisplayRegion68k` screen to
+  `/tmp/medley-mag-screenshot.ppm` as black on Acme off-white and returns a
+  compact status report. It does not depend on X focus.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -167,6 +170,8 @@ Current native commands:
 - `56`: drain many PTY chunks directly into Ghostty without Lisp/native
   round-trips.
 - `57`: start the Mag Telegram bridge daemon without Medley `ShellCommand`.
+- `58`: export the current Medley screen from `DisplayRegion68k` to
+  `/tmp/medley-mag-screenshot.ppm`.
 
 Current Lisp wrappers:
 
@@ -187,6 +192,7 @@ Current safe request commands:
 - `native-jobs`
 - `gc-report`
 - `goal-status`
+- `screenshot`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -272,11 +278,13 @@ stayed at `hi-links=2624` through three cycles. Use `shell-pump-once` only as
 a manual diagnostic.
 
 `medley_eval` is an MCP tool, not a raw safe request. The daemon writes the
-source form to `/tmp/medley-mag-eval/<id>.lisp` for diagnostics, writes a helper
-form to `/tmp/medley-mag-typeahead`, sends internal request `eval <id>`, and
-waits for `/tmp/medley-mag-eval/<id>.out`. The Medley poller only validates the
-id, focuses the `EXEC` process, and calls command 49. Verified smoke forms:
-`(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
+source form to `/tmp/medley-mag-eval/<id>.source` for diagnostics, writes a
+loadable Interlisp file with `DEFINE-FILE-INFO` plus a direct `PROG`/`NLSETQ`
+result writer to `/tmp/medley-mag-eval/<id>.lisp`, writes only
+`(IL:LOAD ".../<id>.lisp" T)` to `/tmp/medley-mag-typeahead`, sends internal
+request `eval <id>`, and waits for `/tmp/medley-mag-eval/<id>.out`. The Medley
+poller only validates the id, focuses the `EXEC` process, and calls command 49.
+Verified smoke forms: `(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
 
 Do not implement MCP eval with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified
 `EVAL`, or `CL:EVAL`. Those approaches caused stack overflow or wedged the live

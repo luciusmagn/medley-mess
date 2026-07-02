@@ -25,7 +25,22 @@ req.on("error", () => process.exit(1));
 ' "$host" "$port" >/dev/null 2>&1
 }
 
+daemon_process_running() {
+  ps -eo pid=,comm=,args= | awk -v self="$$" -v server="$server" '
+    $2 == "node" && index($0, server) && index($0, "--daemon") {
+      if ($1 != self) found = 1
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
+
 if health_check; then
+  exit 0
+fi
+
+if daemon_process_running; then
+  printf '%s daemon-busy pid=%s endpoint=http://%s:%s%s\n' \
+    "$(date -Is)" "$$" "$host" "$port" "$path" >>"$log" 2>&1
   exit 0
 fi
 

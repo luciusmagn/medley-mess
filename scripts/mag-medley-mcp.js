@@ -10,6 +10,7 @@ const MEDLEY_DIR = process.env.MEDLEYDIR || '/home/mag/src/medley';
 const MAIKO_DIR = process.env.MAIKODIR || '/home/mag/src/maiko';
 const LOG_PATH = process.env.MAG_MEDLEY_LOG || '/tmp/medley-interlisp.log';
 const DEBUG_PATH = process.env.MAG_MEDLEY_DEBUG_REPORT || '/tmp/medley-mag-debug.txt';
+const SCREENSHOT_PATH = process.env.MAG_MEDLEY_SCREENSHOT || '/tmp/medley-mag-screenshot.ppm';
 const REQUEST_PATH = process.env.MAG_MEDLEY_REQUEST || '/tmp/medley-mag-request';
 const RESPONSE_PATH = process.env.MAG_MEDLEY_RESPONSE || '/tmp/medley-mag-response';
 const EVAL_DIR = process.env.MAG_MEDLEY_EVAL_DIR || '/tmp/medley-mag-eval';
@@ -18,6 +19,7 @@ const DAEMON_SOCKET = process.env.MAG_MEDLEY_MCP_SOCKET || '/tmp/medley-mag-mcp.
 const HTTP_HOST = process.env.MAG_MEDLEY_MCP_HOST || '127.0.0.1';
 const HTTP_PORT = Number(process.env.MAG_MEDLEY_MCP_PORT || 8765);
 const HTTP_PATH = process.env.MAG_MEDLEY_MCP_PATH || '/mcp';
+const INTERLISP_FILE_INFO = `(DEFINE-FILE-INFO \x1ePACKAGE "INTERLISP" \x1eREADTABLE "INTERLISP" \x1eBASE 10)\n`;
 const DAEMON_MODE = process.argv.includes('--daemon');
 let activeInstanceId = process.env.MAG_MEDLEY_INSTANCE || 'default';
 
@@ -35,6 +37,7 @@ const ALLOWED_REQUESTS = new Set([
   'gc-report',
   'reclaim',
   'goal-status',
+  'screenshot',
   'write-debug-report',
   'battery',
   'who-line-battery',
@@ -43,6 +46,7 @@ const ALLOWED_REQUESTS = new Set([
   'reload-mag',
   'restart-rpc',
   'open-shell',
+  'boot-shell',
   'shell-load-test',
   'close-shell',
   'shell-self-test',
@@ -124,6 +128,12 @@ function safeUnlink(path) {
   }
 }
 
+function reportValue(report, key) {
+  const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = String(report || '').match(new RegExp(`^${escaped}=(.*)$`, 'm'));
+  return match ? match[1].trim() : '';
+}
+
 function writeAtomic(path, content) {
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, content, { encoding: 'utf8', mode: 0o600 });
@@ -202,24 +212,25 @@ function writeEvalInput(id, form) {
   ensureEvalDir();
   const source = String(form || '').trim();
   if (!source) throw new Error('form is required');
+  if (/[\r\n]/.test(source)) {
+    throw new Error('form must be one physical line for the native typeahead eval backend');
+  }
   if (Buffer.byteLength(source, 'utf8') > 64 * 1024) {
     throw new Error('form is too large; limit is 64 KiB');
   }
 
-  writeAtomic(evalPath(id, '.lisp'), `${source}\n`);
+  writeAtomic(evalPath(id, '.source'), `${source}\n`);
+  writeAtomic(
+    evalPath(id, '.lisp'),
+    `${INTERLISP_FILE_INFO}(PROG (RESULT) (SETQ RESULT (NLSETQ ${source})) (COND ((IL:NULL RESULT) (IL:MAG-DEBUG-EVAL-WRITE-RESULT "${id}" "id=${id} status=error message=eval failed")) (T (IL:MAG-DEBUG-EVAL-WRITE-VALUE "${id}" (IL:CAR RESULT)))))\n`
+  );
   safeUnlink(evalPath(id, '.out'));
   return source;
 }
 
-function writeEvalTypeahead(id, source) {
+function writeEvalTypeahead(id) {
   if (!/^[A-Za-z0-9-]{1,80}$/.test(id)) throw new Error(`invalid eval id: ${id}`);
-  if (/[\r\n]/.test(source)) {
-    throw new Error('form must be one physical line for the native typeahead eval backend');
-  }
-  writeAtomic(
-    TYPEAHEAD_PATH,
-    `(IL:MAG-DEBUG-EVAL-CALL-THUNK "${id}" (CL:FUNCTION (CL:LAMBDA () ${source})))\n`
-  );
+  writeAtomic(TYPEAHEAD_PATH, `(IL:LOAD "${evalPath(id, '.lisp')}" T)\n`);
 }
 
 function readStableFile(path, deadline) {
@@ -239,6 +250,7 @@ function waitForEvalResult(id, timeoutMs, startResponse) {
         continue;
       }
       safeUnlink(evalPath(id, '.lisp'));
+      safeUnlink(evalPath(id, '.source'));
       safeUnlink(outputPath);
       return result;
     }
@@ -250,8 +262,8 @@ function waitForEvalResult(id, timeoutMs, startResponse) {
 
 function evalMedley(form, timeoutMs) {
   const id = makeEvalId();
-  const source = writeEvalInput(id, form);
-  writeEvalTypeahead(id, source);
+  writeEvalInput(id, form);
+  writeEvalTypeahead(id);
 
   let startResponse;
   try {
@@ -259,17 +271,43 @@ function evalMedley(form, timeoutMs) {
       allowDynamic: true,
     });
   } catch (err) {
+    safeUnlink(evalPath(id, '.lisp'));
+    safeUnlink(evalPath(id, '.source'));
     safeUnlink(TYPEAHEAD_PATH);
     throw err;
   }
 
   if (!String(startResponse).includes(`eval-started id=${id}`)) {
     safeUnlink(evalPath(id, '.lisp'));
+    safeUnlink(evalPath(id, '.source'));
     safeUnlink(TYPEAHEAD_PATH);
     throw new Error(`Medley did not start eval ${id}: ${String(startResponse).trim()}`);
   }
 
   return waitForEvalResult(id, timeoutMs, startResponse);
+}
+
+function screenshotMedley(timeoutMs, includeBase64) {
+  const report = requestMedley('screenshot', timeoutMs);
+  const path = reportValue(report, 'path') || SCREENSHOT_PATH;
+  let details = '';
+
+  try {
+    const stat = fs.statSync(path);
+    details = `\nfile=${path}\nfile-bytes=${stat.size}\nmtime=${stat.mtime.toISOString()}`;
+  } catch (err) {
+    details = `\nfile=${path}\nfile-error=${err.message}`;
+  }
+
+  const content = [{ type: 'text', text: `${report.trimEnd()}${details}\n` }];
+  if (includeBase64) {
+    content.push({
+      type: 'image',
+      mimeType: 'image/x-portable-pixmap',
+      data: fs.readFileSync(path).toString('base64'),
+    });
+  }
+  return { content };
 }
 
 const tools = [
@@ -313,6 +351,25 @@ const tools = [
     name: 'medley_debug_report_file',
     description: 'Read the last report written by MAG-DEBUG-WRITE-REPORT inside Medley.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'medley_screenshot',
+    description: 'Export the running Medley DisplayRegion to /tmp/medley-mag-screenshot.ppm without requiring X focus.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        timeout_ms: {
+          type: 'integer',
+          minimum: 500,
+          maximum: 10000,
+        },
+        include_base64: {
+          type: 'boolean',
+          description: 'Include the PPM image payload. Defaults to false because the screenshot is several MB.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'medley_worktree_status',
@@ -457,6 +514,11 @@ function callToolLocal(name, args = {}) {
         return text(`${DEBUG_PATH} does not exist yet. In Medley, run (MAG-DEBUG-WRITE-REPORT NIL) or use the Mag Debug menu item after command 38 is loaded.`);
       }
       return text(safeRead(DEBUG_PATH, ''));
+    }
+
+    case 'medley_screenshot': {
+      const timeoutMs = Number.isInteger(args.timeout_ms) ? args.timeout_ms : 5000;
+      return screenshotMedley(timeoutMs, Boolean(args.include_base64));
     }
 
     case 'medley_worktree_status': {
@@ -655,8 +717,22 @@ function startDaemon() {
   replaceLegacyDaemonIfNeeded();
 
   safeUnlink(DAEMON_SOCKET);
+  const writeDaemonResponse = (socket, response) => {
+    if (socket.destroyed) return;
+    socket.write(`${JSON.stringify(response)}\n`, (err) => {
+      if (err && err.code !== 'EPIPE') {
+        console.error(`mag-medley MCP daemon socket write failed: ${err.message}`);
+      }
+    });
+  };
+
   const server = net.createServer((socket) => {
     let data = '';
+    socket.on('error', (err) => {
+      if (err.code !== 'EPIPE' && err.code !== 'ECONNRESET') {
+        console.error(`mag-medley MCP daemon socket error: ${err.message}`);
+      }
+    });
     socket.on('data', (chunk) => {
       data += chunk.toString('utf8');
       for (;;) {
@@ -668,9 +744,9 @@ function startDaemon() {
         try {
           const request = JSON.parse(line);
           const result = callToolLocal(request.name, request.args || {});
-          socket.write(`${JSON.stringify({ ok: true, result })}\n`);
+          writeDaemonResponse(socket, { ok: true, result });
         } catch (err) {
-          socket.write(`${JSON.stringify({ ok: false, error: err.message || String(err) })}\n`);
+          writeDaemonResponse(socket, { ok: false, error: err.message || String(err) });
         }
       }
     });

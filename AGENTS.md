@@ -195,8 +195,8 @@ For live evidence, use the Medley RPC bridge:
   processes.
 - `eval-status` reports whether the native typeahead eval bridge is available.
   `medley_eval` is exposed at the MCP layer, not as a raw `medley_request`
-  command; it writes a typeahead file and then sends an internal `eval <id>`
-  request to the poller.
+  command; it writes a short load command to the typeahead file and then sends
+  an internal `eval <id>` request to the poller.
 - `native-jobs` returns Maiko's bounded native job list from
   `UNIX-HANDLECOMM 46`: aggregate job counts plus compact live job lines that
   fit in one VM page.
@@ -206,6 +206,9 @@ For live evidence, use the Medley RPC bridge:
 - `goal-status` returns a non-mutating summary of the original Mag integration
   goal evidence: split modules loaded, baseline pad, performance config,
   battery who-line, native terminal path, and key decoder/encoder stability.
+- `screenshot` exports Maiko's in-memory Medley display bitmap to
+  `/tmp/medley-mag-screenshot.ppm` in black on Acme off-white. It does not
+  depend on X focus and is also available as MCP tool `medley_screenshot`.
 - `gopher-keys` reports recent raw keys actually received by
   `MAG-GOPHER-HANDLE-KEY`; use this after pressing arrows inside Mag Gopher to
   see whether Gopher is receiving a different translated stream than Mag Shell.
@@ -383,6 +386,10 @@ Local Maiko command `UNIX-HANDLECOMM 57` starts
 `/home/mag/.local/bin/mag-telegram-bridge --daemon` as a detached host process.
 `MAG-TELEGRAM` should prefer this native start path and keep `ShellCommand`
 only as compatibility fallback for older Maiko binaries.
+Local Maiko command `UNIX-HANDLECOMM 58` exports the current `DisplayRegion68k`
+screen to `/tmp/medley-mag-screenshot.ppm` and returns a compact report. This
+is for agent diagnostics when Medley is not focused; do not replace it with
+focus-dependent X window capture.
 
 - `ping`
 - `debug-report`
@@ -393,6 +400,7 @@ only as compatibility fallback for older Maiko binaries.
 - `native-jobs`
 - `gc-report`
 - `goal-status`
+- `screenshot`
 - `write-debug-report`
 - `battery`
 - `who-line-battery`
@@ -432,10 +440,13 @@ only as compatibility fallback for older Maiko binaries.
 - `keys-help`
 
 MCP eval is deliberately indirect. The JS daemon writes the user's one-line
-expression to `/tmp/medley-mag-eval/<id>.lisp` for diagnostics, writes a helper
-form to `/tmp/medley-mag-typeahead`, and sends internal request `eval <id>`.
-Medley focuses the `EXEC` process and command 49 types that helper form. The
-helper calls a zero-argument thunk and writes `/tmp/medley-mag-eval/<id>.out`.
+expression to `/tmp/medley-mag-eval/<id>.source` for diagnostics, writes a
+loadable Interlisp file with `DEFINE-FILE-INFO` plus a direct `PROG`/`NLSETQ`
+result writer to `/tmp/medley-mag-eval/<id>.lisp`, writes only
+`(IL:LOAD ".../<id>.lisp" T)` to `/tmp/medley-mag-typeahead`, and sends
+internal request `eval <id>`. Medley focuses the `EXEC` process and command 49
+types that short load command. The loaded wrapper writes
+`/tmp/medley-mag-eval/<id>.out`.
 Verified smoke forms: `(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
 Do not replace this with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified `EVAL`, or
 `CL:EVAL`; those attempts caused stack overflow, wedged the live process, or
