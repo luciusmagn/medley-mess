@@ -20,6 +20,10 @@
 #define MAG_TG_PID_PATH "/tmp/mag-telegram-bridge.pid"
 #define MAG_TG_DEFAULT_CONFIG_REL ".config/mag-telegram/config"
 #define MAG_TG_DEFAULT_GRAMMERS_COMMAND "/home/mag/.local/bin/mag-telegram-grammers"
+#define MAG_TG_GRAMMERS_REQUEST_PATH "/tmp/mag-telegram-grammers-request"
+#define MAG_TG_GRAMMERS_RESPONSE_PATH "/tmp/mag-telegram-grammers-response"
+#define MAG_TG_GRAMMERS_PID_PATH "/tmp/mag-telegram-grammers.pid"
+#define MAG_TG_GRAMMERS_LOG_PATH "/tmp/mag-telegram-grammers.log"
 #define MAG_TG_MAX_TEXT 4096
 #define MAG_TG_MAX_LINE 1024
 #define MAG_TG_MAX_CHATS 256
@@ -734,76 +738,70 @@ static bool shell_quote(const char *src, char *dst, size_t cap) {
   return true;
 }
 
-static bool run_command_capture(const char *cmdline, char *out, size_t cap) {
-  FILE *pipe;
-  size_t used = 0;
-  int status;
-  if (cap == 0) return false;
-  out[0] = 0;
-  pipe = popen(cmdline, "r");
-  if (!pipe) return false;
-  while (used + 1 < cap) {
-    size_t n = fread(out + used, 1, cap - used - 1, pipe);
-    if (n > 0) used += n;
-    if (n == 0) {
-      if (feof(pipe)) break;
-      if (ferror(pipe)) break;
-    }
-  }
-  out[used] = 0;
-  status = pclose(pipe);
-  return status == 0;
+static bool grammers_daemon_running(void) {
+  char *text = read_file(MAG_TG_GRAMMERS_PID_PATH);
+  long pid;
+  if (!text) return false;
+  pid = strtol(text, NULL, 10);
+  free(text);
+  if (process_alive(pid)) return true;
+  unlink(MAG_TG_GRAMMERS_PID_PATH);
+  return false;
 }
 
-static bool grammers_request_text(struct Bridge *b, const char *request, char *out, size_t cap) {
-  char path_template[] = "/tmp/mag-telegram-grammers-request-XXXXXX";
+static bool start_grammers_daemon(struct Bridge *b) {
   char quoted_cmd[1024];
-  char quoted_path[1024];
   char cmdline[2304];
-  FILE *f;
-  int fd;
-  bool ok;
-  if (out && cap > 0) out[0] = 0;
   if (b->grammers_command[0] == 0) copy_str(b->grammers_command, sizeof(b->grammers_command), MAG_TG_DEFAULT_GRAMMERS_COMMAND);
+  if (grammers_daemon_running()) return true;
   if (access(b->grammers_command, X_OK) != 0) {
     copy_str(b->last_error, sizeof(b->last_error), "grammers command is not executable: ");
     appendf(b->last_error, sizeof(b->last_error), "%s", b->grammers_command);
     return false;
   }
-  fd = mkstemp(path_template);
-  if (fd < 0) {
-    snprintf(b->last_error, sizeof(b->last_error), "mkstemp failed: %s", strerror(errno));
-    return false;
-  }
-  f = fdopen(fd, "wb");
-  if (!f) {
-    close(fd);
-    unlink(path_template);
-    snprintf(b->last_error, sizeof(b->last_error), "fdopen failed: %s", strerror(errno));
-    return false;
-  }
-  if (request && request[0]) fputs(request, f);
-  fputc('\n', f);
-  if (fclose(f) != 0) {
-    unlink(path_template);
-    snprintf(b->last_error, sizeof(b->last_error), "failed writing grammers request: %s", strerror(errno));
-    return false;
-  }
-  if (!shell_quote(b->grammers_command, quoted_cmd, sizeof(quoted_cmd)) ||
-      !shell_quote(path_template, quoted_path, sizeof(quoted_path))) {
-    unlink(path_template);
+  if (!shell_quote(b->grammers_command, quoted_cmd, sizeof(quoted_cmd))) {
     snprintf(b->last_error, sizeof(b->last_error), "command path is too long for grammers request");
     return false;
   }
-  snprintf(cmdline, sizeof(cmdline), "%s --request-file %s", quoted_cmd, quoted_path);
-  ok = run_command_capture(cmdline, out, cap);
-  unlink(path_template);
-  if (!ok) {
-    snprintf(b->last_error, sizeof(b->last_error), "grammers request failed");
+  snprintf(cmdline, sizeof(cmdline),
+           "setsid %s --daemon >>%s 2>&1 &",
+           quoted_cmd, MAG_TG_GRAMMERS_LOG_PATH);
+  if (system(cmdline) != 0) {
+    snprintf(b->last_error, sizeof(b->last_error), "failed to start grammers daemon");
     return false;
   }
-  b->last_error[0] = 0;
-  return true;
+  for (int i = 0; i < 250; i++) {
+    if (grammers_daemon_running()) return true;
+    sleep_ms(100);
+  }
+  snprintf(b->last_error, sizeof(b->last_error), "grammers daemon did not write pid file");
+  return false;
+}
+
+static bool grammers_request_text(struct Bridge *b, const char *request, char *out, size_t cap) {
+  char *response;
+  if (out && cap > 0) out[0] = 0;
+  if (!start_grammers_daemon(b)) return false;
+  unlink(MAG_TG_GRAMMERS_RESPONSE_PATH);
+  if (!write_file_atomic(MAG_TG_GRAMMERS_REQUEST_PATH, request && request[0] ? request : "status")) {
+    snprintf(b->last_error, sizeof(b->last_error), "failed writing grammers daemon request: %s", strerror(errno));
+    return false;
+  }
+  for (int i = 0; i < 250; i++) {
+    struct stat st;
+    if (stat(MAG_TG_GRAMMERS_RESPONSE_PATH, &st) == 0 && st.st_size > 0) {
+      response = read_file(MAG_TG_GRAMMERS_RESPONSE_PATH);
+      if (response) {
+        copy_str(out, cap, response);
+        free(response);
+        b->last_error[0] = 0;
+        return true;
+      }
+    }
+    sleep_ms(100);
+  }
+  snprintf(b->last_error, sizeof(b->last_error), "grammers daemon did not respond");
+  return false;
 }
 
 static bool check_tdlib_library(struct Bridge *b) {

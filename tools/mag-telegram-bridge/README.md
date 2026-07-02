@@ -124,8 +124,11 @@ The Medley UI still talks to this C bridge. Set `backend=grammers` and
 `grammers_command=/home/mag/.local/bin/mag-telegram-grammers` in
 `~/.config/mag-telegram/config` to make the bridge delegate normal requests to
 the Rust backend while keeping the same `/tmp/mag-telegram-request` protocol.
-The Rust helper uses a bounded 20s Telegram request timeout and aborts its
-runner task before exiting so a slow MTProto request cannot wedge the bridge.
+The bridge starts and reuses a persistent `mag-telegram-grammers --daemon`
+process, forwarding requests through `/tmp/mag-telegram-grammers-request` and
+`/tmp/mag-telegram-grammers-response`. The Rust daemon holds the MTProto client
+open and bounds each request at 20s so a slow Telegram operation cannot wedge
+the C bridge indefinitely.
 
 ## Protocol Files
 
@@ -202,6 +205,7 @@ Implemented now:
   to fallback daemon startup on older Maiko binaries
 - grammers delegation for `status`, `auth-status`, `chats`,
   `chats-view`, `chat-at`, `messages`, `older`, `send`, and `mark-read`
+  through a persistent Rust `mag-telegram-grammers --daemon`
 - dynamic TDLib loading and authorization-state command emission for
   phone/code/password/registration flows
 - TDLib main chat-list ordering from chat position updates
@@ -235,6 +239,4 @@ Still intentionally missing:
 - richer message viewport behavior beyond page-at-a-time backscroll
 - contact search and channel joining
 - media rendering, reactions, edits, read receipts
-- a persistent grammers daemon; the current bridge spawns the Rust helper per
-  request, which is simple and GC-safe but slower
 - a permanent service definition

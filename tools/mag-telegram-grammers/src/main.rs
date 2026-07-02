@@ -19,7 +19,11 @@ const DEFAULT_SHODAN_CREDENTIALS: &str =
     "/home/mag/shodan-telegram-session/telegram-credentials.env";
 const DEFAULT_SOURCE_SESSION: &str = "/home/mag/shodan-telegram-session/telegram-user.session";
 const DEFAULT_SQLITE_SESSION: &str = "/home/mag/.local/share/mag-telegram/grammers/session.sqlite";
+const DEFAULT_DAEMON_REQUEST: &str = "/tmp/mag-telegram-grammers-request";
+const DEFAULT_DAEMON_RESPONSE: &str = "/tmp/mag-telegram-grammers-response";
+const DEFAULT_DAEMON_PID: &str = "/tmp/mag-telegram-grammers.pid";
 const DEFAULT_TIMEOUT_SECONDS: u64 = 20;
+const DAEMON_LOOP_SLEEP_MS: u64 = 100;
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -77,6 +81,7 @@ enum Command {
     RequestFile {
         path: PathBuf,
     },
+    Daemon,
     Help,
 }
 
@@ -116,6 +121,7 @@ fn main() -> Result<()> {
             with_runtime(send_message(&config, peer, &text, OnlineOptions::default()))
         }
         Command::RequestFile { path } => handle_request_file(&config, &path),
+        Command::Daemon => with_runtime(run_daemon(&config)),
         Command::Help => {
             print_help();
             Ok(())
@@ -216,6 +222,7 @@ fn parse_command(args: &mut Vec<String>) -> Result<Command> {
                 path: PathBuf::from(path),
             })
         }
+        Some("--daemon") => Ok(Command::Daemon),
         Some(other) => bail!("unknown command: {other}"),
     }
 }
@@ -231,11 +238,14 @@ fn print_help() {
   messages PEER_DIALOG_ID [--limit N] [--show-names|--redact]
   send PEER_DIALOG_ID TEXT
   --request-file PATH
+  --daemon
 
 Defaults:
   config:         {DEFAULT_CONFIG}
   source session: {DEFAULT_SOURCE_SESSION}
-  sqlite session: {DEFAULT_SQLITE_SESSION}"
+  sqlite session: {DEFAULT_SQLITE_SESSION}
+  daemon request: {DEFAULT_DAEMON_REQUEST}
+  daemon response:{DEFAULT_DAEMON_RESPONSE}"
     );
 }
 
@@ -316,37 +326,60 @@ fn read_key_value_file(path: &Path) -> Result<HashMap<String, String>> {
 }
 
 fn print_doctor(config: &Config) -> Result<()> {
-    println!("Mag Telegram grammers doctor");
-    println!("config={}", config.config_path.display());
-    println!(
-        "shodan-credentials={} exists={}",
-        config.shodan_credentials.display(),
-        yesno(config.shodan_credentials.exists())
-    );
-    println!("api-id=set");
-    println!(
-        "api-hash={}",
-        if config.api_hash.is_empty() {
-            "empty"
-        } else {
-            "set"
-        }
-    );
-    println!(
-        "source-session={} exists={}",
-        config.source_session.display(),
-        yesno(config.source_session.exists())
-    );
-    println!(
-        "sqlite-session={} exists={}",
-        config.sqlite_session.display(),
-        yesno(config.sqlite_session.exists())
-    );
-    print_session_info(&config.source_session)?;
+    print!("{}", doctor_text(config)?);
     Ok(())
 }
 
 fn print_session_info(path: &Path) -> Result<()> {
+    print!("{}", session_info_text(path)?);
+    Ok(())
+}
+
+fn doctor_text(config: &Config) -> Result<String> {
+    let mut out = String::new();
+    push_line(&mut out, "Mag Telegram grammers doctor");
+    push_line(&mut out, format!("config={}", config.config_path.display()));
+    push_line(
+        &mut out,
+        format!(
+            "shodan-credentials={} exists={}",
+            config.shodan_credentials.display(),
+            yesno(config.shodan_credentials.exists())
+        ),
+    );
+    push_line(&mut out, "api-id=set");
+    push_line(
+        &mut out,
+        format!(
+            "api-hash={}",
+            if config.api_hash.is_empty() {
+                "empty"
+            } else {
+                "set"
+            }
+        ),
+    );
+    push_line(
+        &mut out,
+        format!(
+            "source-session={} exists={}",
+            config.source_session.display(),
+            yesno(config.source_session.exists())
+        ),
+    );
+    push_line(
+        &mut out,
+        format!(
+            "sqlite-session={} exists={}",
+            config.sqlite_session.display(),
+            yesno(config.sqlite_session.exists())
+        ),
+    );
+    out.push_str(&session_info_text(&config.source_session)?);
+    Ok(out)
+}
+
+fn session_info_text(path: &Path) -> Result<String> {
     let data = load_json_session(path)?;
     let auth_keys = data
         .dc_options
@@ -370,17 +403,18 @@ fn print_session_info(path: &Path) -> Result<()> {
         .filter(|p| matches!(p, PeerInfo::Channel { .. }))
         .count();
 
-    println!("Mag Telegram grammers session");
-    println!("path={}", path.display());
-    println!("home-dc={}", data.home_dc);
-    println!("dc-count={}", data.dc_options.len());
-    println!("dc-auth-key-count={auth_keys}");
-    println!("peer-count={}", data.peer_infos.len());
-    println!("peer-users={users}");
-    println!("peer-chats={chats}");
-    println!("peer-channels={channel_peers}");
-    println!("update-channel-count={channels}");
-    Ok(())
+    let mut out = String::new();
+    push_line(&mut out, "Mag Telegram grammers session");
+    push_line(&mut out, format!("path={}", path.display()));
+    push_line(&mut out, format!("home-dc={}", data.home_dc));
+    push_line(&mut out, format!("dc-count={}", data.dc_options.len()));
+    push_line(&mut out, format!("dc-auth-key-count={auth_keys}"));
+    push_line(&mut out, format!("peer-count={}", data.peer_infos.len()));
+    push_line(&mut out, format!("peer-users={users}"));
+    push_line(&mut out, format!("peer-chats={chats}"));
+    push_line(&mut out, format!("peer-channels={channel_peers}"));
+    push_line(&mut out, format!("update-channel-count={channels}"));
+    Ok(out)
 }
 
 fn load_json_session(path: &Path) -> Result<SessionData> {
@@ -498,62 +532,135 @@ async fn online_status(config: &Config, options: OnlineOptions) -> Result<()> {
     .await
 }
 
-async fn print_bridge_status(config: &Config, options: OnlineOptions) -> Result<()> {
-    with_client(config, options, |client, _session| async move {
-        let authorized = client.is_authorized().await?;
-        let mut chat_count = 0usize;
-        if authorized {
-            let mut dialogs = client.iter_dialogs();
-            chat_count = dialogs.total().await.unwrap_or(0);
-        }
-        println!("Mag Telegram bridge");
-        println!("backend=grammers");
-        println!("auth={}", if authorized { "ready" } else { "wait-session" });
-        println!(
+async fn online_status_text(config: &Config, client: &Client) -> Result<String> {
+    let authorized = client.is_authorized().await?;
+    let mut out = String::new();
+    push_line(&mut out, "Mag Telegram grammers status");
+    push_line(&mut out, "backend=grammers");
+    push_line(&mut out, format!("authorized={}", yesno(authorized)));
+    push_line(
+        &mut out,
+        format!("sqlite-session={}", config.sqlite_session.display()),
+    );
+    Ok(out)
+}
+
+async fn bridge_status_text(config: &Config, client: &Client) -> Result<String> {
+    let authorized = client.is_authorized().await?;
+    let mut out = String::new();
+    push_line(&mut out, "Mag Telegram bridge");
+    push_line(&mut out, "backend=grammers");
+    push_line(
+        &mut out,
+        format!("auth={}", if authorized { "ready" } else { "wait-session" }),
+    );
+    push_line(
+        &mut out,
+        format!(
             "auth-action={}",
             if authorized { "none" } else { "configure" }
-        );
-        println!(
+        ),
+    );
+    push_line(
+        &mut out,
+        format!(
             "auth-hint={}",
             if authorized {
                 "Authorized through grammers session."
             } else {
                 "Import or refresh the grammers session."
             }
-        );
-        println!("live={}", yesno(authorized));
-        println!("chats={chat_count}");
-        println!("messages=ondemand");
-        println!("config={}", config.config_path.display());
-        println!("data-dir={}", config.sqlite_session.display());
-        println!("tdlib-library=not-used");
-        println!("last-error=none");
+        ),
+    );
+    push_line(&mut out, format!("live={}", yesno(authorized)));
+    push_line(&mut out, "chats=ondemand");
+    push_line(&mut out, "messages=ondemand");
+    push_line(&mut out, format!("config={}", config.config_path.display()));
+    push_line(
+        &mut out,
+        format!("data-dir={}", config.sqlite_session.display()),
+    );
+    push_line(&mut out, "tdlib-library=not-used");
+    push_line(&mut out, "last-error=none");
+    Ok(out)
+}
+
+async fn print_bridge_status(config: &Config, options: OnlineOptions) -> Result<()> {
+    with_client(config, options, |client, _session| async move {
+        print!("{}", bridge_status_text(config, &client).await?);
         Ok(())
     })
     .await
 }
 
-async fn print_auth_status(config: &Config, options: OnlineOptions) -> Result<()> {
-    with_client(config, options, |client, _session| async move {
-        let authorized = client.is_authorized().await?;
-        println!("Mag Telegram auth");
-        println!(
+async fn auth_status_text(client: &Client) -> Result<String> {
+    let authorized = client.is_authorized().await?;
+    let mut out = String::new();
+    push_line(&mut out, "Mag Telegram auth");
+    push_line(
+        &mut out,
+        format!(
             "state={}",
             if authorized { "ready" } else { "wait-session" }
-        );
-        println!("action={}", if authorized { "none" } else { "configure" });
-        println!(
+        ),
+    );
+    push_line(
+        &mut out,
+        format!("action={}", if authorized { "none" } else { "configure" }),
+    );
+    push_line(
+        &mut out,
+        format!(
             "hint={}",
             if authorized {
                 "Authorized through grammers session."
             } else {
                 "Import or refresh the grammers session."
             }
-        );
-        println!("last-error=none");
+        ),
+    );
+    push_line(&mut out, "last-error=none");
+    Ok(out)
+}
+
+async fn print_auth_status(config: &Config, options: OnlineOptions) -> Result<()> {
+    with_client(config, options, |client, _session| async move {
+        print!("{}", auth_status_text(&client).await?);
         Ok(())
     })
     .await
+}
+
+async fn collect_dialog_rows_with_client(
+    client: &Client,
+    limit: usize,
+    show_names: bool,
+) -> Result<(usize, Vec<DialogRow>)> {
+    if !client.is_authorized().await? {
+        bail!("session is not authorized");
+    }
+    let mut dialogs = client.iter_dialogs();
+    let total = dialogs.total().await?;
+    let mut rows = Vec::new();
+    while rows.len() < limit {
+        let Some(dialog) = dialogs.next().await? else {
+            break;
+        };
+        let peer = dialog.peer();
+        let id = peer.id().bot_api_dialog_id().unwrap_or(0);
+        let preview = dialog.last_message.as_ref().map(|message| {
+            let sender = sender_label_for_message(message, show_names);
+            let body = message_body_for_display(message, show_names, 220);
+            format!("{sender}: {body}")
+        });
+        rows.push(DialogRow {
+            id,
+            kind: peer_kind_name(peer.id().kind()),
+            name: display_name(peer.name(), show_names),
+            preview,
+        });
+    }
+    Ok((total, rows))
 }
 
 async fn collect_dialog_rows(
@@ -563,31 +670,7 @@ async fn collect_dialog_rows(
     options: OnlineOptions,
 ) -> Result<(usize, Vec<DialogRow>)> {
     with_client(config, options, move |client, _session| async move {
-        if !client.is_authorized().await? {
-            bail!("session is not authorized");
-        }
-        let mut dialogs = client.iter_dialogs();
-        let total = dialogs.total().await?;
-        let mut rows = Vec::new();
-        while rows.len() < limit {
-            let Some(dialog) = dialogs.next().await? else {
-                break;
-            };
-            let peer = dialog.peer();
-            let id = peer.id().bot_api_dialog_id().unwrap_or(0);
-            let preview = dialog.last_message.as_ref().map(|message| {
-                let sender = sender_label_for_message(message, show_names);
-                let body = message_body_for_display(message, show_names, 220);
-                format!("{sender}: {body}")
-            });
-            rows.push(DialogRow {
-                id,
-                kind: peer_kind_name(peer.id().kind()),
-                name: display_name(peer.name(), show_names),
-                preview,
-            });
-        }
-        Ok((total, rows))
+        collect_dialog_rows_with_client(&client, limit, show_names).await
     })
     .await
 }
@@ -603,6 +686,16 @@ fn dialog_line(row: &DialogRow) -> String {
     line
 }
 
+async fn chats_bridge_text(client: &Client, limit: usize, show_names: bool) -> Result<String> {
+    let (total, rows) = collect_dialog_rows_with_client(client, limit, show_names).await?;
+    let mut out = String::new();
+    push_line(&mut out, format!("Mag Telegram chats ({total})"));
+    for row in &rows {
+        push_line(&mut out, dialog_line(row));
+    }
+    Ok(out)
+}
+
 async fn print_chats_bridge(
     config: &Config,
     limit: usize,
@@ -615,6 +708,64 @@ async fn print_chats_bridge(
         println!("{}", dialog_line(row));
     }
     Ok(())
+}
+
+async fn chats_view_text(
+    client: &Client,
+    selected: isize,
+    top: isize,
+    visible: usize,
+    show_names: bool,
+) -> Result<String> {
+    let visible = visible.max(1);
+    let initial_selected = selected.max(0) as usize;
+    let initial_top = top.max(0) as usize;
+    let needed = initial_top
+        .saturating_add(visible)
+        .max(initial_selected.saturating_add(1));
+    let (total, rows) = collect_dialog_rows_with_client(client, needed, show_names).await?;
+    let count = total;
+    let selected = if count > 0 {
+        initial_selected.min(count - 1)
+    } else {
+        0
+    };
+    let mut top = initial_top;
+    if count == 0 {
+        top = 0;
+    } else if selected < top {
+        top = selected;
+    } else if selected >= top.saturating_add(visible) {
+        top = selected.saturating_sub(visible - 1);
+    }
+    if top.saturating_add(visible) > count {
+        top = count.saturating_sub(visible);
+    }
+    let end = top.saturating_add(visible).min(rows.len()).min(count);
+
+    let mut out = String::new();
+    push_line(&mut out, format!("Mag Telegram chats ({count})"));
+    push_line(
+        &mut out,
+        format!("selected={selected} top={top} count={count} visible={visible}"),
+    );
+    push_line(
+        &mut out,
+        "arrows: select, Enter/right: open, left: dashboard, r: reload, s: start, q: close",
+    );
+    out.push('\n');
+    if count == 0 {
+        push_line(
+            &mut out,
+            "No chats cached yet. Start/auth the bridge, then refresh.",
+        );
+        return Ok(out);
+    }
+    for index in top..end {
+        let prefix = if index == selected { "> " } else { "  " };
+        push_line(&mut out, format!("{prefix}{}", dialog_line(&rows[index])));
+    }
+    Ok(out)
 }
 
 async fn print_chats_view(
@@ -664,6 +815,22 @@ async fn print_chats_view(
         println!("{prefix}{}", dialog_line(&rows[index]));
     }
     Ok(())
+}
+
+async fn chat_at_text(client: &Client, selected: isize, show_names: bool) -> Result<String> {
+    let index = selected.max(0) as usize;
+    let (total, rows) =
+        collect_dialog_rows_with_client(client, index.saturating_add(1), show_names).await?;
+    let mut out = String::new();
+    if total == 0 || index >= rows.len() {
+        push_line(&mut out, "chat-id=0");
+        push_line(&mut out, "status=no-chats");
+        return Ok(out);
+    }
+    push_line(&mut out, format!("chat-id={}", rows[index].id));
+    push_line(&mut out, format!("index={index}"));
+    push_line(&mut out, format!("line={}", dialog_line(&rows[index])));
+    Ok(out)
 }
 
 async fn print_chat_at(
@@ -720,6 +887,70 @@ async fn print_chats(
         Ok(())
     })
     .await
+}
+
+async fn messages_page_text(
+    client: &Client,
+    session: &Arc<SqliteSession>,
+    peer_dialog_id: i64,
+    from_message_id: i64,
+    limit: usize,
+    show_names: bool,
+) -> Result<String> {
+    if !client.is_authorized().await? {
+        bail!("session is not authorized");
+    }
+    let peer_id = peer_id_from_dialog_id(peer_dialog_id)?;
+    let peer_ref = session
+        .peer_ref(peer_id)
+        .await?
+        .ok_or_else(|| anyhow!("peer not found in session cache: {peer_dialog_id}"))?;
+    let mut messages = client.iter_messages(peer_ref).limit(limit.max(1));
+    if from_message_id > 0 {
+        messages = messages.offset_id(message_id_i32(from_message_id));
+    }
+    let mut rows: Vec<(i32, String, String)> = Vec::new();
+    while let Some(message) = messages.next().await? {
+        rows.push((
+            message.id(),
+            sender_label_for_message(&message, show_names),
+            message_body_for_display(&message, show_names, 512),
+        ));
+    }
+    rows.reverse();
+    let oldest_id = rows.first().map(|row| row.0).unwrap_or(0);
+    let newest_id = rows.last().map(|row| row.0).unwrap_or(0);
+    if from_message_id == 0 {
+        let _ = client.mark_as_read(peer_ref).await;
+    }
+
+    let mut out = String::new();
+    push_line(
+        &mut out,
+        format!("Mag Telegram messages chat={peer_dialog_id}"),
+    );
+    push_line(
+        &mut out,
+        format!(
+            "page={} cached-total={} page-count={} oldest-id={} newest-id={}",
+            if from_message_id > 0 {
+                "older"
+            } else {
+                "latest"
+            },
+            rows.len(),
+            rows.len(),
+            oldest_id,
+            newest_id
+        ),
+    );
+    for (id, sender, body) in &rows {
+        push_line(&mut out, format!("{id} | {sender}: {body}"));
+    }
+    if rows.is_empty() {
+        push_line(&mut out, "No cached text messages for this chat/page yet.");
+    }
+    Ok(out)
 }
 
 async fn print_messages_page(
@@ -820,6 +1051,29 @@ async fn print_messages(
     .await
 }
 
+async fn mark_read_text(
+    client: &Client,
+    session: &Arc<SqliteSession>,
+    peer_dialog_id: i64,
+    message_id: i64,
+) -> Result<String> {
+    if !client.is_authorized().await? {
+        bail!("session is not authorized");
+    }
+    let peer_id = peer_id_from_dialog_id(peer_dialog_id)?;
+    let peer_ref = session
+        .peer_ref(peer_id)
+        .await?
+        .ok_or_else(|| anyhow!("peer not found in session cache: {peer_dialog_id}"))?;
+    client.mark_as_read(peer_ref).await?;
+    let mut out = String::new();
+    push_line(
+        &mut out,
+        format!("marked read chat={peer_dialog_id} message={message_id}"),
+    );
+    Ok(out)
+}
+
 async fn mark_read(
     config: &Config,
     peer_dialog_id: i64,
@@ -840,6 +1094,26 @@ async fn mark_read(
         Ok(())
     })
     .await
+}
+
+async fn send_message_text(
+    client: &Client,
+    session: &Arc<SqliteSession>,
+    peer_dialog_id: i64,
+    text: &str,
+) -> Result<String> {
+    if !client.is_authorized().await? {
+        bail!("session is not authorized");
+    }
+    let peer_id = peer_id_from_dialog_id(peer_dialog_id)?;
+    let peer_ref = session
+        .peer_ref(peer_id)
+        .await?
+        .ok_or_else(|| anyhow!("peer not found in session cache: {peer_dialog_id}"))?;
+    let sent = client.send_message(peer_ref, text.to_string()).await?;
+    let mut out = String::new();
+    push_line(&mut out, format!("sent id={}", sent.id()));
+    Ok(out)
 }
 
 async fn send_message(
@@ -1018,6 +1292,208 @@ fn handle_request_text(config: &Config, request: &str) -> Result<()> {
     }
 }
 
+async fn run_daemon(config: &Config) -> Result<()> {
+    if daemon_already_running()? {
+        eprintln!("mag-telegram-grammers daemon already running");
+        return Ok(());
+    }
+    write_pid_file()?;
+    let _ = fs::remove_file(DEFAULT_DAEMON_REQUEST);
+    let _ = fs::remove_file(DEFAULT_DAEMON_RESPONSE);
+
+    let session = prepare_sqlite_session(config, OnlineOptions::default()).await?;
+    let SenderPool { runner, handle, .. } = SenderPool::new(Arc::clone(&session), config.api_id);
+    let client = Client::new(handle);
+    let runner_task = tokio::spawn(runner.run());
+
+    if !client.is_authorized().await? {
+        let _ = fs::remove_file(DEFAULT_DAEMON_PID);
+        runner_task.abort();
+        let _ = runner_task.await;
+        bail!("grammers session is not authorized");
+    }
+    eprintln!(
+        "mag-telegram-grammers daemon backend=grammers auth=ready request={DEFAULT_DAEMON_REQUEST}"
+    );
+
+    loop {
+        if let Some(request) = take_daemon_request()? {
+            let response = tokio::time::timeout(
+                Duration::from_secs(DEFAULT_TIMEOUT_SECONDS),
+                handle_daemon_request_text(config, &client, &session, request.trim()),
+            )
+            .await;
+            let (text, stop) = match response {
+                Ok(Ok(result)) => result,
+                Ok(Err(err)) => (format!("error: {err}\n"), false),
+                Err(_) => (
+                    format!("error: Telegram request timed out after {DEFAULT_TIMEOUT_SECONDS}s\n"),
+                    false,
+                ),
+            };
+            write_text_file_atomic(Path::new(DEFAULT_DAEMON_RESPONSE), &text)?;
+            if stop {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(DAEMON_LOOP_SLEEP_MS)).await;
+    }
+
+    let _ = fs::remove_file(DEFAULT_DAEMON_PID);
+    let _ = fs::remove_file(DEFAULT_DAEMON_REQUEST);
+    drop(client);
+    runner_task.abort();
+    let _ = runner_task.await;
+    Ok(())
+}
+
+async fn handle_daemon_request_text(
+    config: &Config,
+    client: &Client,
+    session: &Arc<SqliteSession>,
+    request: &str,
+) -> Result<(String, bool)> {
+    let mut parts = request.splitn(2, char::is_whitespace);
+    let command = parts.next().unwrap_or_default();
+    let arg = parts.next().unwrap_or_default().trim();
+
+    let text = match command {
+        "status" => bridge_status_text(config, client).await?,
+        "doctor" => doctor_text(config)?,
+        "session-info" => session_info_text(&config.source_session)?,
+        "import-session" => {
+            "import-session unavailable in daemon mode; stop and restart the daemon after importing\n"
+                .to_string()
+        }
+        "auth-status" => auth_status_text(client).await?,
+        "online-status" => online_status_text(config, client).await?,
+        "chats" => chats_bridge_text(client, 60, true).await?,
+        "chats-view" => {
+            let mut bits = arg.split_whitespace();
+            let selected = bits
+                .next()
+                .and_then(|s| s.parse::<isize>().ok())
+                .unwrap_or(0);
+            let top = bits
+                .next()
+                .and_then(|s| s.parse::<isize>().ok())
+                .unwrap_or(0);
+            let visible = bits
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(20);
+            chats_view_text(client, selected, top, visible, true).await?
+        }
+        "chat-at" => {
+            let selected = arg.parse::<isize>().unwrap_or(0);
+            chat_at_text(client, selected, true).await?
+        }
+        "messages" => {
+            let mut bits = arg.split_whitespace();
+            let peer = bits
+                .next()
+                .ok_or_else(|| anyhow!("messages needs peer dialog id"))?
+                .parse::<i64>()
+                .context("messages peer must be an integer")?;
+            let from_message_id = bits.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+            let limit = bits
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(30);
+            messages_page_text(client, session, peer, from_message_id, limit, true).await?
+        }
+        "older" => {
+            let mut bits = arg.split_whitespace();
+            let peer = bits
+                .next()
+                .ok_or_else(|| anyhow!("older needs peer dialog id"))?
+                .parse::<i64>()
+                .context("older peer must be an integer")?;
+            let from_message_id = bits
+                .next()
+                .ok_or_else(|| anyhow!("older needs from message id"))?
+                .parse::<i64>()
+                .context("older from message id must be an integer")?;
+            let limit = bits
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(30);
+            messages_page_text(client, session, peer, from_message_id, limit, true).await?
+        }
+        "send" => {
+            let mut bits = arg.splitn(2, char::is_whitespace);
+            let peer = bits
+                .next()
+                .ok_or_else(|| anyhow!("send needs peer dialog id"))?
+                .parse::<i64>()
+                .context("send peer must be an integer")?;
+            let text = bits.next().unwrap_or_default().trim();
+            if text.is_empty() {
+                bail!("send needs message text");
+            }
+            send_message_text(client, session, peer, text).await?
+        }
+        "mark-read" => {
+            let mut bits = arg.split_whitespace();
+            let peer = bits
+                .next()
+                .ok_or_else(|| anyhow!("mark-read needs peer dialog id"))?
+                .parse::<i64>()
+                .context("mark-read peer must be an integer")?;
+            let message_id = bits.next().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+            mark_read_text(client, session, peer, message_id).await?
+        }
+        "auth-phone" | "auth-code" | "auth-password" | "auth-register" => {
+            "Mag Telegram auth\nstate=ready\naction=none\nhint=Already authorized through grammers session.\nlast-error=none\n"
+                .to_string()
+        }
+        "quit" => "stopping mag-telegram-grammers\n".to_string(),
+        "" => "empty request\n".to_string(),
+        other => format!("unknown request: {other}\n"),
+    };
+
+    Ok((text, command == "quit"))
+}
+
+fn take_daemon_request() -> Result<Option<String>> {
+    let path = Path::new(DEFAULT_DAEMON_REQUEST);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let request = fs::read_to_string(path)
+        .with_context(|| format!("read daemon request {}", path.display()))?;
+    let _ = fs::remove_file(path);
+    Ok(Some(request))
+}
+
+fn daemon_already_running() -> Result<bool> {
+    let path = Path::new(DEFAULT_DAEMON_PID);
+    if !path.exists() {
+        return Ok(false);
+    }
+    let text = fs::read_to_string(path).unwrap_or_default();
+    let pid = text.trim().parse::<u32>().unwrap_or(0);
+    if pid > 0 && Path::new(&format!("/proc/{pid}")).exists() {
+        return Ok(true);
+    }
+    let _ = fs::remove_file(path);
+    Ok(false)
+}
+
+fn write_pid_file() -> Result<()> {
+    write_text_file_atomic(
+        Path::new(DEFAULT_DAEMON_PID),
+        &format!("{}\n", std::process::id()),
+    )
+}
+
+fn write_text_file_atomic(path: &Path, text: &str) -> Result<()> {
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    fs::write(&tmp, text).with_context(|| format!("write {}", tmp.display()))?;
+    fs::rename(&tmp, path)
+        .with_context(|| format!("rename {} to {}", tmp.display(), path.display()))
+}
+
 fn peer_id_from_dialog_id(id: i64) -> Result<PeerId> {
     if id > 0 {
         PeerId::user(id).ok_or_else(|| anyhow!("invalid user dialog id {id}"))
@@ -1108,6 +1584,11 @@ fn sanitize_line(value: &str, max_chars: usize) -> String {
         }
     }
     out
+}
+
+fn push_line(out: &mut String, line: impl AsRef<str>) {
+    out.push_str(line.as_ref());
+    out.push('\n');
 }
 
 fn yesno(value: bool) -> &'static str {

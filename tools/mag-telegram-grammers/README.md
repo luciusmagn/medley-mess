@@ -46,6 +46,7 @@ mag-telegram-grammers chats --limit 20 --redact
 mag-telegram-grammers messages PEER_DIALOG_ID --limit 20 --redact
 mag-telegram-grammers send PEER_DIALOG_ID "text"
 mag-telegram-grammers --request-file /tmp/request
+mag-telegram-grammers --daemon
 ```
 
 Use `--show-names` only when you explicitly want chat names and message text in
@@ -57,6 +58,13 @@ stdout. Redacted mode hides names and message bodies.
 aborts the grammers runner task before process exit; this avoids wedging the C
 bridge if MTProto stalls.
 
+`--daemon` keeps one grammers MTProto client open and serves the same protocol
+through `/tmp/mag-telegram-grammers-request` and
+`/tmp/mag-telegram-grammers-response`. This is the normal backend used by
+`mag-telegram-bridge` when `backend=grammers` is configured. Daemon `status`
+is intentionally cheap and reports `chats=ondemand`; chat counts are fetched by
+`chats` and `chats-view`.
+
 ## Verified On This Machine
 
 - The SHODAN session parses as grammers JSON.
@@ -65,13 +73,13 @@ bridge if MTProto stalls.
 - `chats --limit 3 --redact` returns live dialogs.
 - `messages PEER_DIALOG_ID --redact` returns live message ids without names or
   message bodies.
-- `mag-telegram-bridge` reports `backend=grammers`, `auth=ready`, and 396
-  dialogs through the existing Medley-facing protocol.
+- `mag-telegram-bridge` reports `backend=grammers`, `auth=ready`, and serves
+  `chats-view`/`messages` through the existing Medley-facing protocol.
+- 50 repeated `mag-telegram-bridge status` calls leave only one persistent
+  `mag-telegram-grammers --daemon`, with no per-request helper processes.
 
 ## Next Integration Step
 
-The bridge currently spawns this helper per request. That keeps almost all
-Telegram work outside Medley Lisp and is safe for the GC/link-table issue, but
-it is slower than a persistent grammers daemon. If the UI feels sluggish, the
-next useful step is to promote this tool into a daemon that implements the same
-request/response protocol.
+The next useful step is richer message viewport behavior and better cached
+dialog/message state in the daemon, so common navigation does not need a fresh
+Telegram fetch each time.
