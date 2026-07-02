@@ -106,7 +106,9 @@ The daemon reads `/tmp/mag-telegram-request` and writes
 `/tmp/mag-telegram-response`. This mirrors the existing Medley debug bridge and
 keeps the first Medley UI simple. The Medley UI writes this request file
 directly and decodes the UTF-8 response bytes itself, avoiding shell quoting and
-Medley `ShellCommand` character translation. The protocol is intentionally
+Medley `ShellCommand` character translation. Normal Telegram UI requests do not
+run `ShellCommand`; Medley only shells out to start the daemon after an actual
+request timeout or explicit start command. The protocol is intentionally
 text-oriented: Medley should render compact lines, not raw TDLib JSON.
 
 Supported requests:
@@ -150,6 +152,8 @@ Implemented now:
 - exact `--request-file` CLI path for file-originated text requests
 - persistent config file at `~/.config/mag-telegram/config`, with environment
   variables still available as overrides
+- direct Medley request-file path for normal UI requests; shell use is limited
+  to daemon startup
 - dynamic TDLib loading and basic authorization-state command emission
 - TDLib main chat-list ordering from chat position updates
 - live update cache for `updateNewChat`, `updateNewMessage`,

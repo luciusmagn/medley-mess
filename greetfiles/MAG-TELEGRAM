@@ -296,10 +296,8 @@
             (RETURN (OR TEXT "")))))
       (CONCAT "Mag Telegram shell command failed: " COMMAND (MAG-TELEGRAM-LF)))])
 
-(MAG-TELEGRAM-BRIDGE
+(MAG-TELEGRAM-BRIDGE-REQUEST
   [LAMBDA (REQUEST)
-    (MAG-VTERM-ENSURE)
-    (MAG-TELEGRAM-ENSURE-BRIDGE)
     (NLSETQ (DELFILE MAG-TELEGRAM-DAEMON-RESPONSE-PATH))
     (COND
       ((MAG-WRITE-UTF8-TEXT-FILE
@@ -321,6 +319,21 @@
          (GO LP)))
       (T (CONCAT "could not write Mag Telegram request file" (MAG-TELEGRAM-LF))))])
 
+(MAG-TELEGRAM-BRIDGE-RESPONSE-TIMEOUT-P
+  [LAMBDA (TEXT)
+    (AND TEXT (STRPOS "Mag Telegram daemon did not respond" TEXT))])
+
+(MAG-TELEGRAM-BRIDGE
+  [LAMBDA (REQUEST)
+    (MAG-VTERM-ENSURE)
+    (LET ((TEXT (MAG-TELEGRAM-BRIDGE-REQUEST REQUEST)))
+      (COND
+        ((MAG-TELEGRAM-BRIDGE-RESPONSE-TIMEOUT-P TEXT)
+         (MAG-TELEGRAM-START-BRIDGE)
+         (BLOCK 500)
+         (MAG-TELEGRAM-BRIDGE-REQUEST REQUEST))
+        (T TEXT)))])
+
 (MAG-TELEGRAM-START-BRIDGE
   [LAMBDA NIL
     (MAG-TELEGRAM-SHELL
@@ -330,11 +343,7 @@
 
 (MAG-TELEGRAM-ENSURE-BRIDGE
   [LAMBDA NIL
-    (MAG-TELEGRAM-SHELL
-      (CONCAT "(" MAG-TELEGRAM-BRIDGE-COMMAND
-              " status >/dev/null 2>&1 || setsid "
-              MAG-TELEGRAM-BRIDGE-COMMAND
-              " --daemon >/tmp/mag-telegram-bridge.log 2>&1 &)"))])
+    (MAG-TELEGRAM-START-BRIDGE)])
 
 (MAG-TELEGRAM-STATUS-TEXT
   [LAMBDA NIL
