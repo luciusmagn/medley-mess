@@ -458,11 +458,17 @@ focus-dependent X window capture.
 MCP eval is deliberately indirect. The JS daemon writes the user's one-line
 expression to `/tmp/medley-mag-eval/<id>.source` for diagnostics, writes a
 loadable Interlisp file with `DEFINE-FILE-INFO` plus a direct `PROG`/`NLSETQ`
-result writer to `/tmp/medley-mag-eval/<id>.lisp`, writes only
-`(IL:LOAD ".../<id>.lisp" T)` to `/tmp/medley-mag-typeahead`, and sends
-internal request `eval <id>`. Medley focuses the `EXEC` process and command 49
-types that short load command. The loaded wrapper writes
-`/tmp/medley-mag-eval/<id>.out`.
+result writer to `/tmp/medley-mag-eval/<id>.lisp`, writes guarded
+`(IL:NLSETQ (IL:LOAD ".../<id>.lisp" T))` to
+`/tmp/medley-mag-typeahead`, and sends internal request `eval <id>`. Medley
+focuses the `EXEC` process and command 49 types that short load command. The
+loaded wrapper writes `/tmp/medley-mag-eval/<id>.out`.
+The generated `.lisp` wrapper must end with a top-level `STOP`, and the typed
+`LOAD` must stay wrapped in `NLSETQ`. The wrapper can successfully write
+`.out` and still have `IL:LOAD` signal `END-OF-FILE` afterward; unguarded
+loads leave one debugger window per eval. Do not unlink the `.lisp` wrapper
+immediately after `.out` appears because the loader may still be consuming the
+tail of the file.
 Verified smoke forms: `(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
 Do not replace this with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified `EVAL`, or
 `CL:EVAL`; those attempts caused stack overflow, wedged the live process, or

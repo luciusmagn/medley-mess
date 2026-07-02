@@ -291,10 +291,15 @@ a manual diagnostic.
 `medley_eval` is an MCP tool, not a raw safe request. The daemon writes the
 source form to `/tmp/medley-mag-eval/<id>.source` for diagnostics, writes a
 loadable Interlisp file with `DEFINE-FILE-INFO` plus a direct `PROG`/`NLSETQ`
-result writer to `/tmp/medley-mag-eval/<id>.lisp`, writes only
-`(IL:LOAD ".../<id>.lisp" T)` to `/tmp/medley-mag-typeahead`, sends internal
-request `eval <id>`, and waits for `/tmp/medley-mag-eval/<id>.out`. The Medley
-poller only validates the id, focuses the `EXEC` process, and calls command 49.
+result writer to `/tmp/medley-mag-eval/<id>.lisp`, writes guarded
+`(IL:NLSETQ (IL:LOAD ".../<id>.lisp" T))` to
+`/tmp/medley-mag-typeahead`, sends internal request `eval <id>`, and waits for
+`/tmp/medley-mag-eval/<id>.out`. The Medley poller only validates the id,
+focuses the `EXEC` process, and calls command 49. Keep the `NLSETQ`: the
+wrapper can write a valid result and then have `IL:LOAD` signal `END-OF-FILE`
+afterward, which otherwise leaves debugger windows in the desktop. Generated
+wrappers must end with top-level `STOP`, and successful eval files are kept
+for diagnostics instead of being deleted as soon as `.out` appears.
 Verified smoke forms: `(+ 2 3)`, `(CL:LIST 1 2 3)`, and `(IL:IPLUS 2 3)`.
 
 Do not implement MCP eval with `ADD.PROCESS`, `PROCESS.EVAL`, unqualified

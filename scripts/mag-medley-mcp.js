@@ -244,7 +244,7 @@ function writeEvalInput(id, form) {
   writeAtomic(evalPath(id, '.source'), `${source}\n`);
   writeAtomic(
     evalPath(id, '.lisp'),
-    `${INTERLISP_FILE_INFO}(PROG (RESULT) (SETQ RESULT (NLSETQ ${source})) (COND ((IL:NULL RESULT) (IL:MAG-DEBUG-EVAL-WRITE-RESULT "${id}" "id=${id} status=error message=eval failed")) (T (IL:MAG-DEBUG-EVAL-WRITE-VALUE "${id}" (IL:CAR RESULT)))))\n`
+    `${INTERLISP_FILE_INFO}(PROG (RESULT) (SETQ RESULT (NLSETQ ${source})) (COND ((IL:NULL RESULT) (IL:MAG-DEBUG-EVAL-WRITE-RESULT "${id}" "id=${id} status=error message=eval failed")) (T (IL:MAG-DEBUG-EVAL-WRITE-VALUE "${id}" (IL:CAR RESULT)))))\nSTOP\n`
   );
   safeUnlink(evalPath(id, '.out'));
   return source;
@@ -252,7 +252,7 @@ function writeEvalInput(id, form) {
 
 function writeEvalTypeahead(id) {
   if (!/^[A-Za-z0-9-]{1,80}$/.test(id)) throw new Error(`invalid eval id: ${id}`);
-  writeAtomic(TYPEAHEAD_PATH, `(IL:LOAD "${evalPath(id, '.lisp')}" T)\n`);
+  writeAtomic(TYPEAHEAD_PATH, `(IL:NLSETQ (IL:LOAD "${evalPath(id, '.lisp')}" T))\n`);
 }
 
 function readStableFile(path, deadline) {
@@ -271,9 +271,6 @@ function waitForEvalResult(id, timeoutMs, startResponse) {
         sleepMs(50);
         continue;
       }
-      safeUnlink(evalPath(id, '.lisp'));
-      safeUnlink(evalPath(id, '.source'));
-      safeUnlink(outputPath);
       return result;
     }
     sleepMs(100);
