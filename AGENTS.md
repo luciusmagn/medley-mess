@@ -413,7 +413,7 @@ printf '%s\n' \
   | /home/mag/src/medley/scripts/mag-medley-mcp.js
 ```
 
-Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet -` and sets `MAIKO_STARTUP_TYPEAHEAD_FILE` to a tiny file containing `(IL:LOAD ".../MAG-NOGREET" T)`. Maiko's local X11 startup typeahead hook injects that form after `MAIKO_STARTUP_TYPEAHEAD_DELAY` seconds. This replaced the old EXWM/emacsclient synthetic loader, which was fragile because EXWM does not always expose a live Medley buffer during startup. Do not pass `--nofork`/`-NF` here: Maiko uses that flag to skip `fork_Unix`, and Mag Shell/`FORK-SHELL` need the Unix communication helper.
+Normal launch path: `/home/mag/.local/bin/medley-interlisp`, mirrored as `scripts/mag-medley-interlisp`, starts `apps.sysout` with `--greet "$MEDLEYDIR/greetfiles/MAG-NOGREET"`. Do not restore the older `MAIKO_STARTUP_TYPEAHEAD_FILE` loader for MAG startup: loading `MAG-NOGREET` later through Exec typeahead leaves the file's final `STOP` outside the `GREET` stack and reproduces idle `HTCOLL` collision-link growth. Do not pass `--nofork`/`-NF` here: Maiko uses that flag to skip `fork_Unix`, and Mag Shell/`FORK-SHELL` need the Unix communication helper.
 
 The Mag launcher defaults `MAG_MEDLEY_MEMORY_MB` to 256, matching this Maiko
 build's 256 MB VM support and avoiding the stock 64 MB apps.sysout ceiling.

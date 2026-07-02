@@ -262,7 +262,7 @@ Current tools:
 - `medley_eval_status`: report whether command 49 and Exec are available.
 - `medley_eval_reset`: report reset status for the eval backend.
 
-`/home/mag/.local/bin/medley-interlisp` is mirrored as `scripts/mag-medley-interlisp`. It starts `apps.sysout` with `--greet -` and uses Maiko's `MAIKO_STARTUP_TYPEAHEAD_FILE` hook to type `(IL:LOAD ".../MAG-NOGREET" T)` into the initial exec after a short delay. This avoids depending on EXWM/emacsclient to synthesize the startup load. The launcher must not pass `--nofork`/`-NF`, because that disables Maiko's Unix helper and makes `FORK-SHELL`/Mag Shell fail before a PTY job is created.
+`/home/mag/.local/bin/medley-interlisp` is mirrored as `scripts/mag-medley-interlisp`. It starts `apps.sysout` with `--greet "$MEDLEYDIR/greetfiles/MAG-NOGREET"`. Do not use Maiko's `MAIKO_STARTUP_TYPEAHEAD_FILE` hook for MAG startup here: loading `MAG-NOGREET` through Exec typeahead leaves its final `STOP` outside the `GREET` stack and reproduces idle `HTCOLL` collision-link growth. The launcher must not pass `--nofork`/`-NF`, because that disables Maiko's Unix helper and makes `FORK-SHELL`/Mag Shell fail before a PTY job is created.
 
 The launcher explicitly passes `--mem "$MAG_MEDLEY_MEMORY_MB"`, defaulting to
 256 MB. The stock loadup sysouts are 64 MB but expandable; this Maiko build
