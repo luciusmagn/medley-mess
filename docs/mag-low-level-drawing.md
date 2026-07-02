@@ -95,6 +95,15 @@ glyph descenders by about a pixel; text should use the padded baseline.
 - `UNIX-HANDLECOMM 51` reports whether `/tmp/medley-mag-request` exists without
   taking a Lisp VM page buffer. The RPC loop must use this before command 39 so
   idle polling does not repeatedly pass a VMEMPAGEP into native code.
+- `UNIX-HANDLECOMM 52` reports whether a Mag shell/process descriptor is
+  readable without consuming bytes. Mag Shell uses it before drain attempts so
+  idle typeout loops avoid unnecessary Lisp/native buffer traffic.
+- `UNIX-HANDLECOMM 53` drains PTY bytes directly into Ghostty's terminal state
+  without copying those raw bytes through a Lisp VMEMPAGEP.
+- `UNIX-HANDLECOMM 54` copies a Ghostty-rendered row as simple ASCII display
+  bytes. This is the current highest stable Mag Shell render path; do not add a
+  direct `newbltchar` command unless it is proven not to punt into Lisp from an
+  invalid subr stack frame.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -166,6 +175,7 @@ Current safe request commands:
 - `shell-self-test`
 - `shell-key-probe`
 - `shell-render-stats`
+- `shell-drain-once`
 - `shell-reset-render-stats`
 - `shell-box-test`
 - `shell-reset-native-stats`
@@ -188,6 +198,19 @@ Current safe request commands:
 - `gopher-key-right`
 - `shell-state`
 - `keys-help`
+
+`shell-drain-once` is diagnostic, not the normal render path. It directly
+drains the remembered active Mag Shell channel through command 9 and refreshes
+once if bytes arrived. If this reports bytes while `MAG-VTERM-TYPEOUT` counters
+stay flat, the bug is in Lisp process scheduling/typeout orchestration rather
+than the PTY/Ghostty native path.
+
+Do not make `MAG-DEBUG-RPC-LOOP` automatically call terminal pump helpers.
+The RPC loop must stay control-plane only. A reproduced GC-table pressure test
+showed automatic RPC pumping raised `HTCOLL` high-water from 2624 to 8136 after
+three Mag Shell load cycles; with the pump removed, the same cleaned build
+stayed at `hi-links=2624` through three cycles. Use `shell-pump-once` only as
+a manual diagnostic.
 
 `medley_eval` is an MCP tool, not a raw safe request. The daemon writes the
 source form to `/tmp/medley-mag-eval/<id>.lisp` for diagnostics, writes a helper

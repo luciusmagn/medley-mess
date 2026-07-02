@@ -87,6 +87,13 @@ After restarting into a Maiko binary with command 50, use `gc-report` to inspect
 `HTCOLL` collision-link high-water/free/live counts, `HTBIGCOUNT` occupancy,
 the GC-disabled flag, and reclaim countdown/min values.
 
+Do not put automatic Mag Shell draining/rendering in `MAG-DEBUG-RPC-LOOP`.
+That loop is control-plane only. A reproduced failure showed that polling
+`MAG-VTERM-PUMP-ACTIVE` from the RPC loop made repeated Mag Shell load tests
+raise `HTCOLL` high-water from 2624 to 8136 after three open/render/close
+cycles. With the RPC pump removed, the same cleaned build stayed at
+`hi-links=2624` for all three cycles. `shell-pump-once` is diagnostic only.
+
 Gopher should delegate key decoding to `MAG-VTERM-SPECIAL-KEYID`. It should
 also avoid `TTYDISPLAYSTREAM` in `MAG-GOPHER-TYPEIN`; the working Mag
 Shell/Ghostty path reads raw keys without it, and `TTYDISPLAYSTREAM` changes
@@ -187,6 +194,9 @@ For live evidence, use the Medley RPC bridge:
   without depending on the async window-opening path.
 - `shell-state` reports the active Mag Shell native job status plus Lisp-side
   render counters.
+- `shell-drain-once` drains the remembered active Mag Shell channel once from
+  the RPC side, refreshes if bytes were read, and reports native/render
+  counters. Use it to distinguish PTY output from a stalled typeout process.
 - `shell-render-stats` reports only those active Mag Shell render counters.
 - `shell-reset-render-stats` resets those counters before a live performance
   probe.
@@ -346,6 +356,7 @@ not hand a VM buffer to native code on every tick.
 - `shell-self-test`
 - `shell-key-probe`
 - `shell-state`
+- `shell-drain-once`
 - `shell-render-stats`
 - `shell-reset-render-stats`
 - `shell-reset-native-stats`

@@ -156,6 +156,21 @@
     (LET ((MAXCOMMAND (SUBRCALL UNIX-HANDLECOMM 8)))
       (AND MAXCOMMAND (IGEQ MAXCOMMAND 42)))])
 
+	(MAG-GHOSTTY-READYP
+	  [LAMBDA (CHAN WINDOW)
+	    (COND
+	      ((IGEQ (MAG-GHOSTTY-MAXCOMMAND WINDOW) 52)
+	       (SUBRCALL UNIX-HANDLECOMM 52 CHAN))
+	      (T T))])
+
+	(MAG-GHOSTTY-DRAIN-NO-COPYP
+	  [LAMBDA (WINDOW)
+	    (IGEQ (MAG-GHOSTTY-MAXCOMMAND WINDOW) 53)])
+
+	(MAG-GHOSTTY-ASCII-ROWP
+	  [LAMBDA (WINDOW)
+	    (IGEQ (MAG-GHOSTTY-MAXCOMMAND WINDOW) 54)])
+
 (MAG-GHOSTTY-CHANNEL
   [LAMBDA (STATE)
     (LET ((WINDOW (ffetch (CHAT.STATE WINDOW) of STATE)))
@@ -204,9 +219,12 @@
            (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHANGED-REFRESH-COUNT 0)
            (WINDOWPROP WINDOW 'MAG-GHOSTTY-FULL-REFRESH-COUNT 0)
            (WINDOWPROP WINDOW 'MAG-GHOSTTY-FORCE-REFRESH-COUNT 0)
-           (WINDOWPROP WINDOW 'MAG-GHOSTTY-ROW-DRAW-COUNT 0)
-           (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-INVERT-COUNT 0)
-           (WINDOWPROP WINDOW 'MAG-GHOSTTY-BOX-DRAW-COUNT 0)))
+	           (WINDOWPROP WINDOW 'MAG-GHOSTTY-ROW-DRAW-COUNT 0)
+	           (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-INVERT-COUNT 0)
+	           (WINDOWPROP WINDOW 'MAG-GHOSTTY-BOX-DRAW-COUNT 0)
+	           (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-COUNT 0)
+	           (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-SEEN-COUNT 0)
+	           (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-LAST NIL)))
     WINDOW])
 
 (MAG-VTERM-RENDER-STATS-LINE
@@ -224,7 +242,19 @@
             " cursor-inverts=" (MAG-VTERM-RENDER-STAT-VALUE
                                  WINDOW 'MAG-GHOSTTY-CURSOR-INVERT-COUNT)
             " box-cells=" (MAG-VTERM-RENDER-STAT-VALUE
-                            WINDOW 'MAG-GHOSTTY-BOX-DRAW-COUNT))])
+                            WINDOW 'MAG-GHOSTTY-BOX-DRAW-COUNT)
+            " typeout-loops=" (MAG-VTERM-RENDER-STAT-VALUE
+                                WINDOW 'MAG-VTERM-TYPEOUT-LOOP-COUNT)
+            " typeout-seen-batches=" (MAG-VTERM-RENDER-STAT-VALUE
+                                        WINDOW 'MAG-VTERM-TYPEOUT-SEEN-COUNT)
+            " typeout-last=" (OR (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST)
+                                  "unset")
+            " pump-loops=" (MAG-VTERM-RENDER-STAT-VALUE
+                              WINDOW 'MAG-VTERM-PUMP-COUNT)
+            " pump-seen-batches=" (MAG-VTERM-RENDER-STAT-VALUE
+                                     WINDOW 'MAG-VTERM-PUMP-SEEN-COUNT)
+            " pump-last=" (OR (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-LAST)
+                               "unset"))])
 
 (MAG-VTERM-RENDER-STATS-REPORT
   [LAMBDA NIL
@@ -342,12 +372,143 @@
                    (CL:GET-OUTPUT-STREAM-STRING OUT)))
                 (T "Mag terminal state unavailable"))))))))])
 
-(MAG-VTERM-READ-BUFFER
-  [LAMBDA (WINDOW)
-    (OR (WINDOWPROP WINDOW 'MAG-VTERM-READ-BUFFER)
-        (WINDOWPROP WINDOW 'MAG-VTERM-READ-BUFFER (NCREATE 'VMEMPAGEP)))])
+	(MAG-VTERM-RPC-DRAIN-ONCE
+	  [LAMBDA NIL
+    (LET ((WINDOW (MAG-VTERM-ACTIVE-WINDOW)))
+      (COND
+        ((NULL WINDOW)
+         "No active Mag terminal window")
+        (T
+         (PROG ((STATE (WINDOWPROP WINDOW 'MAG-VTERM-STATE))
+                CHAN BUFFER LEN READS SEEN DONE OUT)
+           (SETQ CHAN (AND STATE (WINDOWPROP WINDOW 'MAG-VTERM-CHANNEL)))
+           (COND
+             ((NULL CHAN)
+              (RETURN "Active Mag terminal has no channel")))
+           (SETQ BUFFER (MAG-VTERM-READ-BUFFER WINDOW))
+           (SETQ READS 0)
+         DRAIN
+           (COND
+             ((IGEQ READS 64)
+              (SETQ DONE 'LIMIT)
+              (GO REPORT)))
+	           (SETQ LEN (MAG-GHOSTTY-DRAIN-CHANNEL CHAN WINDOW BUFFER))
+           (COND
+             ((AND LEN (NEQ LEN T))
+              (SETQ SEEN T)
+              (SETQ READS (ADD1 READS))
+              (GO DRAIN))
+             ((EQ LEN T)
+              (SETQ DONE 'NO-DATA))
+             (T
+              (SETQ DONE 'EOF)))
+         REPORT
+           (AND SEEN
+                (PROGN
+                  (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
+                  (MAG-GHOSTTY-REFRESH WINDOW STATE)))
+           (SETQ OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+           (MAG-STRING-OUTPUT
+             (CONCAT "drain-reads=" READS " final=" (OR DONE "unknown")
+                     " seen=" (COND (SEEN "yes") (T "no")))
+             OUT)
+           (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+           (MAG-STRING-OUTPUT (MAG-VTERM-RENDER-STATS-LINE WINDOW) OUT)
+           (CL:WRITE-CHAR (CL:CODE-CHAR 10) OUT)
+           (MAG-STRING-OUTPUT (MAG-VTERM-STATE-REPORT) OUT)
+	           (RETURN (CL:GET-OUTPUT-STREAM-STRING OUT))))))])
 
-(MAG-GHOSTTY-BUFFER-STRING
+	(MAG-VTERM-PUMP-WINDOW
+	  [LAMBDA (WINDOW MAXREADS)
+	    (PROG (STATE CHAN BUFFER LEN READS SEEN)
+	      (COND
+	        ((NULL WINDOW)
+	         (RETURN NIL)))
+	      (SETQ STATE (WINDOWPROP WINDOW 'MAG-VTERM-STATE))
+	      (COND
+	        ((OR (NULL STATE)
+	             (NOT (EQ (ffetch (CHAT.STATE RUNNING?) of STATE) T)))
+	         (RETURN NIL)))
+	      (SETQ CHAN (MAG-GHOSTTY-CHANNEL STATE))
+	      (COND
+	        ((OR (NULL CHAN)
+	             (NOT (WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)))
+	         (RETURN NIL))
+	        ((NOT (MAG-GHOSTTY-READYP CHAN WINDOW))
+	         (MAG-VTERM-RENDER-STAT WINDOW 'MAG-VTERM-PUMP-COUNT)
+	         (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-LAST "not-ready")
+	         (RETURN NIL)))
+	      (SETQ BUFFER (MAG-VTERM-READ-BUFFER WINDOW))
+	      (SETQ READS 0)
+	    DRAIN
+	      (COND
+	        ((IGEQ READS (OR MAXREADS 16))
+	         (GO REPORT)))
+	      (SETQ LEN (MAG-GHOSTTY-DRAIN-CHANNEL CHAN WINDOW BUFFER))
+	      (COND
+	        ((AND LEN (NEQ LEN T))
+	         (SETQ SEEN T)
+	         (SETQ READS (ADD1 READS))
+	         (GO DRAIN))
+	        ((EQ LEN T)
+	         (GO REPORT))
+	        (T
+	         (freplace (CHAT.STATE RUNNING?) of STATE with NIL)
+	         (AND (OPENWP WINDOW)
+	              (WINDOWPROP WINDOW 'TITLE
+	                                   (CONCAT (WINDOWPROP WINDOW 'TITLE)
+	                                           ", closed")))
+	         (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-LAST "eof")
+	         (RETURN NIL)))
+	    REPORT
+	      (MAG-VTERM-RENDER-STAT WINDOW 'MAG-VTERM-PUMP-COUNT)
+	      (COND
+		 (SEEN
+		  (MAG-VTERM-RENDER-STAT WINDOW 'MAG-VTERM-PUMP-SEEN-COUNT)
+		  (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-LAST "bytes")
+		  (COND
+		    ((WINDOWPROP WINDOW 'MAG-VTERM-PUMP-NO-REFRESH)
+		     NIL)
+		    (T
+		     (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
+		     (MAG-GHOSTTY-REFRESH WINDOW STATE)))
+		  (RETURN T))
+	        (T
+	         (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-LAST "no-data")
+	         (RETURN NIL))))])
+
+	(MAG-VTERM-PUMP-ACTIVE
+	  [LAMBDA NIL
+	    (LET ((WINDOW (MAG-VTERM-ACTIVE-WINDOW)))
+	      (AND WINDOW (MAG-VTERM-PUMP-WINDOW WINDOW 16)))])
+
+	(MAG-VTERM-RPC-PUMP-REFRESH
+	  [LAMBDA (ENABLE)
+	    (LET ((WINDOW (MAG-VTERM-ACTIVE-WINDOW)))
+	      (COND
+	        ((NULL WINDOW)
+	         "No active Mag terminal window")
+	        (ENABLE
+	         (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-NO-REFRESH NIL)
+	         "Mag terminal pump refresh enabled")
+	        (T
+	         (WINDOWPROP WINDOW 'MAG-VTERM-PUMP-NO-REFRESH T)
+	         "Mag terminal pump refresh disabled")))])
+
+	(MAG-VTERM-READ-BUFFER
+	  [LAMBDA (WINDOW)
+	    (OR (WINDOWPROP WINDOW 'MAG-VTERM-READ-BUFFER)
+	        (WINDOWPROP WINDOW 'MAG-VTERM-READ-BUFFER (NCREATE 'VMEMPAGEP)))])
+
+	(MAG-GHOSTTY-DRAIN-CHANNEL
+	  [LAMBDA (CHAN WINDOW BUFFER)
+	    (COND
+	      ((MAG-GHOSTTY-DRAIN-NO-COPYP WINDOW)
+	       (SUBRCALL UNIX-HANDLECOMM 53 CHAN))
+	      (T
+	       (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER)))])
+
+	(MAG-GHOSTTY-BUFFER-STRING
   [LAMBDA (BUFFER LEN)
     (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM)))
       (AND (IGREATERP LEN 0)
@@ -691,6 +852,16 @@
        (for I from 0 to (SUB1 LEN) do
                   (MAG-GHOSTTY-BLT-CODE STATE (\GETBASEBYTE BUFFER I)))))])
 
+	(MAG-GHOSTTY-DRAW-ASCII-ROW
+	  [LAMBDA (WINDOW STATE ROW BUFFER LEN)
+	    (MAG-GHOSTTY-BEGIN-ROW STATE ROW)
+	    (MAG-GHOSTTY-RESET-COLORS WINDOW STATE)
+	    (AND LEN
+	         (IGREATERP LEN 0)
+	         (for I from 0 to (SUB1 LEN) do
+	           (MAG-GHOSTTY-BLT-CODE STATE (\GETBASEBYTE BUFFER I))))
+	    (MAG-GHOSTTY-RESET-COLORS WINDOW STATE)])
+
 (MAG-GHOSTTY-APPLY-FLAGS
   [LAMBDA (STATE FLAGS)
     (LET ((DSP (ffetch (CHAT.STATE DSP) of STATE))
@@ -1016,10 +1187,11 @@
                     ((AND OLDY
                  (IGEQ OLDY 0)
                  (ILESSP OLDY ROWS))
-            (MAG-GHOSTTY-DRAW-REFRESH-ROW WINDOW STATE CHAN OLDY BUFFER COLS
-                                          RGB WIDE COLORED STYLED SEGMENTED PLAIN)))
-         (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-X NIL)
-         (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-Y NIL))))])
+	            (MAG-GHOSTTY-DRAW-REFRESH-ROW WINDOW STATE CHAN OLDY BUFFER COLS
+	                                          RGB WIDE COLORED STYLED SEGMENTED PLAIN)))
+	         (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-X NIL)
+	         (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-Y NIL)))
+	      NIL)])
 
 (MAG-GHOSTTY-DRAW-REFRESH-ROW
   [LAMBDA (WINDOW STATE CHAN ROW BUFFER COLS RGB WIDE COLORED STYLED SEGMENTED PLAIN)
@@ -1028,6 +1200,10 @@
       (AND (EQ ROW (WINDOWPROP WINDOW 'MAG-GHOSTTY-CURSOR-Y))
            (SETQ MAG-GHOSTTY-CURSOR-ROW-REDRAWN T))
       (COND
+        ((MAG-GHOSTTY-ASCII-ROWP WINDOW)
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 54 CHAN ROW BUFFER))
+         (AND LEN
+              (MAG-GHOSTTY-DRAW-ASCII-ROW WINDOW STATE ROW BUFFER LEN)))
         (PLAIN
          (SETQ LEN (SUBRCALL UNIX-HANDLECOMM 36 CHAN ROW BUFFER))
          (AND LEN
@@ -1037,14 +1213,19 @@
         ((AND WIDE SEGMENTED)
          (MAG-GHOSTTY-DRAW-WIDE-COLORED-SEGMENTS WINDOW STATE CHAN ROW BUFFER COLS))
         (T
-         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM (COND (WIDE 27) (COLORED 26) (STYLED 22) (T 19))
-                                CHAN ROW BUFFER))
+         (SETQ LEN (SUBRCALL UNIX-HANDLECOMM
+                               (COND (WIDE 27) (COLORED 26) (STYLED 22) (T 19))
+                               CHAN ROW BUFFER))
          (AND LEN
               (COND
-                (WIDE (MAG-GHOSTTY-DRAW-WIDE-COLORED-ROW WINDOW STATE ROW BUFFER LEN))
-                (COLORED (MAG-GHOSTTY-DRAW-COLORED-ROW WINDOW STATE ROW BUFFER LEN))
-                (STYLED (MAG-GHOSTTY-DRAW-STYLED-ROW WINDOW STATE ROW BUFFER LEN))
-                (T (MAG-GHOSTTY-DRAW-ROW STATE ROW BUFFER LEN)))))))])
+                (WIDE
+                 (MAG-GHOSTTY-DRAW-WIDE-COLORED-ROW WINDOW STATE ROW BUFFER LEN))
+                (COLORED
+                 (MAG-GHOSTTY-DRAW-COLORED-ROW WINDOW STATE ROW BUFFER LEN))
+                (STYLED
+                 (MAG-GHOSTTY-DRAW-STYLED-ROW WINDOW STATE ROW BUFFER LEN))
+                (T
+                 (MAG-GHOSTTY-DRAW-ROW STATE ROW BUFFER LEN)))))))])
 
 (MAG-GHOSTTY-REFRESH
   [LAMBDA (WINDOW STATE)
@@ -1110,12 +1291,12 @@
                            (COND
                              ((NOT (ILESSP ROW ROWS))
                               (RETURN T)))
-                           (MAG-GHOSTTY-DRAW-REFRESH-ROW
-                             WINDOW STATE CHAN ROW BUFFER COLS
-                             RGB WIDE COLORED STYLED SEGMENTED PLAIN)
-                           (SETQ ROW (ADD1 ROW))
-                           (GO FULLLP))))
-                      (freplace (CHAT.STATE WRAPMODE) of STATE with OLDWRAP)
+	                           (MAG-GHOSTTY-DRAW-REFRESH-ROW
+	                             WINDOW STATE CHAN ROW BUFFER COLS
+	                             RGB WIDE COLORED STYLED SEGMENTED PLAIN)
+	                           (SETQ ROW (ADD1 ROW))
+	                           (GO FULLLP))))
+		                      (freplace (CHAT.STATE WRAPMODE) of STATE with OLDWRAP)
                       (MAG-GHOSTTY-DRAW-CURSOR WINDOW STATE CHAN BUFFER ROWS COLS
                                                RGB WIDE COLORED STYLED SEGMENTED PLAIN)
                  (AND (IGEQ MAXCOMMAND 33)
@@ -1252,32 +1433,45 @@
       (COND
         ((NOT (AND CHAN (EQ (ffetch (CHAT.STATE RUNNING?) of STATE) T)))
          (GO DONE)))
+      (MAG-VTERM-RENDER-STAT WINDOW 'MAG-VTERM-TYPEOUT-LOOP-COUNT)
       (COND
         ((WINDOWPROP WINDOW 'MAG-VTERM-GHOSTTY)
          (SETQ SEEN NIL)
+         (COND
+           ((NOT (MAG-GHOSTTY-READYP CHAN WINDOW))
+            (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "not-ready")
+            (BLOCK 100)
+            (GO LOOP)))
        DRAIN
          (COND
-           ((AND (SETQ CH (SUBRCALL UNIX-HANDLECOMM 9 CHAN BUFFER))
-                 (NEQ CH T))
+	           ((AND (SETQ CH (MAG-GHOSTTY-DRAIN-CHANNEL CHAN WINDOW BUFFER))
+	                 (NEQ CH T))
+            (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "bytes")
             (SETQ SEEN T)
             (GO DRAIN)))
          (COND
-           (SEEN
-            (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
-            (MAG-GHOSTTY-REFRESH WINDOW STATE)
-            (DISMISS 50))
-           ((EQ CH T)
-            (DISMISS 100))
-           (T
-            (GO DONE))))
+          (SEEN
+           (MAG-VTERM-RENDER-STAT WINDOW 'MAG-VTERM-TYPEOUT-SEEN-COUNT)
+           (WINDOWPROP WINDOW 'MAG-GHOSTTY-CHECK-ROWS T)
+           (MAG-GHOSTTY-REFRESH WINDOW STATE)
+            (BLOCK 100))
+          ((EQ CH T)
+           (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "no-data")
+            (BLOCK 100))
+          (T
+           (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "eof")
+           (GO DONE))))
         (T
          (SETQ CH (SUBRCALL UNIX-HANDLECOMM 2 CHAN))
          (COND
            ((EQ CH T)
-            (DISMISS 100))
+            (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "no-data")
+            (BLOCK))
            ((NULL CH)
+            (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "eof")
             (GO DONE))
            (T
+            (WINDOWPROP WINDOW 'MAG-VTERM-TYPEOUT-LAST "byte")
             (MAG-VTERM-HANDLE-CHAR WINDOW STATE (LOGAND CH 255))))))
       (GO LOOP)
     DONE
@@ -2175,7 +2369,14 @@
                      MAG-GHOSTTY-FORCE-REFRESH-COUNT
                      MAG-GHOSTTY-ROW-DRAW-COUNT
                      MAG-GHOSTTY-CURSOR-INVERT-COUNT
-                     MAG-GHOSTTY-BOX-DRAW-COUNT)
+	                     MAG-GHOSTTY-BOX-DRAW-COUNT
+	                     MAG-VTERM-TYPEOUT-LOOP-COUNT
+	                     MAG-VTERM-TYPEOUT-SEEN-COUNT
+	                     MAG-VTERM-TYPEOUT-LAST
+	                     MAG-VTERM-PUMP-COUNT
+	                     MAG-VTERM-PUMP-SEEN-COUNT
+	                     MAG-VTERM-PUMP-LAST
+	                     MAG-VTERM-PUMP-NO-REFRESH)
            do (WINDOWPROP WINDOW PROP NIL))])
 
 (MAG-VTERM

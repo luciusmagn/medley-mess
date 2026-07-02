@@ -105,6 +105,20 @@
            (T "mag-gc unavailable"))))
       (T "mag-gc unavailable: rebuild/restart Maiko with UNIX-HANDLECOMM 50"))])
 
+(MAG-DEBUG-RPC-RECLAIM
+  [LAMBDA NIL
+    (LET ((OUT (CL:MAKE-STRING-OUTPUT-STREAM))
+          RESULT)
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "before")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (MAG-DEBUG-GC-REPORT))
+      (SETQ RESULT (CAR (NLSETQ (RECLAIM))))
+      (MAG-DEBUG-RPC-WRITE-LINE
+        OUT
+        (CONCAT "reclaim-result=" (MAG-DEBUG-EVAL-VALUE-STRING RESULT)))
+      (MAG-DEBUG-RPC-WRITE-LINE OUT "after")
+      (MAG-DEBUG-RPC-WRITE-LINE OUT (MAG-DEBUG-GC-REPORT))
+      (CL:GET-OUTPUT-STREAM-STRING OUT))])
+
 (MAG-DEBUG-SPLIT-LINES
   [LAMBDA (TEXT)
     (PROG ((I 1)
@@ -1130,10 +1144,12 @@
        (MAG-DEBUG-RPC-PROCESS-STATUS))
       ((STREQUAL COMMAND "native-jobs")
        (MAG-DEBUG-JOBS-REPORT))
-      ((STREQUAL COMMAND "gc-report")
-       (MAG-DEBUG-GC-REPORT))
-      ((STREQUAL COMMAND "goal-status")
-       (MAG-DEBUG-RPC-GOAL-STATUS))
+	      ((STREQUAL COMMAND "gc-report")
+	       (MAG-DEBUG-GC-REPORT))
+	      ((STREQUAL COMMAND "reclaim")
+	       (MAG-DEBUG-RPC-RECLAIM))
+	      ((STREQUAL COMMAND "goal-status")
+	       (MAG-DEBUG-RPC-GOAL-STATUS))
       ((STREQUAL COMMAND "write-debug-report")
        (MAG-DEBUG-WRITE-REPORT NIL)
        "wrote /tmp/medley-mag-debug.txt")
@@ -1170,9 +1186,31 @@
          ((GETD 'MAG-VTERM-STATE-REPORT)
           (MAG-VTERM-STATE-REPORT))
          (T "MAG-VTERM-STATE-REPORT is not loaded")))
-      ((STREQUAL COMMAND "shell-render-stats")
-       (COND
-         ((GETD 'MAG-VTERM-RENDER-STATS-REPORT)
+	      ((STREQUAL COMMAND "shell-drain-once")
+	       (COND
+	         ((GETD 'MAG-VTERM-RPC-DRAIN-ONCE)
+	          (MAG-VTERM-RPC-DRAIN-ONCE))
+	         (T "MAG-VTERM-RPC-DRAIN-ONCE is not loaded")))
+	      ((STREQUAL COMMAND "shell-pump-once")
+	       (COND
+	         ((GETD 'MAG-VTERM-PUMP-ACTIVE)
+	          (COND
+	            ((MAG-VTERM-PUMP-ACTIVE) "pumped active Mag terminal")
+	            (T "no Mag terminal output ready")))
+	         (T "MAG-VTERM-PUMP-ACTIVE is not loaded")))
+	      ((STREQUAL COMMAND "shell-pump-refresh-off")
+	       (COND
+	         ((GETD 'MAG-VTERM-RPC-PUMP-REFRESH)
+	          (MAG-VTERM-RPC-PUMP-REFRESH NIL))
+	         (T "MAG-VTERM-RPC-PUMP-REFRESH is not loaded")))
+	      ((STREQUAL COMMAND "shell-pump-refresh-on")
+	       (COND
+	         ((GETD 'MAG-VTERM-RPC-PUMP-REFRESH)
+	          (MAG-VTERM-RPC-PUMP-REFRESH T))
+	         (T "MAG-VTERM-RPC-PUMP-REFRESH is not loaded")))
+	      ((STREQUAL COMMAND "shell-render-stats")
+	       (COND
+	         ((GETD 'MAG-VTERM-RENDER-STATS-REPORT)
           (MAG-VTERM-RENDER-STATS-REPORT))
          (T "MAG-VTERM-RENDER-STATS-REPORT is not loaded")))
       ((STREQUAL COMMAND "shell-reset-render-stats")
@@ -1290,13 +1328,13 @@
     (MAG-WRITE-UTF8-TEXT-FILE "/tmp/medley-mag-response"
                               (OR TEXT ""))])
 
-(MAG-DEBUG-RPC-LOOP
-  [LAMBDA NIL
-    (PROG (COMMAND RESPONSE)
-    LP
-      (SETQ COMMAND (MAG-DEBUG-RPC-READ))
-      (COND
-        (COMMAND
+	(MAG-DEBUG-RPC-LOOP
+	  [LAMBDA NIL
+	    (PROG (COMMAND RESPONSE)
+	    LP
+	      (SETQ COMMAND (MAG-DEBUG-RPC-READ))
+	      (COND
+	        (COMMAND
          (SETQ RESPONSE
                (CAR (NLSETQ (MAG-DEBUG-RPC-DISPATCH COMMAND))))
          (MAG-DEBUG-RPC-WRITE-RESPONSE
