@@ -107,9 +107,10 @@ The daemon reads `/tmp/mag-telegram-request` and writes
 keeps the first Medley UI simple. The Medley UI writes this request file
 directly and decodes the UTF-8 response bytes itself, avoiding shell quoting and
 Medley `ShellCommand` character translation. Normal Telegram UI requests do not
-run `ShellCommand`; Medley only shells out to start the daemon after an actual
-request timeout or explicit start command. The protocol is intentionally
-text-oriented: Medley should render compact lines, not raw TDLib JSON.
+run `ShellCommand`; on Maiko builds with `UNIX-HANDLECOMM 57`, Medley also
+starts the daemon through native host process launch and only falls back to
+`ShellCommand` on older binaries. The protocol is intentionally text-oriented:
+Medley should render compact lines, not raw TDLib JSON.
 
 Supported requests:
 
@@ -153,7 +154,7 @@ Implemented now:
 - persistent config file at `~/.config/mag-telegram/config`, with environment
   variables still available as overrides
 - direct Medley request-file path for normal UI requests; shell use is limited
-  to daemon startup
+  to fallback daemon startup on older Maiko binaries
 - dynamic TDLib loading and basic authorization-state command emission
 - TDLib main chat-list ordering from chat position updates
 - live update cache for `updateNewChat`, `updateNewMessage`,

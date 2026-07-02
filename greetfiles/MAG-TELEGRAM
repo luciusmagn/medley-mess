@@ -336,10 +336,22 @@
 
 (MAG-TELEGRAM-START-BRIDGE
   [LAMBDA NIL
-    (MAG-TELEGRAM-SHELL
-      (CONCAT "setsid " MAG-TELEGRAM-BRIDGE-COMMAND
-              " --daemon >/tmp/mag-telegram-bridge.log 2>&1 &"))
-    "started mag-telegram-bridge daemon"])
+    (COND
+      ((MAG-TELEGRAM-START-BRIDGE-NATIVE)
+       "started mag-telegram-bridge daemon through Maiko")
+      (T
+       (MAG-TELEGRAM-SHELL
+         (CONCAT "setsid " MAG-TELEGRAM-BRIDGE-COMMAND
+                 " --daemon >/tmp/mag-telegram-bridge.log 2>&1 &"))
+       "started mag-telegram-bridge daemon through ShellCommand"))])
+
+(MAG-TELEGRAM-START-BRIDGE-NATIVE
+  [LAMBDA NIL
+    (PROG ((MAXCOMMAND (OR (MAG-UNIX-HANDLECOMM1 8) 0)))
+      (COND
+        ((IGEQ MAXCOMMAND 57)
+         (RETURN (MAG-UNIX-HANDLECOMM1 57)))
+        (T (RETURN NIL))))])
 
 (MAG-TELEGRAM-ENSURE-BRIDGE
   [LAMBDA NIL

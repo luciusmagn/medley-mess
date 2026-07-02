@@ -367,6 +367,21 @@ Local Maiko command `UNIX-HANDLECOMM 51` checks whether
 `/tmp/medley-mag-request` exists without taking a Lisp VM page buffer argument.
 `MAG-DEBUG-RPC-READ` must use command 51 before command 39 so idle polling does
 not hand a VM buffer to native code on every tick.
+Local Maiko command `UNIX-HANDLECOMM 52` checks whether a Mag shell/process fd
+is readable without consuming bytes. Mag Shell uses it to avoid pointless
+native/Lisp buffer traffic while idle.
+Local Maiko command `UNIX-HANDLECOMM 53` drains PTY bytes directly into
+Ghostty without copying raw bytes through a Lisp VM page.
+Local Maiko command `UNIX-HANDLECOMM 54` copies a Ghostty-rendered row as
+simple ASCII display text.
+Local Maiko command `UNIX-HANDLECOMM 55` writes `/tmp/medley-mag-response`
+through native file I/O from a Lisp string.
+Local Maiko command `UNIX-HANDLECOMM 56` drains multiple PTY chunks directly
+into Ghostty in one native call.
+Local Maiko command `UNIX-HANDLECOMM 57` starts
+`/home/mag/.local/bin/mag-telegram-bridge --daemon` as a detached host process.
+`MAG-TELEGRAM` should prefer this native start path and keep `ShellCommand`
+only as compatibility fallback for older Maiko binaries.
 
 - `ping`
 - `debug-report`

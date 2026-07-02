@@ -119,6 +119,10 @@ glyph descenders by about a pixel; text should use the padded baseline.
 - `UNIX-HANDLECOMM 56` drains multiple PTY chunks directly into Ghostty in one
   native call. Lisp gates it with `MAG-GHOSTTY-DRAIN-MANY-ENABLED`; disabling
   that flag falls back to command 53 and is useful for GC-pressure A/B tests.
+- `UNIX-HANDLECOMM 57` starts `/home/mag/.local/bin/mag-telegram-bridge
+  --daemon` as a detached host process and returns the child pid. The bridge
+  still owns pid-file duplicate suppression. `MAG-TELEGRAM` uses this before
+  falling back to Medley `ShellCommand`.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -162,6 +166,7 @@ Current native commands:
 - `55`: write `/tmp/medley-mag-response` through native file I/O.
 - `56`: drain many PTY chunks directly into Ghostty without Lisp/native
   round-trips.
+- `57`: start the Mag Telegram bridge daemon without Medley `ShellCommand`.
 
 Current Lisp wrappers:
 
