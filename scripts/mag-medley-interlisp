@@ -15,7 +15,7 @@ export LOGINDIR="${LOGINDIR:-$HOME/.local/share/medley-logindir}"
 export LDEKBDTYPE="${LDEKBDTYPE:-X}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
-export PATH="$HOME/.local/bin:$HOME/.guix-profile/bin:$PATH"
+export PATH="/run/privileged/bin:/run/setuid-programs:$HOME/.local/bin:$HOME/.guix-profile/bin:$PATH"
 mkdir -p "$NOTEFILESDIR"
 mkdir -p "$LOGINDIR"
 unset TERMINFO
