@@ -598,8 +598,14 @@
     (COND
       ((AND OLD (PROCESSP OLD))
        (DEL.PROCESS OLD)))
+    (BLOCK 500)
     (SETQ MAG-DEBUG-RPC-PROCESS NIL)
-    (MAG-DEBUG-RPC-START)])
+    (COND
+      ((MAG-DEBUG-RPC-AVAILABLEP)
+       (SETQ MAG-DEBUG-RPC-PROCESS
+             (ADD.PROCESS (LIST (FUNCTION MAG-DEBUG-RPC-LOOP))
+                          'NAME 'MAG-DEBUG-RPC))))
+    MAG-DEBUG-RPC-PROCESS])
 
 (MAG-DEBUG-RPC-RESTART
   [LAMBDA NIL
@@ -665,6 +671,48 @@
 (MAG-DEBUG-RPC-OPEN-SLIDES-DEMO-WORKER
   [LAMBDA NIL
     (MAG-SLIDES-DEMO)])
+
+(MAG-DEBUG-RPC-SLIDES-OPEN
+  [LAMBDA (PATH)
+    (COND
+      ((GETD 'MAG-SLIDES-OPEN-FILE)
+       (MAG-SLIDES-OPEN-FILE PATH)
+       (CONCAT "slides-opened path=" PATH))
+      (T "MAG-SLIDES-OPEN-FILE is not loaded"))])
+
+(MAG-DEBUG-RPC-SLIDES-COUNT
+  [LAMBDA NIL
+    (COND
+      ((AND (BOUNDP 'MAG-SLIDES-LAST-WINDOW)
+            MAG-SLIDES-LAST-WINDOW
+            (GETD 'MAG-SLIDES-STATE)
+            (GETD 'MAG-SLIDES-STATE-SLIDES))
+       (CONCAT "slides-count="
+               (LENGTH (MAG-SLIDES-STATE-SLIDES
+                         (MAG-SLIDES-STATE MAG-SLIDES-LAST-WINDOW)))))
+      (T "slides-count=0"))])
+
+(MAG-DEBUG-RPC-SLIDES-GOTO
+  [LAMBDA (ARGS)
+    (PROG (STREAM INDEX REVEAL)
+      (COND
+        ((OR (NOT (BOUNDP 'MAG-SLIDES-LAST-WINDOW))
+             (NULL MAG-SLIDES-LAST-WINDOW)
+             (NOT (GETD 'MAG-SLIDES-GOTO-WITH-REVEAL)))
+         (RETURN "MAG-SLIDES is not open")))
+      (SETQ STREAM (OPENSTRINGSTREAM ARGS 'INPUT))
+      (SETQ INDEX (CAR (NLSETQ (RATOM STREAM))))
+      (SETQ REVEAL (CAR (NLSETQ (RATOM STREAM))))
+      (COND
+        ((NOT (NUMBERP INDEX))
+         (RETURN "slides-goto missing numeric index")))
+      (MAG-SLIDES-GOTO-WITH-REVEAL MAG-SLIDES-LAST-WINDOW
+                                   INDEX
+                                   (COND ((NUMBERP REVEAL) REVEAL) (T 0)))
+      (TOTOPW MAG-SLIDES-LAST-WINDOW)
+      (RETURN (CONCAT "slides-goto index=" INDEX
+                      " reveal="
+                      (COND ((NUMBERP REVEAL) REVEAL) (T 0)))))])
 
 (MAG-DEBUG-RPC-GOPHER-TEST-PAGE-WORKER
   [LAMBDA NIL
@@ -1432,6 +1480,14 @@
        (MAG-DEBUG-RPC-FONT-SAMPLER))
       ((STREQUAL COMMAND "open-slides-demo")
        (MAG-DEBUG-RPC-OPEN-SLIDES-DEMO))
+      ((MAG-DEBUG-RPC-PREFIXP COMMAND "slides-open ")
+       (MAG-DEBUG-RPC-SLIDES-OPEN
+         (MAG-DEBUG-RPC-AFTER-PREFIX COMMAND "slides-open ")))
+      ((MAG-DEBUG-RPC-PREFIXP COMMAND "slides-goto ")
+       (MAG-DEBUG-RPC-SLIDES-GOTO
+         (MAG-DEBUG-RPC-AFTER-PREFIX COMMAND "slides-goto ")))
+      ((STREQUAL COMMAND "slides-count")
+       (MAG-DEBUG-RPC-SLIDES-COUNT))
       ((STREQUAL COMMAND "boot-shell")
        (MAG-DEBUG-RPC-BOOT-SHELL))
       ((STREQUAL COMMAND "shell-load-test")

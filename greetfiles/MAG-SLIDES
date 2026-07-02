@@ -2,8 +2,10 @@
 
 (FILESLOAD RECORD)
 (FILESLOAD CHATDECLS)
+(FILESLOAD UNIXUTILS)
 
 (RPAQQ MAG-SLIDES-DEFAULT-PATH "/home/mag/docs/slides.mag")
+(RPAQQ MAG-SLIDES-EXPORT-COMMAND "/home/mag/src/medley/scripts/mag-slides-export.js")
 (RPAQQ MAG-SLIDES-MARGIN-X 96)
 (RPAQQ MAG-SLIDES-TOP-MARGIN 86)
 (RPAQQ MAG-SLIDES-FOOTER-Y 40)
@@ -16,7 +18,10 @@
 (RPAQQ MAG-SLIDES-TABLE-PAD-X 14)
 (RPAQQ MAG-SLIDES-TABLE-PAD-Y 9)
 (RPAQQ MAG-SLIDES-TABLE-GAP 22)
+(RPAQQ MAG-SLIDES-IMAGE-MAX-WIDTH 1600)
+(RPAQQ MAG-SLIDES-IMAGE-MAX-HEIGHT 650)
 (RPAQ? MAG-SLIDES-LAST-WINDOW NIL)
+(RPAQ? MAG-SLIDES-IMAGE-CACHE NIL)
 
 (DEFINEQ
 
@@ -81,6 +86,17 @@
          TEXT
          (IGEQ (NCHARS TEXT) (NCHARS PREFIX))
          (STREQUAL PREFIX (SUBSTRING TEXT 1 (NCHARS PREFIX))))])
+
+(MAG-SLIDES-SUFFIX-P
+  [LAMBDA (SUFFIX TEXT)
+    (AND SUFFIX
+         TEXT
+         (IGEQ (NCHARS TEXT) (NCHARS SUFFIX))
+         (STREQUAL SUFFIX
+                   (SUBSTRING TEXT
+                              (ADD1 (IDIFFERENCE (NCHARS TEXT)
+                                                  (NCHARS SUFFIX)))
+                              (NCHARS TEXT))))])
 
 (MAG-SLIDES-DROP-PREFIX
   [LAMBDA (TEXT N)
@@ -323,6 +339,128 @@
            (SETQ COUNT (ADD1 COUNT)))
       (SETQ LINES (CDR LINES))
       (GO LP))])
+
+(MAG-SLIDES-SHELL-QUOTE
+  [LAMBDA (TEXT)
+    (PROG ((I 1)
+           (LEN (AND TEXT (NCHARS TEXT)))
+           (OUT "'")
+           CH)
+      (COND
+        ((NULL TEXT)
+         (RETURN "''")))
+    LP
+      (COND
+        ((IGREATERP I LEN)
+         (RETURN (CONCAT OUT "'"))))
+      (SETQ CH (NTHCHARCODE TEXT I))
+      (COND
+        ((EQ CH 39)
+         (RETURN NIL))
+        (T
+         (SETQ OUT (CONCAT OUT (SUBSTRING TEXT I I)))))
+      (SETQ I (ADD1 I))
+      (GO LP))])
+
+(MAG-SLIDES-BITMAP-SOURCE-P
+  [LAMBDA (PATH)
+    (OR (MAG-SLIDES-SUFFIX-P ".magbitmap" PATH)
+        (MAG-SLIDES-SUFFIX-P ".bitmap" PATH)
+        (MAG-SLIDES-SUFFIX-P ".BITMAP" PATH))])
+
+(MAG-SLIDES-PREPARE-FILE-IMAGES
+  [LAMBDA (SOURCE)
+    (PROG (QSOURCE COMMAND)
+      (COND
+        ((NULL SOURCE)
+         (RETURN NIL)))
+      (SETQ QSOURCE (MAG-SLIDES-SHELL-QUOTE SOURCE))
+      (COND
+        ((NULL QSOURCE)
+         (PROMPTPRINT "Mag Slides source path cannot contain single quotes")
+         (RETURN NIL)))
+      (SETQ COMMAND
+            (CONCAT MAG-SLIDES-EXPORT-COMMAND
+                    " prepare "
+                    QSOURCE
+                    " >/tmp/mag-slides-prepare.log 2>&1"))
+      (NLSETQ (ShellCommand COMMAND))
+      (RETURN T))])
+
+(MAG-SLIDES-IMAGE-BITMAP-PATH
+  [LAMBDA (IMAGE)
+    (COND
+      ((MAG-SLIDES-BITMAP-SOURCE-P IMAGE)
+       IMAGE)
+      (T (CONCAT IMAGE ".magbitmap")))])
+
+(MAG-SLIDES-CONVERT-IMAGE
+  [LAMBDA (IMAGE)
+    (PROG ((BITMAP-PATH (MAG-SLIDES-IMAGE-BITMAP-PATH IMAGE))
+           QIMAGE QBITMAP COMMAND)
+      (COND
+        ((OR (NULL IMAGE) (EQ (NCHARS IMAGE) 0))
+         (RETURN NIL))
+        ((MAG-SLIDES-BITMAP-SOURCE-P IMAGE)
+         (RETURN IMAGE))
+        ((INFILEP BITMAP-PATH)
+         (RETURN BITMAP-PATH)))
+      (SETQ QIMAGE (MAG-SLIDES-SHELL-QUOTE IMAGE))
+      (SETQ QBITMAP (MAG-SLIDES-SHELL-QUOTE BITMAP-PATH))
+      (COND
+        ((OR (NULL QIMAGE) (NULL QBITMAP))
+         (PROMPTPRINT "Mag Slides image paths cannot contain single quotes")
+         (RETURN NIL)))
+      (SETQ COMMAND
+            (CONCAT MAG-SLIDES-EXPORT-COMMAND
+                    " convert-image "
+                    QIMAGE
+                    " "
+                    QBITMAP
+                    " --max-width "
+                    MAG-SLIDES-IMAGE-MAX-WIDTH
+                    " --max-height "
+                    MAG-SLIDES-IMAGE-MAX-HEIGHT
+                    " >/tmp/mag-slides-convert.log 2>&1"))
+      (NLSETQ (ShellCommand COMMAND))
+      (COND
+        ((INFILEP BITMAP-PATH)
+         (RETURN BITMAP-PATH))
+        (T
+         (PROMPTPRINT (CONCAT "Mag Slides image conversion failed: " IMAGE))
+         (RETURN NIL))))])
+
+(MAG-SLIDES-READ-BITMAP-FILE
+  [LAMBDA (PATH)
+    (PROG (STREAM BITMAP)
+      (SETQ STREAM (CAR (NLSETQ (OPENSTREAM PATH 'INPUT 'OLD))))
+      (COND
+        ((NULL STREAM)
+         (RETURN NIL)))
+      (SETQ BITMAP (CAR (NLSETQ (READBITMAP STREAM))))
+      (CLOSEF STREAM)
+      (RETURN BITMAP))])
+
+(MAG-SLIDES-IMAGE-BITMAP
+  [LAMBDA (IMAGE)
+    (PROG ((PATH (MAG-SLIDES-CONVERT-IMAGE IMAGE))
+           CELL BITMAP)
+      (COND
+        ((NULL PATH)
+         (RETURN NIL)))
+      (SETQ CELL (SASSOC PATH MAG-SLIDES-IMAGE-CACHE))
+      (COND
+        ((AND CELL (CDR CELL))
+         (RETURN (CDR CELL))))
+      (SETQ BITMAP (MAG-SLIDES-READ-BITMAP-FILE PATH))
+      (AND BITMAP
+           (SETQ MAG-SLIDES-IMAGE-CACHE
+                 (CONS (CONS PATH BITMAP) MAG-SLIDES-IMAGE-CACHE)))
+      (RETURN BITMAP))])
+
+(MAG-SLIDES-CLEAR-IMAGE-CACHE
+  [LAMBDA NIL
+    (SETQ MAG-SLIDES-IMAGE-CACHE NIL)])
 
 (MAG-SLIDES-DRAW-TOP
   [LAMBDA (WINDOW X YTOP FONT TEXT LEADING)
@@ -682,21 +820,49 @@
                                   REVEAL)
       (MAG-SLIDES-DRAW-FOOTER WINDOW SLIDE INDEX COUNT))])
 
+(MAG-SLIDES-DRAW-BITMAP-FIT
+  [LAMBDA (WINDOW BITMAP LEFT RIGHT TOP BOTTOM)
+    (PROG ((WIDTH (BITMAPWIDTH BITMAP))
+           (HEIGHT (BITMAPHEIGHT BITMAP))
+           (FRAME-WIDTH (IDIFFERENCE RIGHT LEFT))
+           (FRAME-HEIGHT (IDIFFERENCE TOP BOTTOM))
+           X Y)
+      (COND
+        ((OR (NULL BITMAP)
+             (IGREATERP WIDTH FRAME-WIDTH)
+             (IGREATERP HEIGHT FRAME-HEIGHT))
+         (RETURN NIL)))
+      (SETQ X (IPLUS LEFT (IQUOTIENT (IDIFFERENCE FRAME-WIDTH WIDTH) 2)))
+      (SETQ Y (IPLUS BOTTOM (IQUOTIENT (IDIFFERENCE FRAME-HEIGHT HEIGHT) 2)))
+      (BITBLT BITMAP 0 0 WINDOW X Y WIDTH HEIGHT 'INPUT 'PAINT)
+      (RETURN T))])
+
 (MAG-SLIDES-DRAW-IMAGE-FRAME
   [LAMBDA (WINDOW TOP BOTTOM IMAGE)
     (PROG ((LEFT MAG-SLIDES-MARGIN-X)
            (RIGHT (IDIFFERENCE (WINDOWPROP WINDOW 'WIDTH) MAG-SLIDES-MARGIN-X))
            (FONT (MAG-SLIDES-BODY-FONT))
-           MIDY TEXT)
+           MIDY TEXT BITMAP)
+      (MAG-WINDOW-FILL-REGION WINDOW
+        (CREATEREGION LEFT
+                      BOTTOM
+                      (IDIFFERENCE RIGHT LEFT)
+                      (IDIFFERENCE TOP BOTTOM)))
       (DRAWLINE LEFT TOP RIGHT TOP 2 'PAINT WINDOW)
       (DRAWLINE LEFT BOTTOM RIGHT BOTTOM 2 'PAINT WINDOW)
       (DRAWLINE LEFT TOP LEFT BOTTOM 2 'PAINT WINDOW)
       (DRAWLINE RIGHT TOP RIGHT BOTTOM 2 'PAINT WINDOW)
-      (SETQ TEXT (CONCAT "image: " (OR IMAGE "not set")))
-      (SETQ MIDY (IQUOTIENT (IPLUS TOP BOTTOM) 2))
-      (DSPFONT FONT WINDOW)
-      (MOVETO (MAG-SLIDES-CENTER-X WINDOW FONT TEXT) MIDY WINDOW)
-      (PRIN1 TEXT WINDOW)
+      (SETQ BITMAP (MAG-SLIDES-IMAGE-BITMAP IMAGE))
+      (COND
+        ((AND BITMAP
+              (MAG-SLIDES-DRAW-BITMAP-FIT WINDOW BITMAP LEFT RIGHT TOP BOTTOM))
+         T)
+        (T
+         (SETQ TEXT (CONCAT "image: " (OR IMAGE "not set")))
+         (SETQ MIDY (IQUOTIENT (IPLUS TOP BOTTOM) 2))
+         (DSPFONT FONT WINDOW)
+         (MOVETO (MAG-SLIDES-CENTER-X WINDOW FONT TEXT) MIDY WINDOW)
+         (PRIN1 TEXT WINDOW)))
       T)])
 
 (MAG-SLIDES-DRAW-IMAGE-SLIDE
@@ -807,6 +973,7 @@
       (COND
         ((NULL SOURCE)
          (RETURN (MAG-SLIDES-REFRESH WINDOW))))
+      (MAG-SLIDES-PREPARE-FILE-IMAGES SOURCE)
       (SETQ SLIDES (CAR (NLSETQ (MAG-SLIDES-READ-FILE SOURCE))))
       (COND
         ((NULL SLIDES)
@@ -814,8 +981,44 @@
          (RETURN NIL)))
       (SETQ INDEX (IMIN (MAG-SLIDES-STATE-INDEX STATE) (LENGTH SLIDES)))
       (SETQ REVEAL (MAG-SLIDES-STATE-REVEAL STATE))
+      (MAG-SLIDES-CLEAR-IMAGE-CACHE)
       (MAG-SLIDES-SET-STATE WINDOW SLIDES INDEX SOURCE REVEAL)
       (MAG-SLIDES-GOTO-WITH-REVEAL WINDOW INDEX REVEAL))])
+
+(MAG-SLIDES-DEFAULT-PDF-PATH
+  [LAMBDA (SOURCE)
+    (CONCAT SOURCE ".pdf")])
+
+(MAG-SLIDES-EXPORT-PDF-FILE
+  [LAMBDA (SOURCE)
+    (PROG ((PDF (AND SOURCE (MAG-SLIDES-DEFAULT-PDF-PATH SOURCE)))
+           QSOURCE QPDF COMMAND)
+      (COND
+        ((NULL SOURCE)
+         (PROMPTPRINT "Mag Slides has no source file to export")
+         (RETURN NIL)))
+      (SETQ QSOURCE (MAG-SLIDES-SHELL-QUOTE SOURCE))
+      (SETQ QPDF (MAG-SLIDES-SHELL-QUOTE PDF))
+      (COND
+        ((OR (NULL QSOURCE) (NULL QPDF))
+         (PROMPTPRINT "Mag Slides export paths cannot contain single quotes")
+         (RETURN NIL)))
+      (SETQ COMMAND
+            (CONCAT "setsid "
+                    MAG-SLIDES-EXPORT-COMMAND
+                    " export "
+                    QSOURCE
+                    " "
+                    QPDF
+                    " >/tmp/mag-slides-export.log 2>&1 &"))
+      (NLSETQ (ShellCommand COMMAND))
+      (PROMPTPRINT (CONCAT "Mag Slides PDF export started: " PDF))
+      (RETURN PDF))])
+
+(MAG-SLIDES-EXPORT-PDF
+  [LAMBDA (WINDOW)
+    (LET ((STATE (MAG-SLIDES-STATE WINDOW)))
+      (MAG-SLIDES-EXPORT-PDF-FILE (MAG-SLIDES-STATE-SOURCE STATE)))])
 
 (MAG-SLIDES-HELP
   [LAMBDA (WINDOW)
@@ -829,7 +1032,7 @@
         "  # title"
         "  ## subtitle or @subtitle text"
         "  @meta footer text in the lower-left corner"
-        "  @image /path/to/file reserves an image slide frame"
+        "  @image /path/to/file imports a native 1-bit bitmap"
         "  - bullet point"
         "  | cell | cell | draws a simple table"
         ""
@@ -839,7 +1042,8 @@
         "  Body bullets: TimesRoman 36"
         "  Footer/page number: TimesRoman 18"
         ""
-        "Keys: right/down/space/n reveal or next, left/up/backspace/p previous, r reload, q close"))])
+        "Keys: right/down/space/n reveal or next, left/up/backspace/p previous, r reload, q close"
+        "Menu: Export PDF renders through Medley screenshots into source.mag.pdf"))])
 
 (MAG-SLIDES-MENU
   [LAMBDA (WINDOW)
@@ -847,11 +1051,13 @@
              ITEMS _ '(("Next" NEXT "Advance one slide")
                        ("Previous" PREV "Go back one slide")
                        ("Reload" RELOAD "Reload source file")
+                       ("Export PDF" EXPORT "Render the deck to a PDF")
                        ("Help" HELP "Show Mag Slides controls")
                        ("Close" CLOSE "Close this presentation"))))
       (NEXT (MAG-SLIDES-NEXT WINDOW))
       (PREV (MAG-SLIDES-PREV WINDOW))
       (RELOAD (MAG-SLIDES-RELOAD WINDOW))
+      (EXPORT (MAG-SLIDES-EXPORT-PDF WINDOW))
       (HELP (MAG-SLIDES-HELP WINDOW))
       (CLOSE (CLOSEW WINDOW))
       NIL)])
@@ -942,6 +1148,7 @@
   [LAMBDA (SLIDES SOURCE)
     (MAG-VTERM-ENSURE)
     (PROG (WINDOW INPROC)
+      (MAG-SLIDES-CLEAR-IMAGE-CACHE)
       (AND MAG-SLIDES-LAST-WINDOW
            (OPENWP MAG-SLIDES-LAST-WINDOW)
            (NLSETQ (CLOSEW MAG-SLIDES-LAST-WINDOW)))
@@ -970,7 +1177,9 @@
 
 (MAG-SLIDES-OPEN-FILE
   [LAMBDA (PATH)
-    (PROG ((SLIDES (CAR (NLSETQ (MAG-SLIDES-READ-FILE PATH)))))
+    (PROG (SLIDES)
+      (MAG-SLIDES-PREPARE-FILE-IMAGES PATH)
+      (SETQ SLIDES (CAR (NLSETQ (MAG-SLIDES-READ-FILE PATH))))
       (COND
         (SLIDES
          (RETURN (MAG-SLIDES-OPEN SLIDES PATH)))
@@ -1003,12 +1212,37 @@
          (AND (GETD 'FB.PROMPTWPRINT)
               (FB.PROMPTWPRINT BROWSER "Could not read selected filename")))))])
 
+(MAG-SLIDES-FB-EXPORT-COMMAND
+  [LAMBDA (BROWSER KEY ITEM MENU OPTION)
+    (PROG (FILES PATH PDF)
+      (SETQ FILES (AND (GETD 'FB.SELECTEDFILES)
+                       (FB.SELECTEDFILES BROWSER)))
+      (COND
+        ((NULL FILES)
+         (AND (GETD 'FB.PROMPTWPRINT)
+              (FB.PROMPTWPRINT BROWSER "No slide file selected"))
+         (RETURN NIL)))
+      (SETQ PATH (AND (GETD 'FB.FETCHFILENAME)
+                      (FB.FETCHFILENAME (CAR FILES))))
+      (COND
+        (PATH
+         (SETQ PDF (MAG-SLIDES-EXPORT-PDF-FILE PATH))
+         (AND (GETD 'FB.PROMPTWPRINT)
+              (FB.PROMPTWPRINT BROWSER
+                               (CONCAT "Exporting PDF "
+                                       (OR PDF "")))))
+        (T
+         (AND (GETD 'FB.PROMPTWPRINT)
+              (FB.PROMPTWPRINT BROWSER "Could not read selected filename")))))])
+
 (MAG-SLIDES-FILEBROWSER-MENU-ITEM
   [LAMBDA NIL
     '(|Slides| MAG-SLIDES-FB-COMMAND
       "Open selected file as a Mag Slides presentation"
       (SUBITEMS ("Present Selected" MAG-SLIDES-FB-COMMAND
-                 "Open selected file as a Mag Slides presentation")))])
+                 "Open selected file as a Mag Slides presentation")
+                ("Export PDF" MAG-SLIDES-FB-EXPORT-COMMAND
+                 "Render selected deck to PDF through Medley screenshots")))])
 
 (MAG-SLIDES-INSTALL-FILEBROWSER-MENU
   [LAMBDA NIL

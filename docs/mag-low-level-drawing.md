@@ -38,6 +38,20 @@ The source format is intentionally line-oriented. `---` separates slides,
 `@layout` selects title/body/image rendering, `@image` records the image source
 path, and rows beginning with `|` are grouped into a simple drawn table.
 
+Image slides use a host-side converter, `scripts/mag-slides-export.js`, to
+decode common image formats through `ffmpeg`, dither them to a 1-bit bitmap,
+and write Medley's native `READBITMAP` text payload as `<source>.magbitmap`.
+The Lisp side reads that bitmap with `READBITMAP` and draws black pixels into
+the off-white slide frame via `BITBLT`; it does not run per-pixel image
+conversion inside Medley.
+
+PDF export uses the same presenter renderer rather than a second layout
+engine. The host exporter asks the Medley RPC loop to `slides-open` the source
+deck, advances each slide with `slides-goto <n> 999` so all revealed bullet
+points are visible, captures Maiko's `DisplayRegion68k` through
+`medley_screenshot`, writes per-slide PNGs, and embeds those screenshots into a
+PDF. This keeps export typography identical to the interactive Medley window.
+
 ## Coordinate Model Used By Mag Rows
 
 The Mag row helpers draw from the bottom of a Medley window upward.
@@ -227,6 +241,9 @@ Current safe request commands:
 - `reload-mag`
 - `open-shell`
 - `open-slides-demo`
+- `slides-open <path>`
+- `slides-goto <index> <reveal-count>`
+- `slides-count`
 - `shell-load-test`
 - `close-shell`
 - `restart-rpc`

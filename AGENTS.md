@@ -33,8 +33,9 @@ Supported source syntax:
 - Bullet points reveal one at a time. Forward keys reveal the next bullet before
   advancing; backward keys hide a bullet before moving to the previous slide.
 - `| cell | cell |` rows render a simple table.
-- `@image /path/to/file` reserves the image-slide frame and records the source
-  path for later native import/export work.
+- `@image /path/to/file` imports an image into a native 1-bit Medley bitmap.
+  The host converter writes `<file>.magbitmap` in `READBITMAP` text format,
+  and the presenter draws it with `BITBLT` inside the image frame.
 
 `TimesRomanD 72` renders spaces as vertical bars in this image. The slide
 renderer avoids that by drawing title words separately and manually advancing
@@ -43,7 +44,10 @@ full string.
 
 The docs File Browser installs a `Slides` command through
 `MAG-SLIDES-INSTALL-FILEBROWSER-MENU`; use it on a selected `.mag` deck to
-present that file.
+present that file or export it to PDF. PDF export runs
+`scripts/mag-slides-export.js`, drives the presenter through the safe
+`slides-open`/`slides-goto` RPC commands, screenshots Maiko's display, and
+stitches the screenshots into `source.mag.pdf`.
 
 ## Mag terminal and gopher arrows
 
@@ -456,6 +460,9 @@ focus-dependent X window capture.
 - `restart-rpc`
 - `open-shell`
 - `open-slides-demo`
+- `slides-open <path>`
+- `slides-goto <index> <reveal-count>`
+- `slides-count`
 - `shell-load-test`
 - `close-shell`
 - `shell-self-test`
