@@ -291,6 +291,11 @@ For live evidence, use the Medley RPC bridge:
   grammers' stream path spam decode errors; keep
   `MAG_TELEGRAM_GRAMMERS_UPDATES` defaulting to `off` and use explicit
   bridge requests/caches unless the schema issue is deliberately being worked.
+- The local `/home/mag/src/grammers-mag` fork intentionally has lenient
+  generated deserialization for deployed constructor aliases of `Message` and
+  `MessageReplyHeader`. Do not go back to one match arm per observed ID such as
+  `0x9cb490e9`, `0x6917560b`, or `0x96eea5eb`; the regression test is
+  `cargo test -p grammers-tl-types deployed_ -- --nocapture`.
 - Telegram reply input must be a real TEdit text pane, not a prompt window or
   hand-rolled string accumulator. The user expects normal caret movement,
   in-line typo correction, and question marks/special characters to insert as

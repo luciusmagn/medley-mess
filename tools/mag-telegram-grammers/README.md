@@ -82,6 +82,11 @@ If a dialog or message refresh fails after a page has already been cached, the
 daemon returns the stale cached page and logs the refresh error instead of
 turning the Medley chat body into an error page.
 
+The local `/home/mag/src/grammers-mag` fork also makes generated
+`Message` and `MessageReplyHeader` deserialization lenient for deployed
+constructor aliases. This covers observed server-side aliases such as
+`96eea5eb` without adding a new generated match arm for every new ID.
+
 ## Verified On This Machine
 
 - The SHODAN session parses as grammers JSON.
