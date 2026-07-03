@@ -109,6 +109,15 @@ Higher-level Mag refresh functions still wrap whole repaints so this does not
 raise/restore for every character in normal Mag Shell/Gopher/Telegram/Slides
 repaints.
 
+Do not broadly wrap public `BITBLT`, `BLTSHADE`, `BITMAPBIT`, or display line
+primitives from Lisp without a tighter design.  A 2026-07-04 experiment wrapped
+those primitives with temporary `RAISEONACCESS` and stack restore; it fixed some
+covered-window writes in principle, but it also caught `TOTOPW` and
+window-manager backing-store internals and could wedge the RPC loop during
+self-tests.  The correct general fix needs either a scoped primitive guard that
+can prove it is not running inside window-stack restoration, or a Maiko/window
+system change that clips screen writes against the current top-window stack.
+
 ## Performance Rules
 
 - Avoid full-window `CLEARW`/repaint on small state changes. Gopher selection movement should redraw old/new rows when the viewport does not change.
