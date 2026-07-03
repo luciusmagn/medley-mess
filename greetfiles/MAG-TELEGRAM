@@ -571,7 +571,8 @@
 
 (MAG-TELEGRAM-ENSURE-TEDIT
   [LAMBDA NIL
-    (OR (GETD 'TEDITSTRING)
+    (OR (AND (GETD 'TEDIT)
+             (GETD 'OPENTEXTSTREAM))
         (CAR (NLSETQ (FILESLOAD TEDIT))))])
 
 (MAG-TELEGRAM-COMPOSE-TEXTSTREAM
@@ -603,28 +604,34 @@
 
 (MAG-TELEGRAM-INSTALL-COMPOSE-EDITOR
   [LAMBDA (WINDOW)
-    (PROG (PROC TSTREAM)
+    (PROG (PROPS PROC TSTREAM)
       (COND
         ((NULL WINDOW)
          (RETURN NIL)))
       (MAG-TELEGRAM-ENSURE-TEDIT)
+      (SETQ PROPS '(HISTORY OFF PARABREAKCHARS NIL
+                    TITLE "Reply" FONT DEFAULTFONT))
       (SETQ TSTREAM (MAG-TELEGRAM-COMPOSE-TEXTSTREAM WINDOW))
       (COND
         ((NULL TSTREAM)
-         (SETQ PROC
-               (CAR
-                 (NLSETQ
-                   (TEDITSTRING ""
-                                WINDOW
-                                NIL
-                                '(HISTORY OFF PARABREAKCHARS NIL
-                                  TITLE "Reply" FONT DEFAULTFONT)))))
-         (AND PROC
+         (SETQ TSTREAM
+               (CAR (NLSETQ (OPENTEXTSTREAM (OPENSTRINGSTREAM "" 'BOTH)
+                                             NIL
+                                             NIL
+                                             NIL
+                                             PROPS))))
+         (AND TSTREAM
+              (SETQ PROC
+                    (CAR (NLSETQ (TEDIT TSTREAM WINDOW NIL PROPS)))))
+         (AND PROC (PROCESSP PROC)
               (WINDOWPROP WINDOW 'MAG-TELEGRAM-TEDIT-PROCESS PROC))
          (SETQ TSTREAM (MAG-TELEGRAM-COMPOSE-TEXTSTREAM WINDOW))
          (AND TSTREAM
               (CAR (NLSETQ (TEDIT.SETSEL TSTREAM 1 0 'LEFT))))))
-      (WINDOWPROP WINDOW 'MAG-TELEGRAM-COMPOSE-STREAM TSTREAM)
+      (AND TSTREAM
+           (PROGN
+             (WINDOWPROP WINDOW 'MAG-TELEGRAM-COMPOSE-STREAM TSTREAM)
+             (WINDOWPROP WINDOW 'TEXTSTREAM TSTREAM)))
       (RETURN TSTREAM))])
 
 (MAG-TELEGRAM-FOCUS-COMPOSE

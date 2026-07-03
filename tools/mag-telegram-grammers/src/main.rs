@@ -29,6 +29,7 @@ const DAEMON_LOOP_SLEEP_MS: u64 = 100;
 const DIALOG_CACHE_TTL_SECONDS: u64 = 180;
 const MESSAGE_CACHE_TTL_SECONDS: u64 = 180;
 const MESSAGE_CACHE_MAX_PAGES: usize = 64;
+const DEFAULT_DAEMON_UPDATES: &str = "off";
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -782,12 +783,20 @@ async fn ensure_dialog_cache(
         return Ok(());
     }
     let fetch_rows = min_rows.max(60);
-    let (total, rows) = collect_dialog_rows_with_client(client, fetch_rows, show_names).await?;
-    state.dialogs_total = total;
-    state.dialogs = rows;
-    state.dialogs_show_names = show_names;
-    state.dialogs_loaded_at = Some(Instant::now());
-    Ok(())
+    match collect_dialog_rows_with_client(client, fetch_rows, show_names).await {
+        Ok((total, rows)) => {
+            state.dialogs_total = total;
+            state.dialogs = rows;
+            state.dialogs_show_names = show_names;
+            state.dialogs_loaded_at = Some(Instant::now());
+            Ok(())
+        }
+        Err(err) if state.dialogs_show_names == show_names && !state.dialogs.is_empty() => {
+            eprintln!("mag-telegram-grammers using stale dialog cache after fetch error: {err}");
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn dialog_line(row: &DialogRow) -> String {
@@ -1052,6 +1061,57 @@ async fn cached_messages_page_text(
         }
     }
 
+    let stale_page = state
+        .message_pages
+        .iter()
+        .rev()
+        .find(|page| {
+            page.peer_dialog_id == peer_dialog_id
+                && page.from_message_id == from_message_id
+                && page.limit == limit
+                && page.show_names == show_names
+        })
+        .cloned();
+
+    let page = match fetch_messages_page(
+        client,
+        session,
+        peer_dialog_id,
+        from_message_id,
+        limit,
+        show_names,
+    )
+    .await
+    {
+        Ok(page) => page,
+        Err(err) => {
+            if let Some(page) = stale_page {
+                eprintln!(
+                    "mag-telegram-grammers using stale message cache after fetch error: {err}"
+                );
+                return Ok(message_page_output(&page));
+            }
+            return Err(err);
+        }
+    };
+
+    let out = message_page_output(&page);
+    state.message_pages.push(page);
+    if state.message_pages.len() > MESSAGE_CACHE_MAX_PAGES {
+        let remove_count = state.message_pages.len() - MESSAGE_CACHE_MAX_PAGES;
+        state.message_pages.drain(0..remove_count);
+    }
+    Ok(out)
+}
+
+async fn fetch_messages_page(
+    client: &Client,
+    session: &Arc<SqliteSession>,
+    peer_dialog_id: i64,
+    from_message_id: i64,
+    limit: usize,
+    show_names: bool,
+) -> Result<MessagePage> {
     if !client.is_authorized().await? {
         bail!("session is not authorized");
     }
@@ -1089,13 +1149,7 @@ async fn cached_messages_page_text(
         newest_id,
         loaded_at: Instant::now(),
     };
-    let out = message_page_output(&page);
-    state.message_pages.push(page);
-    if state.message_pages.len() > MESSAGE_CACHE_MAX_PAGES {
-        let remove_count = state.message_pages.len() - MESSAGE_CACHE_MAX_PAGES;
-        state.message_pages.drain(0..remove_count);
-    }
-    Ok(out)
+    Ok(page)
 }
 
 fn message_page_output(page: &MessagePage) -> String {
@@ -1496,16 +1550,27 @@ async fn run_daemon(config: &Config) -> Result<()> {
         "mag-telegram-grammers daemon backend=grammers auth=ready request={DEFAULT_DAEMON_REQUEST}"
     );
     let mut state = DaemonState::new();
-    let mut updates = client
-        .stream_updates(
-            updates,
-            UpdatesConfiguration {
-                catch_up: true,
-                ..Default::default()
-            },
+    let updates_enabled = daemon_updates_enabled();
+    eprintln!(
+        "mag-telegram-grammers updates={}",
+        if updates_enabled { "on" } else { "off" }
+    );
+    let mut updates = if updates_enabled {
+        Some(
+            client
+                .stream_updates(
+                    updates,
+                    UpdatesConfiguration {
+                        catch_up: true,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(|err| anyhow!("start Telegram update stream: {}", err))?,
         )
-        .await
-        .map_err(|err| anyhow!("start Telegram update stream: {}", err))?;
+    } else {
+        None
+    };
 
     loop {
         if let Some(request) = take_daemon_request()? {
@@ -1528,22 +1593,28 @@ async fn run_daemon(config: &Config) -> Result<()> {
             }
             continue;
         }
-        tokio::select! {
-            update = updates.next() => {
-                match update {
-                    Ok(update) => {
-                        if let Some(reason) = update_dirty_reason(&update) {
-                            state.mark_dirty(reason);
+        if let Some(updates) = updates.as_mut() {
+            tokio::select! {
+                update = updates.next() => {
+                    match update {
+                        Ok(update) => {
+                            if let Some(reason) = update_dirty_reason(&update) {
+                                state.mark_dirty(reason);
+                            }
                         }
+                        Err(err) => eprintln!("mag-telegram-grammers update error: {err}"),
                     }
-                    Err(err) => eprintln!("mag-telegram-grammers update error: {err}"),
                 }
+                _ = tokio::time::sleep(Duration::from_millis(DAEMON_LOOP_SLEEP_MS)) => {}
             }
-            _ = tokio::time::sleep(Duration::from_millis(DAEMON_LOOP_SLEEP_MS)) => {}
+        } else {
+            tokio::time::sleep(Duration::from_millis(DAEMON_LOOP_SLEEP_MS)).await;
         }
     }
 
-    let _ = updates.sync_update_state().await;
+    if let Some(updates) = updates.as_ref() {
+        let _ = updates.sync_update_state().await;
+    }
     let _ = fs::remove_file(DEFAULT_DAEMON_PID);
     let _ = fs::remove_file(DEFAULT_DAEMON_REQUEST);
     drop(updates);
@@ -1828,6 +1899,13 @@ fn sanitize_line(value: &str, max_chars: usize) -> String {
         }
     }
     out
+}
+
+fn daemon_updates_enabled() -> bool {
+    let value = env::var("MAG_TELEGRAM_GRAMMERS_UPDATES")
+        .unwrap_or_else(|_| DEFAULT_DAEMON_UPDATES.to_string())
+        .to_ascii_lowercase();
+    matches!(value.as_str(), "1" | "true" | "yes" | "on")
 }
 
 fn push_line(out: &mut String, line: impl AsRef<str>) {

@@ -71,6 +71,17 @@ rows when the requested viewport is already loaded. Message pages are cached by
 chat id, older-page cursor, limit, and display mode. Sending a message clears
 that chat's message cache and invalidates the dialog cache.
 
+Telegram's live update stream is disabled by default in daemon mode. The
+current deployed Telegram protocol has produced unknown update constructors in
+the grammers stream path; the Medley UI is more reliable when it uses explicit
+`chats-view`, `messages`, `send`, and `mark-read` requests plus the daemon
+caches. Set `MAG_TELEGRAM_GRAMMERS_UPDATES=on` only when intentionally
+debugging stream/schema handling.
+
+If a dialog or message refresh fails after a page has already been cached, the
+daemon returns the stale cached page and logs the refresh error instead of
+turning the Medley chat body into an error page.
+
 ## Verified On This Machine
 
 - The SHODAN session parses as grammers JSON.

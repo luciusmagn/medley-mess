@@ -286,6 +286,15 @@ For live evidence, use the Medley RPC bridge:
   into `~/.local/share/mag-telegram/grammers/session.sqlite` and has been
   verified on this machine with `authorized=yes`, live redacted dialog listing,
   and live redacted message-id fetches.
+- The grammers daemon must not consume Telegram's live update stream by
+  default. Telegram has deployed unknown update constructors that make
+  grammers' stream path spam decode errors; keep
+  `MAG_TELEGRAM_GRAMMERS_UPDATES` defaulting to `off` and use explicit
+  bridge requests/caches unless the schema issue is deliberately being worked.
+- Telegram reply input must be a real TEdit text pane, not a prompt window or
+  hand-rolled string accumulator. The user expects normal caret movement,
+  in-line typo correction, and question marks/special characters to insert as
+  text. Keep send/cancel buttons separate from the TEdit-owned compose window.
 - `close-gopher` closes the remembered active Mag Gopher window. Use it to
   clean up windows opened by `open-gopher`, `gopher-test-page`, or
   `gopher-self-test` during diagnostics.
