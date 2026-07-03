@@ -57,7 +57,9 @@
   [LAMBDA (STACK)
     (PROG NIL
       (AND STACK
-           (for W in STACK do
+           ;; OPENWINDOWS is top-first.  Replay bottom-to-top so the
+           ;; original top window is raised last.
+           (for W in (REVERSE STACK) do
              (AND W
                   (OPENWP W)
                   (CAR (NLSETQ (TOTOPW W T))))))
