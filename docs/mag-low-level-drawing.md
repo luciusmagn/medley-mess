@@ -98,6 +98,17 @@ Do not restore implicit raise-on-refresh.  If a window really needs old
 draw-time topping semantics, set `(WINDOWPROP window 'RAISEONACCESS T)` for
 that window.
 
+Low-level character drawing is the exception.  Maiko's fast `BLTCHAR` path and
+the Medley fallback both assume that screen-backed text is being drawn through
+the current top display stream.  Without that invariant, `PRIN1` into a covered
+background window can write directly over the foreground window.  `MAG-COMMON`
+therefore wraps the primitive character blitters with
+`MAG-WINDOW-DRAW-TOP-BEGIN-FOR-TARGET`/`MAG-WINDOW-DRAW-TOP-END`, preserving the
+old backing-store swap semantics only for the duration of the primitive draw.
+Higher-level Mag refresh functions still wrap whole repaints so this does not
+raise/restore for every character in normal Mag Shell/Gopher/Telegram/Slides
+repaints.
+
 ## Performance Rules
 
 - Avoid full-window `CLEARW`/repaint on small state changes. Gopher selection movement should redraw old/new rows when the viewport does not change.
