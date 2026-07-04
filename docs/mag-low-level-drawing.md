@@ -226,6 +226,11 @@ system change that clips screen writes against the current top-window stack.
   flushes the accumulated final dirty rectangle, action `3` resets, action `4`
   ends without flushing, and action `5` reports whether a deferred dirty
   rectangle exists.
+- `UNIX-HANDLECOMM 61` resets any deferred display-flush state and flushes the
+  full visible `DisplayRegion` to the X window. `MAG-REPAINT-EVERYTHING` uses
+  this after repainting open Medley windows with `REDISPLAYW`, so the desktop
+  `Mag Repaint Screen` command repairs both stale logical window contents and
+  stale X-visible pixels without raising windows one by one.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
@@ -272,6 +277,8 @@ Current native commands:
 - `57`: start the Mag Telegram bridge daemon without Medley `ShellCommand`.
 - `58`: export the current Medley screen from `DisplayRegion68k` to
   `/tmp/medley-mag-screenshot.ppm`.
+- `61`: reset deferred display-flush state and flush the full visible display
+  buffer to X.
 
 Current Lisp wrappers:
 

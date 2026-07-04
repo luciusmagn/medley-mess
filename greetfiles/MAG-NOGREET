@@ -246,6 +246,9 @@
     [OR (SASSOC "Mag Slides" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Slides" '(MAG-BOOT-SLIDES)
                                                        "Open a sent-like Medley presentation window"))]
+    [OR (SASSOC "Mag Repaint Screen" BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Repaint Screen" '(MAG-REPAINT-EVERYTHING)
+                                                               "Repaint all open windows and flush the X display"))]
     [OR (SASSOC "Mag Debug" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Debug" '(MAG-BOOT-DEBUG)
                                                      "Show Maiko/Medley Mag debug status"))]
