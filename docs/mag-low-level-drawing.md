@@ -109,6 +109,15 @@ Higher-level Mag refresh functions still wrap whole repaints so this does not
 raise/restore for every character in normal Mag Shell/Gopher/Telegram/Slides
 repaints.
 
+Maiko command 60 makes those temporary raise/restore transactions visually
+atomic.  `MAG-WINDOW-DRAW-TOP-BEGIN` asks Maiko to defer display flushes before
+the temporary `TOTOPW`; `MAG-WINDOW-DRAW-TOP-END` restores the original stack,
+then ends the deferral and flushes only the accumulated final dirty rectangle.
+This keeps the backing-store swap semantics that prevent foreground overwrite
+while avoiding the visible flash of a covered Mag window briefly coming to the
+front.  Do not remove command 60 and try to solve this only by suppressing
+terminal refreshes; the terminal still needs to update its backing content.
+
 Do not broadly wrap public `BITBLT`, `BLTSHADE`, `BITMAPBIT`, or display line
 primitives from Lisp without a tighter design.  A 2026-07-04 experiment wrapped
 those primitives with temporary `RAISEONACCESS` and stack restore; it fixed some
@@ -212,6 +221,11 @@ system change that clips screen writes against the current top-window stack.
 - `UNIX-HANDLECOMM 59` maps raw Medley key codes such as `57344` and high-byte
   fallback keypad codes such as `338` to canonical Mag terminal key ids. This
   keeps Mag Shell and Gopher on the same Maiko-owned decoder.
+- `UNIX-HANDLECOMM 60` controls scoped display flush deferral for Mag
+  raise/draw/restore transactions. Action `1` begins, action `2` ends and
+  flushes the accumulated final dirty rectangle, action `3` resets, action `4`
+  ends without flushing, and action `5` reports whether a deferred dirty
+  rectangle exists.
 - `shell-render-stats` and `shell-reset-render-stats` expose Lisp-side Mag
   Shell draw counters for refreshes, changed-row refreshes, full-refresh
   fallbacks, forced refreshes, row draws, cursor inversions, and box-cell
