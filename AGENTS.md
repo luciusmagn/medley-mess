@@ -168,6 +168,14 @@ also avoid `TTYDISPLAYSTREAM` in `MAG-GOPHER-TYPEIN`; the working Mag
 Shell/Ghostty path reads raw keys without it, and `TTYDISPLAYSTREAM` changes
 arrow translation in a way that has made Gopher disagree with Mag Shell.
 
+Mag Gopher must not perform network I/O on default launch. It opens a local
+start page and exposes `Open...` from the middle-click menu plus `Mag Gopher
+URL...` in `BackgroundMenuCommands` for explicit navigation. This avoids
+freezing the cooperative Medley UI when a default Gopher server is down or DNS
+connect stalls. Menu command values in `MAG-GOPHER-MENU` must stay quoted
+(`'OPEN`, `'HOME`, etc.); bare symbols are evaluated by the menu machinery and
+can raise `UNBOUND-VARIABLE` errors such as `OPEN`.
+
 Concrete failure mode seen on this machine: Mag Shell can have correct arrows
 while Gopher reports up correctly but treats left as down. That means Gopher is
 on the wrong input/translation path. Do not "fix" this by rotating

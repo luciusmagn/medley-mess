@@ -1703,6 +1703,37 @@
                                       DELTA))))
     (MAG-GOPHER-REPAINT WINDOW)])
 
+(MAG-GOPHER-SHOW-START
+  [LAMBDA (WINDOW)
+    (PROG ((PROC (WINDOWPROP WINDOW 'MAG-GOPHER-PROCESS NIL)))
+      (COND
+        (PROC
+         (MAG-GOPHER-CLOSE-CHANNEL WINDOW NIL)
+         (DEL.PROCESS PROC)))
+      (WINDOWPROP WINDOW 'MAG-GOPHER-HOST NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-PORT "")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTOR "")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TYPE 49)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-TOP 0)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-SELECTED 1)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-FIND-TEXT NIL)
+      (WINDOWPROP WINDOW 'MAG-GOPHER-STATUS "start page")
+      (WINDOWPROP WINDOW 'MAG-GOPHER-ENTRIES
+                  (LIST (LIST 'TEXT "Mag Gopher")
+                        (LIST 'TEXT "")
+                        (LIST 'TEXT "Press o or middle-click Open... to open a URL.")
+                        (LIST 'TEXT "Format: gopher://host[:port]/[type][selector]")
+                        (LIST 'TEXT "")
+                        (LIST 'TEXT "Examples:")
+                        (LIST 'TEXT "  gopher://sdf.org")
+                        (LIST 'TEXT "  gopher://host.example/1selector")
+                        (LIST 'TEXT "")
+                        (LIST 'TEXT "Home returns to this local start page.")))
+      (WINDOWPROP WINDOW 'TITLE "Mag Gopher")
+      (AND (OPENWP WINDOW)
+           (MAG-GOPHER-REPAINT WINDOW))
+      (RETURN WINDOW))])
+
 (MAG-GOPHER-LOAD
   [LAMBDA (WINDOW HOST PORT SELECTOR TYPE)
     (PROG (RAW ENTRIES RESTORE)
@@ -1966,37 +1997,43 @@
 
 (MAG-GOPHER-HOME
   [LAMBDA (WINDOW)
-    (MAG-GOPHER-START-LOAD WINDOW "gopher.floodgap.com" 70 "" 49 T)])
+    (MAG-GOPHER-SHOW-START WINDOW)])
 
 (MAG-GOPHER-PROMPT-OPEN
   [LAMBDA (WINDOW)
     (LET ((SPEC (MAG-PROMPT-LINE "gopher://host[:port]/selector" NIL)))
       (AND SPEC (MAG-GOPHER-OPEN-SPEC WINDOW SPEC)))])
 
+(MAG-GOPHER-PROMPT-NEW
+  [LAMBDA NIL
+    (LET ((WINDOW (MAG-GOPHER)))
+      (MAG-GOPHER-PROMPT-OPEN WINDOW)
+      WINDOW)])
+
 (MAG-GOPHER-MENU
   [LAMBDA (WINDOW)
     (SELECTQ (MENU (create MENU
-	                    ITEMS _ '(("Back" BACK "Go to previous gopher page")
-	                              ("Forward" FORWARD "Go forward after Back")
-	                              ("Home" HOME "Open the default gopher root")
-	                              ("Open..." OPEN "Open a gopher URL")
-	                              ("Show URL" URL "Show the current gopher URL")
-	                              ("Copy URL" COPYURL "Copy the current gopher URL")
-	                              ("Copy Item URL" COPYITEMURL "Copy the selected item URL")
-	                              ("Copy Page Text" COPYPAGE "Copy the rendered page text")
-	                              ("Save Page Text..." SAVEPAGE "Save the rendered page text")
-	                              ("Download Item..." SAVEITEM "Download the selected item")
-	                              ("View Item as Text" VIEWTEXT "Render the selected item as text")
-	                                       ("Find Page..." FINDPAGE "Find text in the rendered page")
-	                                       ("Find Again" FINDAGAIN "Repeat the last page-local find")
-	                                       ("Cancel Load" CANCEL "Cancel the current network load")
-                                       ("Reload" RELOAD "Reload this page")
-                              ("Page Up" UP "Scroll one page up")
-                              ("Page Down" DOWN "Scroll one page down")
-                              ("Help" HELP "Show gopher controls"))))
+	                    ITEMS _ '(("Back" 'BACK "Go to previous gopher page")
+	                              ("Forward" 'FORWARD "Go forward after Back")
+	                              ("Home" 'HOME "Open the local start page")
+	                              ("Open..." 'OPEN "Open a gopher URL")
+	                              ("Show URL" 'URL "Show the current gopher URL")
+	                              ("Copy URL" 'COPYURL "Copy the current gopher URL")
+	                              ("Copy Item URL" 'COPYITEMURL "Copy the selected item URL")
+	                              ("Copy Page Text" 'COPYPAGE "Copy the rendered page text")
+	                              ("Save Page Text..." 'SAVEPAGE "Save the rendered page text")
+	                              ("Download Item..." 'SAVEITEM "Download the selected item")
+	                              ("View Item as Text" 'VIEWTEXT "Render the selected item as text")
+	                              ("Find Page..." 'FINDPAGE "Find text in the rendered page")
+	                              ("Find Again" 'FINDAGAIN "Repeat the last page-local find")
+	                              ("Cancel Load" 'CANCEL "Cancel the current network load")
+                                      ("Reload" 'RELOAD "Reload this page")
+                                      ("Page Up" 'UP "Scroll one page up")
+                                      ("Page Down" 'DOWN "Scroll one page down")
+                                      ("Help" 'HELP "Show gopher controls"))))
       (BACK (MAG-GOPHER-BACK WINDOW))
       (FORWARD (MAG-GOPHER-FORWARD WINDOW))
-      (HOME (MAG-GOPHER-START-LOAD WINDOW "gopher.floodgap.com" 70 "" 49 T))
+      (HOME (MAG-GOPHER-HOME WINDOW))
                (OPEN (MAG-GOPHER-PROMPT-OPEN WINDOW))
                (URL (MAG-GOPHER-SHOW-URL WINDOW))
                (COPYURL (MAG-GOPHER-COPY-URL WINDOW))
@@ -2255,7 +2292,7 @@
                                 'NAME 'MAG-GOPHER-TYPEIN))
       (WINDOWPROP WINDOW 'PROCESS INPROC)
       (TTY.PROCESS INPROC)
-      (MAG-GOPHER-START-LOAD WINDOW "gopher.floodgap.com" 70 "" 49 NIL)
+      (MAG-GOPHER-SHOW-START WINDOW)
       (RETURN WINDOW))])
 
 (MAG-GOPHER-APPLY-BACKGROUND-OPEN-WINDOWS

@@ -183,6 +183,11 @@
     (MAG-DISPATCH-ASYNC 'MAG-GOPHER 'MAG-BOOT-GOPHER)
     NIL])
 
+(MAG-BOOT-GOPHER-URL
+  [LAMBDA NIL
+    (MAG-DISPATCH-ASYNC 'MAG-GOPHER-PROMPT-NEW 'MAG-BOOT-GOPHER-URL)
+    NIL])
+
 (MAG-BOOT-TELEGRAM
   [LAMBDA NIL
     (MAG-DISPATCH-ASYNC 'MAG-TELEGRAM 'MAG-BOOT-TELEGRAM)
@@ -240,6 +245,9 @@
     [OR (SASSOC "Mag Gopher" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Gopher" '(MAG-BOOT-GOPHER)
                                                       "Open the gopher client rendered in a Medley window"))]
+    [OR (SASSOC "Mag Gopher URL..." BackgroundMenuCommands)
+        (NCONC1 BackgroundMenuCommands '("Mag Gopher URL..." '(MAG-BOOT-GOPHER-URL)
+                                                            "Prompt for a gopher URL and open it"))]
     [OR (SASSOC "Mag Telegram" BackgroundMenuCommands)
         (NCONC1 BackgroundMenuCommands '("Mag Telegram" '(MAG-BOOT-TELEGRAM)
                                                         "Open the Telegram client rendered in Medley windows"))]
